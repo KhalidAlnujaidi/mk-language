@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from daemon.exec import BackendError, BackendResponse
+from daemon.resources import ResourceSnapshot
 from daemon.server import BrokerConfig, create_app
 from fastapi.testclient import TestClient
 from kernel.contracts import Tier
@@ -192,3 +193,25 @@ def test_status_empty_when_no_events(tmp_path: Path) -> None:
     body: Any = _client(config).get("/broker/status").json()
     assert body["last_tier_used"] is None
     assert body["recent_events"] == []
+
+
+def test_status_includes_live_resource_snapshot(tmp_path: Path) -> None:
+    async def call(tier: Tier, messages: list[dict[str, str]]) -> BackendResponse:
+        return BackendResponse(content="x")
+
+    snap = ResourceSnapshot(
+        vram_total_gb=24.0,
+        vram_used_gb=4.0,
+        cpu_percent=5.0,
+        ram_used_gb=8.0,
+        ram_total_gb=64.0,
+    )
+    config = BrokerConfig(
+        probe=_manifest,
+        call=call,
+        metrics_path=tmp_path / "e.jsonl",
+        resources=lambda: snap,
+    )
+    body: Any = _client(config).get("/broker/status").json()
+    assert body["resources"]["vram_total_gb"] == 24.0
+    assert body["resources"]["vram_free_gb"] == 20.0  # derived total - used
