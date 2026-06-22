@@ -1,0 +1,1394 @@
+What's genuinely strong
+The synthesis holds together better than its three sources. The "six primitives" kernel (capability manifest, asymmetric router, policy gate with explicit fail-direction, execution boundary, working memory + corpus, honest observability) is the right abstraction — it survives because it's been pressure-tested across three rewrites. The asymmetry thesis ("ground truth beats model") and the per-component fail-direction insight (guards fail closed, optimizers fail soft) are the two ideas worth building everything else around. The transactional outbox + idempotency + unified observability trinity for the business layer is correct and non-negotiable.
+
+
+Core tensions to resolve before writing code
+1. You have two tech stacks and the boundary between them is fuzzy. The broker/hooks/squire CLI is Python (uv, FastAPI, Typer). The business modular monolith is NestJS/TS (or Go). That's fine — they're different problems — but the doc reads as if they're one system. They're not. Make the split explicit:
+
+The ML governance plane (squire + broker + hooks + daemon) is Python. It owns model lifecycle, input grooming, action logging, rail enforcement.
+The business application plane (the modular monolith) is NestJS/TS. It owns domain logic, persistence, transport.
+The contract between them is the OpenAI-compatible HTTP API + a typed TS SDK. Nothing else. The business app never imports Python; the Python plane never knows about your domain modules.
+This is the same Ports & Adapters principle you're already applying inside the monolith — just lift it one level. The capability manifest lives on the Python side and is exposed via /broker/status. The TS SDK reads it and routes accordingly.
+
+
+
+2. "Protected rails" via hooks is not protection. The doc acknowledges --dangerously-skip-permissions bypasses hooks, then proceeds as if hooks are the rail. They're a speed bump. Real protection for next.md / alignment/ needs OS-level enforcement:
+
+Linux: chattr +i on protected files, or run the agent under a separate uid with those paths mounted read-only.
+macOS: a restricted symlink + SIP-aware path, or run the agent in a separate user account.
+Recovery path documented explicitly (boot to recovery, chattr -i, edit, re-lock).
+If you're not willing to do OS-level enforcement, be honest in the docs that the rails are advisory, not enforced. The current framing sets the wrong expectation.
+
+3. Self-evolving without an eval harness is just drift. You can't evolve what you can't measure. The EvoAgentX reference is a curated list, not a framework — you'll be building bespoke. Before any self-evolving code ships, you need:
+
+A golden eval set: 20–50 tasks with expected behaviors (not exact outputs — behavioral assertions: "did it redact the secret?", "did it route to the cheap model?", "did it refuse the destructive command?").
+A regression runner that executes the eval set against any proposed change (prompt tweak, hook addition, router scoring change).
+A versioned artifact store: every evolution proposal is a git branch + eval diff. Merge requires eval pass + human approval for anything touching code; auto-merge only for prompt/config within a sanctioned schema.
+Without this, "self-evolving" becomes "the system slowly breaks itself in ways you don't notice." The user's-next-turn-correction signal is excellent — but only if captured structurally (previous output hash, correction type, diff, sentiment) and fed back through the eval harness, not applied directly.
+
+Concrete enhancements
+A. Formalize the ground-truth taxonomy. The asymmetry rule is currently aspirational. Make it executable:
+
+TaskKind = DETERMINISTIC | STRUCTURED | FUZZY | REASONING
+
+DETERMINISTIC (regex/AST/git/fs) → no model, plain code.
+STRUCTURED (NER, classification, constrained JSON) → small local model with grammar-constrained decoding.
+FUZZY (intent, expansion, summarization) → small local model, capped tokens.
+REASONING (code generation, review, planning) → broker picks from reasoning-tier models.
+The router is then a function of TaskKind + length estimate + capability requirements, not a free-form classifier. This makes routing auditable and testable.
+
+B. Sign the capability manifest. A model declares capabilities; the broker verifies by running a canary task on first registration. Failed canary → capability recorded as null (unknown), not false (verified absent) and never true (assumed). This is your own principle applied to your own registry. Models that hallucinate capability get quarantined.
+
+C. Add an agent outbox. Mirror the transactional outbox for agent actions. Every intended file edit / shell command / tool call is written to a durable log before execution. On crash/hang, the log is the replay source. On success, the log is the audit trail. On user correction, the diff between logged intent and final state is your free quality label. This single pattern gives you: crash recovery, audit, and RLHF signal from the same data structure.
+
+D. Make the warm-set size a function, not a config. warm_set_size = floor(available_vram * 0.6 / max_warm_model_footprint). The 0.6 reserves headroom for the active task's KV cache. Auto-tune the coefficient from observed OOM events (if OOM count > threshold in last N sessions, drop to 0.5). This is a tiny piece of the self-healing layer that pays for itself immediately.
+
+E. One trace, squire to file edit. OpenTelemetry with a single trace context propagated through: squire hook → HTTP → broker → model inference → agent → tool call → file edit. The trace ID is the correlation ID. Don't have two ID systems. Inject at the squire layer (the first touch point), propagate everywhere, export to Jaeger. This is "unified observability" made concrete rather than aspirational.
+
+The NestJS modular monolith is a separate repo (or a separate workspace in the monorepo with its own pyproject/package.json boundary). Mixing ML infrastructure with business application code in one tree creates exactly the coupling you're trying to prevent.
+
+G. The scaffold CLI is the highest-leverage piece. squire make:module ordering generating the full clean-architecture skeleton + registering it + emitting test stubs is worth more than any amount of documentation. Build it first. If developers can't scaffold a new module in 10 seconds, the architecture won't survive contact with deadlines.
+
+H. Drizzle over Prisma. Correct preference. Drizzle's schema-per-module approach fits modular monoliths; Prisma's single-schema generator fights you. Also: Drizzle's query builder composes, Prisma's API doesn't — and in a modular monolith you'll be composing queries across module boundaries via ports.
+
+
+
+Core Principles (The Immutable Kernel)
+
+Capability Manifest — Never assume; always probe. Null over fabricated zero.
+Asymmetric Router — Deterministic/ground-truth first. Model only when necessary.
+Per-Component Fail-Direction — Guards are closed; optimizers are soft.
+Event-Sourced Honest Observability — Append-only EventRecord log with exact measurements + labeled estimates.
+Protected Rails — next.md, alignment contracts, and corpus are sacred.
+Self-Evolving via Feedback — Every user correction is a high-quality training signal.
+Clean Architecture — Kernel never depends on products/adapters. Ports & Adapters everywhere.
+Hermetic & Idempotent — One-liner install, kx doctor --auto-fix, reproducible local env.
+
+
+
+
+Bullet-Proof Way to Start Building (Near Impossible to Break)
+Follow this exactly for the first 2–4 weeks. The strategy is: Tiny kernel first, strong architectural guardrails from commit #1, hermetic everything, and continuous validation.
+Phase 0: Repository & Environment Setup (Day 1 — Non-Negotiable)
+
+Create the repo
+
+Name: kinox 
+Initialize as Git repo with main branch protected (require PRs even for yourself initially).
+Add .gitignore for projects/, __pycache__, .venv, etc.
+
+
+# install.sh
+#!/bin/bash
+set -euo pipefail
+# ... (idempotent setup: uv, git submodules if any, symlink kx, hardware probe)
+
+
+kinox/
+├── install.sh
+├── kx                    # symlink or Python entrypoint
+├── pyproject.toml        # uv + dependencies
+├── alignment/            # CLAUDE.md, CONSTITUTION.md (immutable principles)
+├── kernel/               # Pure contracts & core
+│   ├── __init__.py
+│   ├── contracts.py
+│   ├── manifest.py
+│   ├── router.py
+│   ├── gate.py
+│   ├── metrics.py
+│   └── ...
+├── products/
+│   └── groom/            # First product: Squire pipeline
+├── adapters/
+│   └── claude_code.py    # Only Claude-specific wiring
+├── daemon/               # MCP broker (start minimal)
+├── projects/             # .gitignore'd
+├── docs/
+├── tests/
+└── .github/workflows/    # Basic CI (lint, test, architecture check)
+
+
+Hermetic Python environment
+Use uv (fastest, locked).
+pyproject.toml with strict settings: Python 3.11+, ruff, pyright, pytest.
+Add uv sync to install.sh.
+
+Architectural Guardrails (from day 1)
+Install ruff, pyright, dependency-cruiser or simple custom linter.
+Enforce rule: kernel/ may not import anything from products/ or adapters/.
+Add a test: test_architecture.py that scans imports.
+Run kx doctor (stub) as pre-commit hook.
+
+Git hygiene
+Protected files: Add pre-commit hook that checksums alignment/* and next.md templates.
+Conventional commits.
+Every PR (even solo) must pass lint + tests + architecture check.
+
+
+Phase 1: Build M0 — The Smallest Real Kernel (Week 1)
+Focus only on making grooming work safely.
+Exact scope for M0:
+
+Kernel contracts (Task, Tier, Annotation, EventRecord, FailDirection, Determinism).
+manifest.py — hardware + model probe (null-safe).
+router.py — simple deterministic vs model routing.
+gate.py — policy checks with fail direction.
+metrics.py — append-only JSONL writer.
+products/groom/pipeline.py — redact → expand → context → tag (deterministic stages first).
+One adapter: adapters/claude_code.py (UserPromptSubmit hook).
+Basic kx CLI entrypoint (argument parsing + interactive menu skeleton).
+kx doctor stub.
+
+Implementation rules (bullet-proof):
+
+Write unit tests for every kernel function before or alongside code.
+All filesystem/model calls go through capability-checked wrappers.
+Use dataclasses + pydantic for strict shapes.
+Every groom ends with an EventRecord written.
+Passive correction detector (heuristic: next prompt starts with “no”, “actually”, etc.).
+Run the full pipeline end-to-end in tests with mocked models.
+
+Phase 2: Validation & Hardening Loop (Ongoing)
+After every feature:
+
+Run full test suite.
+Run kx doctor.
+Manually test with a real small project.
+Add the change to the nightly review loop (even if crude).
+Update alignment/CONSTITUTION.md if principles are clarified.
+
+Daily Development Rules (Make Breaking Nearly Impossible)
+
+Never edit protected files directly in a running session — always through hooks/gates.
+Use feature flags / config-driven stages from the start.
+All external calls (models, fs, exec) go through the gate + manifest.
+Prefer SQLite / JSONL over complex DBs initially.
+Keep daemon minimal — start as background process only when needed.
+kx doctor --auto-fix must exist and be expanded with every new component.
+
+
+Recommended First 3 Commands to Implement
+
+kx — shows banner + menu (projects, new, doctor).
+kx doctor — hardware + config health.
+kx new <project> — scaffolds with next.md and registers hooks.
+
+Then build the grooming pipeline and wire it as the Claude hook.
+
+
+This approach is deliberately slow at the beginning but becomes extremely fast later because the kernel is solid. You will catch architectural drift immediately. The combination of:
+
+Strict import/layer rules
+Capability manifest
+Event logging + correction harvesting
+Hermetic install + doctor
+
+makes the system self-protecting as it grows.
+
+EvoAgentX population methods are more optimization/search-driven than classic genetic-style population evolution, but they draw heavily from evolutionary computation principles.
+EvoAgentX (the framework) integrates three key MAS optimization algorithms in its evolving layer for iterative refinement of prompts, tools, and workflow topologies:
+1. TextGrad (Gradient-like Textual Optimization)
+
+Treats prompts/responses as "differentiable" via natural language feedback ("text gradients").
+Iteratively refines components (e.g., agent prompts) based on evaluation feedback, similar to gradient descent but in text space.
+Strong for prompt engineering and chain refinement; efficient for targeted improvements without full population sampling.
+
+
+AFlow (Reinforcement Learning-inspired with Monte Carlo Tree Search)
+
+Models workflow evolution as a search problem over graph topologies or execution paths.
+Uses MCTS-style exploration to discover better agent collaboration structures, with selection/mutation-like steps.
+Balances exploration (new workflow variants) and exploitation (proven good ones).
+
+3. MIPRO (Model-agnostic Iterative Prompt Optimization)
+
+Black-box optimization focused on prompts and configurations.
+Uses adaptive reranking and iterative proposals based on performance evaluations.
+Efficient for tuning without needing gradients or full retraining.
+
+These are applied in loops: generate/evaluate → optimize (via one or more of the above) → update workflow. The framework supports automatic workflow generation from high-level goals, then evolutionary refinement, with built-in evaluation (benchmarks like HotPotQA, MBPP, MATH, GAIA).
+
+
+Broader Context: Population-Based Methods in Self-Evolving Agents
+EvoAgentX is part of a larger ecosystem (see their Awesome-Self-Evolving-Agents repo). True population-based evolutionary algorithms appear more prominently in related works:
+
+EvoAgent (distinct but related): Explicitly uses evolutionary algorithms to extend single agents into multi-agent systems. It maintains a population of agent variants (different roles, prompts, tools), applies operators like mutation (slight variations), crossover (combining successful traits), and selection (fitness-based, e.g., task performance). Starts from an initial "individual" (existing agent/framework) and evolves generations. Population size and iterations are tunable (e.g., GROUP_NUM). This enables automatic specialization and collaboration.
+General Evolutionary Patterns (from surveys):
+Generate a population of candidate agents/workflows (genomes encode prompts, topologies, tools, memory).
+Evaluate fitness on tasks/datasets (accuracy, efficiency, robustness).
+Select top performers (tournament, elitism).
+Vary via mutation/crossover to create next generation.
+Constraints: population size (for cost), diversity maintenance, evaluation budget.
+
+
+This mirrors classic Genetic Algorithms (GA), Evolutionary Strategies, or neuroevolution, but adapted to LLM agents (textual "genomes," LLM-driven mutation, black-box fitness via execution).
+Relevance to Kinox/Kniox Broker & Self-Evolving Design
+This is highly applicable and not too visionary for your local broker daemon + meta-review loop:
+
+Population in Broker: Maintain a small, persistent "population" of model profiles/configs (e.g., different grooming/review prompts, routing heuristics, hook variants). Use cheap local models for fitness evaluation on historical logs/tasks.
+Evolve Routing/Grooming: Apply MIPRO/TextGrad-style iteration or light EvoAgent-style population (e.g., 5-10 variants) for router scoring or preprocessor stages. Selection based on metrics (latency, secrets caught, review quality).
+Workflow Evolution: For agent sessions or reviewers, evolve topologies (e.g., add/remove sub-agents) using AFlow-like search.
+Self-Healing Tie-in: Use evolution to discover recovery strategies (e.g., auto-fallback configs) from failure logs.
+Practical Implementation:
+Start small: Population size 4-8, 2-5 generations per meta-cycle (nightly or post-session).
+Fitness: Multi-objective (performance + cost + safety alignment with next.md).
+Human gate: Propose top variants for review/merge into registry/hooks.
+Local-first: Run on cheap models; use your broker for inference.
+
+
+Pros: Leads to genuine adaptation (e.g., project-specific optimizations). Cons/Risks: Evaluation cost (mitigate with cached logs + cheap evaluators), diversity collapse (add explicit diversity metrics), safety (guard evolved code/prompts heavily).
+Recommendation for Kinox: Hybridize — use EvoAgentX-style integrated optimizers (if you integrate the lib) or lightweight custom GA for the broker's meta-layer. This makes the daemon self-evolving without full autonomy.
+Want to sketch pseudocode for a population-based router evolver, explore integrating EvoAgentX, or dive into a specific algorithm (e.g., implementing a simple EvoPrompt variant)? Or prototype in the workspace?
+
+
+One-liner installer & structure
+Create these files first:
+
+The Engine Question: Go vs. TypeScript/NestJS
+Given the system you’ve described—a modular monolith with Clean Architecture, heavy focus on developer experience, CLI tooling, domain-rich polymorphic data, and rapid iteration—I would strongly lean toward TypeScript with NestJS/Fastify as the primary application engine.
+
+Here’s why, in the context of your exact requirements:
+
+Feature velocity & DX – Your foundation includes a scaffolding CLI, auto-fix doctors, hook/preprocessor pipelines, and dashboards. TypeScript, with its vast ecosystem (class-validator, class-transformer, Prisma/Drizzle, nestjs-otel), will let you build and iterate these developer-experience layers far faster than Go. The “Squire sidekick” automation is easier to write, test, and evolve in a language where JSON manipulation, file system walking, and HTTP servers are first-class.
+
+Polymorphic data handling – You’re dealing with varied message types (preprocessor intents, model registry entries, hook event payloads). TypeScript’s structural typing, discriminated unions, and the class-validator decorator pattern fit this perfectly without requiring heavy manual deserialization.
+
+Performance – Fastify gives you 80–90% of Go’s raw throughput for typical API workloads. Since your heavy compute (model inference, embeddings, VRAM monitoring) lives in the Python daemon/MCP, the application server is mostly orchestrating, validating, and routing. TypeScript will not be the bottleneck.
+
+Unified language – Your CLI (kx), launcher, hooks (if you choose Python for hooks you can mix, but the main shell can be TS), dashboard, and server can all live in the same language, reducing context switching.
+
+NestJS’s modularity maps 1:1 to your Logical Modules philosophy. Each domain module (ordering becomes OrderingModule) can have its own domain, ports, primary/backup adapters. The framework enforces the ports & adapters pattern natively through providers and injection tokens.
+
+The one exception: The Model Control Plane daemon, model router, and preprocessors that wrap local inference are better kept in Python, as you already planned. That’s a perfect separation of concerns. The TS engine calls the Python daemon over a Unix socket or HTTP, keeping the high-criticality governance in a fast, type-safe layer while offloading ML work.
+
+2. Your Architectural Synthesis Is Sound
+You’ve already done the hardest part: identifying the six recurring primitives (capability manifest, asymmetric router, policy gate with per-component fail-direction, execution boundary, working memory + corpus, honest observability). These are the kernel of any serious agent-governance system. The three-layer model (grooming → governance → UX) and the cross-cutting alignment/observability pillars are exactly right.
+
+The “Quick Wins” you listed (feedback loop, fitness scoring, config-driven preprocessors, kx doctor, dashboard) are an excellent MVP roadmap. I’d add one more that pays off immediately: a project-aware model registry with auto-selection as you described, using a tiny classifier (ModernBERT/gliclass) to route intents. That alone makes the system feel intelligent on day one.
+
+3. Proposed First Steps for a Unified Foundation
+If you were to build this today, here’s how I’d structure the first sprint to create a tangible, bootable TypeScript foundation that aligns with everything you described.
+
+A. Repo structure (adapted to TS)
+text
+kinox/                           # Unified repo
+├── install.sh                   # One-liner setup
+├── docker-compose.yml           # Postgres, Redis, Jaeger, Prometheus
+├── package.json                 # Workspace root (pnpm workspaces)
+├── apps/
+│   ├── api/                     # NestJS main application (modular monolith)
+│   └── daemon/                  # Python MCP broker (FastAPI)
+├── packages/
+│   ├── core/                    # Shared kernel, domain interfaces, value objects
+│   ├── shared/                  # Telemetry, logging, idempotency, outbox
+│   ├── cli/                     # kx CLI (commander + ink for TUI, or just Typer in Python)
+│   └── dashboard/               # Streamlit or Next.js dashboard (optional)
+├── tools/
+│   └── squire/                  # Python preprocessor pipeline, symlinked by hooks
+├── alignment/                   # Global CLAUDE.md, next.md templates
+└── docs/
+B. Scaffold a single domain module with strict architectural boundaries
+Inside apps/api/src/modules/ordering/:
+
+domain/ – pure TS interfaces and functions, no NestJS imports
+
+ports/ – IOrderRepository, IPaymentGateway (interfaces)
+
+primary/ – controller, event listener
+
+secondary/ – Prisma repository, Stripe adapter
+
+Enforce the rule “domain never imports from primary/secondary” with dependency-cruiser or an ESLint rule (import/no-restricted-paths). This gives you the compile-time guardrails you wanted.
+
+C. Implement the “Next-Turn Feedback Loop” first
+In the cli or a post-session hook, save:
+
+jsonl
+{"sessionId": "abc", "agentDiff": "...", "userEdit": "...", "model": "claude-4.5", "tokens": 1200, "latencyMs": 340}
+Pipe it through a local model (Gemma/Qwen) every night to update the router’s fitness scores and refine prompt templates. This single loop makes the entire system self-evolving.
+
+D. Centralize idempotency & outbox in the shared package
+For any state mutation, the NestJS service uses a RequestId decorator and checks Redis. Writes go to an outbox table (Postgres in production, SQLite for local dev). A background worker (BullMQ or simple cron) dispatches events to the internal message bus. This gives you the reliability foundation.
+
+E. Build the kx doctor --auto-fix script
+Even a 50-line shell script that validates:
+
+hardware manifest vs. current drivers
+
+model registry vs. installed Ollama models
+
+sockets/ports available
+
+protected files (next.md, alignment) not corrupted
+
+This reduces onboarding friction to near-zero.
+
+4. Missing Piece to Keep in Mind
+Authentication & multi-project isolation – For a single-user developer tool, this is low priority, but if you ever open it as a shared workspace, you’ll need a simple API key or OS-level user separation. Keep the core domain user-agnostic for now.
+
+5. What’s the Very First Module You’d Want to Scaffold?
+Given the architecture, I’d recommend starting with the Project Module: project creation, next.md scaffolding, hook registration, and daemon status. That’s the “Hello World” that exercises the entire layered stack: CLI → API → domain logic → ports → adapters (filesystem/DB) → daemon call. From there, add the preprocessor (grooming) and governance hooks.
+
+If you’d like, I can flesh out the NestJS project structure in more detail, including the exact dependency injection setup for a pluggable hook system that respects your fail-direction per hook (closed/soft/ignore). Just tell me what feels most valuable to expand next.
+
+
+
+
+The kx Routing Logic Flow
+
+[ Run: kx ]
+                       │
+         ┌─────────────┴─────────────┐
+         ▼                           ▼
+   Has Arguments?              No Arguments?
+         │                           │
+ ┌───────┴───────┐                   ▼
+ ▼               ▼           ┌───────────────┐
+[ +project ]  [ new +project ] │ Interactive   │
+ │               │           │ TUI Menu      │
+ ▼               ▼           └───────┬───────┘
+Activate      Scaffold               │
+Framework     & Exit                 ▼
+                         1. Select Project ──> Activate
+                         2. New Project    ──> Scaffold
+                         3. System Doctor  ──> Diagnostics
+
+
+
+Minimalist Implementation: kx Entrypoint
+Save this as your primary kx executable (e.g., in ~/.local/bin/kx or your framework's bin directory). It uses standard library mechanics to guarantee sub-millisecond execution times when checking arguments.
+
+#!/usr/bin/env python3
+import sys
+import os
+import subprocess
+
+PROJECTS_DIR = os.path.expanduser("~/kinox/projects")
+
+#!/usr/bin/env python3
+import sys
+import os
+import subprocess
+
+KINOX_ROOT = os.path.expanduser("~/kinox")
+PROJECTS_DIR = os.path.join(KINOX_ROOT, "projects")
+
+def print_banner(admin=False):
+    if admin:
+        print("\033[1;35m┌──────────────────────────────────────┐\033[0m")
+        print("\033[1;35m│      KIN: ADMIN CORE DEVELOPMENT     │\033[0m")
+        print("\033[1;35m└──────────────────────────────────────┘\033[0m")
+    else:
+        print("\033[1;36m┌──────────────────────────────────────┐\033[0m")
+        print("\033[1;36m│          KX CONTROL PLANE            │\033[0m")
+        print("\033[1;36m└──────────────────────────────────────┘\033[0m")
+
+def list_projects():
+    if not os.path.exists(PROJECTS_DIR):
+        return []
+    # Explicit safeguard: even if 'kin' exists physically, filter it from standard lists
+    return [d for d in os.listdir(PROJECTS_DIR) if os.path.isdir(os.path.join(PROJECTS_DIR, d)) and d.lower() != "kin"]
+
+def run_interactive_menu():
+    print_banner()
+    projects = list_projects()
+    
+    print("\033[1mSelect an action:\033[0m")
+    print("  [1] Active Projects Workspace")
+    print("  [2] Scaffold New Project")
+    print("  [3] Run System Diagnostics (kx doctor)")
+    print("  [4] Exit")
+    
+    try:
+        choice = input("\n\033[1;32mkx ❯\033[0m ").strip()
+        
+        if choice == "1":
+            if not projects:
+                print("\nNo projects found. Use option [2] to create one.")
+                return
+            print("\n\033[1mAvailable Projects:\033[0m")
+            for idx, p in enumerate(projects, 1):
+                print(f"  {idx}. +{p}")
+            
+            p_choice = input("\nChoose a project number or name: ").strip()
+            if p_choice.isdigit() and 1 <= int(p_choice) <= len(projects):
+                activate_framework(projects[int(p_choice) - 1])
+            elif p_choice.startswith("+") and p_choice[1:] in projects:
+                if p_choice[1:].lower() == "kin":
+                    print("\033[1;31mAccess Denied:\033[0m Run 'kx kin' directly to access framework scope.")
+                    return
+                activate_framework(p_choice[1:])
+            else:
+                print("Invalid selection.")
+                
+        elif choice == "2":
+            name = input("\nEnter new project name (e.g., loyalty-cv): ").strip()
+            if name:
+                scaffold_project(name)
+                
+        elif choice == "3":
+            print("\nInvoking diagnostics...")
+            # subprocess.run(["python3", "-m", "kinox.cli.doctor"])
+            
+        elif choice == "4":
+            print("Goodbye.")
+            sys.exit(0)
+            
+    except (KeyboardInterrupt, EOFError):
+        print("\nOperation cancelled.")
+        sys.exit(0)
+
+def scaffold_project(project_name):
+    clean_name = project_name.lstrip("+").strip()
+    
+    # Absolute Keyword Blacklist Check
+    if clean_name.lower() == "kin":
+        print("\033[1;31mExecution Blocked:\033[0m 'kin' is a reserved system directive and cannot be used as a project name.")
+        sys.exit(1)
+        
+    project_path = os.path.join(PROJECTS_DIR, clean_name)
+    if os.path.exists(project_path):
+        print(f"\033[1;31mError:\033[0m Project +{clean_name} already exists at {project_path}")
+        sys.exit(1)
+        
+    print(f"\033[1;34mScaffolding new project:\033[0m +{clean_name}...")
+    os.makedirs(project_path, exist_ok=True)
+    
+    with open(os.path.join(project_path, "next.md"), "w") as f:
+        f.write(f"# Project +{clean_name}\n\n## Next Steps\n- [ ] Initialize context")
+        
+    print(f"\033[1;32mSuccess:\033[0m Initialized entry at {project_path}")
+
+def activate_admin_mode():
+    print_banner(admin=True)
+    print(f"\033[1;35mElevating target context to core framework root:\033[0m {KINOX_ROOT}")
+    
+    # Build out your admin capabilities manifest and injection mechanics here
+    os.environ["KINOX_SCOPE"] = "ADMIN"
+    os.environ
+
+
+The Keyword Jail: If you attempt to invoke kx new +kin, kx new kin, or name a project kin inside the interactive selection terminal, the runtime triggers a hard sys.exit(1) before ever invoking file creation.
+
+Scope Differentiation: Standard projects boot with KINOX_SCOPE = "GUEST_AGENT" mapping directly to their subfolder. Running kx kin forces KINOX_SCOPE = "ADMIN", shifting the operational directory directly over the core engine repository root at ~/kinox.
+
+
+
+Zero Cold-Start Penalties: No heavy CLI sub-parsers, no config file processing, and no network checks are called when you just type kx. The arguments are evaluated as raw text strings instantly.
+
+Strict Isolation: If new +project is run, it writes the directory and the next.md anchor state, then cleanly kills the thread. The broader framework engine remains completely cold.
+
+Hard Anchoring Constraint: Since activate_framework relies strictly on the validated path inside ~/kinox/projects/, passing arbitrary directories outside this namespace won't inadvertently fire off your environment's local tools or custom safety hooks.
+
+
+## The Core Architecture
+
+The ultimate foundation here is a Modular Monolith using Clean Architecture principles. You want to isolate your core business logic entirely from your transport layers (HTTP/gRPC) and data layers (Databases/APIs).
+
+Strict Domain Isolation: Your business rules shouldn't care if they are triggered by a REST controller, a Kafka message handler, or a local CLI script. Keep the core domain logic "pure."
+
+Ports & Adapters (Hexagonal Architecture): Define explicit interfaces (Ports) for database access, third-party logistics integrations, or notification engines. The concrete implementations (Adapters) live on the outer edges. This makes switching a database or mocking an external service for testing trivial.
+
+Logical Modules over Microservices: Don't split into separate microservices on day one. Instead, build highly isolated modules within the same repository that only communicate via public interfaces or an in-memory event bus. This keeps your deployment dead-simple while giving you a clear path to slice out a microservice later if performance demands it.
+
+## Developer Experience & Automation (The "Squire" Sidekick)
+
+A foundation is only as good as how fast it lets you build. Inspired by the concept of a developer's "Squire," your foundation should automate the tedious friction away.
+
+Integrated Scaffolding CLI: Create a small internal CLI companion tool. Running something like ./squire make:module ordering should instantly spit out the clean folder structure, the domain interfaces, the basic test files, and register it with the application router.
+
+Hermetic Local Environments: A single docker-compose up should spin up your database, cache, message broker, and any necessary mock endpoints. Developers should be able to clone the repo and run the app locally within 60 seconds.
+
+Compile-Time Guardrails: Leverage strict type systems and automated architectural linting tools (like ArchUnit for JVM or dependency-cruiser for Node/TS) to write rules that enforce your architecture—for example, preventing an infrastructure folder from directly importing a controller folder.
+
+possible sidekicks would include:
+
+https://huggingface.co/WeiboAI/VibeThinker-3B
+
+https://huggingface.co/yuxinlu1/gemma-4-12B-coder-fable5-composer2.5-v1-GGUF
+
+https://huggingface.co/microsoft/FastContext-1.0-4B-SFT
+
+https://huggingface.co/moonshotai/Kimi-K2.7-Code
+
+https://huggingface.co/MoritzLaurer/ModernBERT-large-zeroshot-v2.0
+
+https://huggingface.co/knowledgator/gliclass-modern-base-v2.0-init
+
+https://huggingface.co/dslim/bert-base-NER
+
+https://huggingface.co/bigcode
+
+https://huggingface.co/blog/starchat-alpha
+
+ https://huggingface.co/openai/gpt-oss-120b
+
+ https://huggingface.co/Qwen/Qwen3-4B-Thinking-2507
+
+ https://huggingface.co/Qwen/Qwen2.5-Coder-32B-Instruct
+
+
+## High-Scale & Reliability Engine
+
+Operating at scale requires defensive design patterns. Your new foundation should have infrastructure guardrails baked directly into the template.
+
+Transactional Outbox Pattern: Never save data to your database and publish an event to a message broker (like RabbitMQ or Kafka) in the same breath. If the broker is down, your system becomes inconsistent. Instead, write the event to an outbox table in the same database transaction, and let a background worker process it safely.
+
+Idempotency Handlers: In transactional systems, network glitches cause clients to retry requests. Build an inline idempotency mechanism (ensuring a duplicate request doesn't trigger duplicate actions) using a Redis middleware or database constraints based on a unique request ID.
+
+Unified Observability: Don't treat logging as an afterthought. Bake OpenTelemetry into the core bootstrap layer. Every log, trace, and metric should carry a unified correlation ID from the moment it enters the system, allowing you to trace a request's entire journey across modules.
+
+
+
+├── apps/               # If using a monorepo setup (e.g., API, Workers, CLI)
+├── internal/ / src/    # The core codebase
+│   ├── shared/         # Universal utilities, logger, telemetry wrappers
+│   └── modules/        # Domain-driven logical modules
+│       ├── ordering/   # Example: Ordering Module
+│       │   ├── domain/ # Pure business logic, entities, value objects
+│       │   ├── ports/  # Interfaces (e.g., RepositoryInterface, PaymentGatewayInterface)
+│       │   ├── primary/# Driving adapters (HTTP controllers, event listeners)
+│       │   └── backup/ # Driven adapters (DB repositories, third-party API clients)
+├── tools/squire/       # Your custom CLI companion script for automation
+└── docker-compose.yml  # Complete local playground setup
+
+
+
+The three are one idea at three altitudes
+
+kinox — the model as the system. "The model is the shell; the screen is render-only generative output," a bootable appliance with a baked-in local LLM. Altitude: the whole machine.
+kniox — governing the agent on the system. The agent is the guest; fail-closed hooks, a VRAM broker, dispatch ("one model per task"), an opt-in Tailscale fleet. Altitude: the agent's actions and resources, in userspace.
+squire — governing the input to the agent. Asymmetric local grooming: regex/git/fs do the ground-truth work, one capped local-model call does the fuzzy part, fail-soft, "annotate, don't impersonate." Altitude: the prompt — the most portable slice.
+
+The arc went grand → shippable: full-OS ambition, to userspace governance, to one sharp hook. And both roadmaps now point back up the stack — squire's "report-back" hook and kniox's corpus capture are the same idea; squire's fit.py, kniox's manifest/dispatch, and kinox's model_select are the same idea. You've been circling a convergence point.
+The best of each — the pieces that survived all three rewrites
+This is the real signal. The same six primitives keep reappearing, each time more battle-tested. These are your kernel:
+
+Capability manifest — detect, never assume; null, never a fabricated zero. (kniox's probe, kinox's model_select.) Born from a real bug — the best kind of primitive.
+Asymmetric router — ground-truth/deterministic vs fuzzy/model, and local-rung vs cloud-tier. Squire states the law most cleanly: if there's a ground truth, plain code beats the model. kniox's dispatch and kinox's ladder are the same router at different scopes.
+Policy gate with an explicit fail-direction — kinox's propose→confirm→cancel plus conservative is_affirmative, kniox's fail-closed hooks, squire's fail-soft laws. The insight hiding here: fail-direction is per-component (a guard fails closed, an optimizer fails soft), so it should be a first-class property of the gate, not a global default.
+Execution boundary — kinox's bwrap recipe: a pure argv builder (unit-testable policy) + a capability probe + actionable hints. The cleanest sandbox of the three.
+Working memory + corpus — next.md / CLAUDE.md / boundaries.md, the brainstorm→spec→plan→TDD flow, and the append-only, secret-scrubbed session log both roadmaps independently reinvented.
+Honest observability — exact where you can measure, labeled estimates where you can't (squire's token ledger), plus the highest-leverage idea in either roadmap: the user's next-turn correction is a free quality label.
+
+
+These three repos from the same author(s) form a natural progression:
+
+Squire: Lightweight, plug-and-play input optimization (pre-processor hooks for Claude Code). Focuses on cheap local grooming (redact secrets, expand shorthand, add context, intent tagging via Ollama) before the expensive agent sees anything. Excellent asymmetry thesis.
+kniox-private (v2-ish): Governance + runtime control layer. Wraps sessions via kx launcher, fail-closed hooks (guards against destructive commands, protects rails like next.md / alignment), hardware detection / local-GPU broker (daemon + MCP), multi-model dispatch, review loops, project scaffolding. Defense-in-depth for running agents safely (not a true sandbox, but strong speed bumps).
+kinox: Aspirational voice-first, LLM-native OS vision. Model-as-shell, screen as generative render-only output. More conceptual/WIP with architecture docs, superpowers, etc.
+
+The synthesis opportunity: Build a modular, governed, cost-efficient LLM-native workspace where local cheap intelligence (Squire-style) + strong runtime rails (kniox) + forward-looking UX (kinox) create something greater than the sum.
+
+Core Principles for the New Foundation
+
+Asymmetry & Cost Discipline (from Squire): Push as much work as possible to cheap local deterministic + small-model layers. Expensive frontier models (Claude etc.) only do high-value reasoning/execution.
+Governance by Default, Fail-Closed (from kniox): Agents are guests. Always-on alignment contracts, protected rails (next.md, CLAUDE.md), hooks that survive --dangerously-skip-permissions, hardware-aware resource brokering.
+Model-as-Shell Mindset (from kinox): Voice-first where possible; generative UI/output; minimize traditional shell/IDE friction.
+Modularity & Extensibility: Hooks/skills as single files. Daemon with pluggable backends. Executor-agnostic where feasible (Claude primary, but swappable).
+Observability & Iteration: Logs, dashboards, metrics (Squire + kniox). Easy review loops with cheaper models.
+Honest Scope: Not a full sandbox/VM. Defense-in-depth + easy bypass for recovery. Single-machine first, fleet-optional (Tailscale).
+
+Proposed Architecture Layers
+Layer 0: Host & Setup (Installer + Detection)
+
+One-liner install.sh (idempotent, like both repos).
+kx setup (or kinox init): Hardware manifest (CPU/GPU/VRAM, backends: Ollama/vLLM/llama.cpp/etc.), config generation. Fleet discovery optional.
+Symlink kx CLI as entrypoint. Supports kx new <template>, kx <project>, kx status, kx doctor, etc.
+
+Layer 1: Input Grooming (Squire Core, Enhanced)
+
+Integrated as default UserPromptSubmit hook (or equivalent).
+Stages (modular, in stages/ or preprocessors/):
+Redact (regex + local model fallback for advanced secrets).
+Expand (user abbreviations + project-specific).
+Context (git/fs + mentioned files + project next.md summary).
+Tag/Intent (capped local LLM call → JSON: intent, cleaned restatement, suggestions).
+
+Configurable per-project or global (config.toml + project overrides).
+Bypass prefix, soft-fail, logging to JSONL + dashboard.
+
+Layer 2: Runtime Governance & Execution (kniox Core)
+
+kx launcher: Injects alignment + context, runs inside guarded session.
+Hooks (.claude/hooks/ or generalized):
+Guards (UV/pip, destructive cmds, state protection, next.md cap).
+RTK integration (selective, policy-owned).
+Subagent alignment.
+Session logging.
+
+Daemon/MCP: Local model broker/dispatcher (task → best available model/backend, VRAM-aware). Specialized models for grooming, review, etc.
+Project structure: ~/kinox/projects/<name>/ with next.md, alignment/, .claude/, logs, etc. Scaffold templates.
+
+Layer 3: UX & Output (kinox Vision)
+
+Voice input (Whisper/local STT → grooming pipeline).
+Generative screen: Agent outputs drive UI renders (e.g., via Claude artifacts, custom renderer, or lightweight TUI/webview).
+Multi-modal: Voice + visual feedback loops.
+Review loop: Post-session, route diffs/changes to cheaper reviewers (DeepSeek/Gemini/local) for polish before merge.
+
+Cross-Cutting: Alignment & Safety
+
+Central alignment/ or CLAUDE.md (imported everywhere).
+Per-project contracts in next.md (capped to prevent bloat).
+Logging/metrics/dashboard (Streamlit or lightweight TUI) for token usage, secrets caught, intent distribution, latency.
+
+Tech Stack Recommendations
+
+Python primary (uv + pyproject.toml for fast setup, like existing).
+Hooks in Python (fast, consistent).
+Local inference: Ollama primary for simplicity; pluggable adapters.
+CLI: Rich/typer or similar for kx commands.
+Config: TOML + JSON manifests.
+Testing: Smoke tests in installer; dedicated tests/.
+Docs: Comprehensive README, ROADMAP, CONTRIBUTING, architecture diagram (update kinox's SVG).
+
+Prioritized Roadmap / MVP
+MVP (Strong v1 Foundation):
+
+Unified repo/installer combining squire + kniox installer.
+Merged grooming pipeline as core hook.
+Core guards + kx launcher + basic daemon (Ollama broker).
+Project scaffolding + next.md workflow.
+Dashboard + logging.
+Basic voice input stub.
+
+Next:
+
+Hardware/fleet detection polish.
+Multi-reviewer loop.
+Generative UI experiments (kinox-style).
+More backends, templates, skills (Claude .claude/skills integration).
+Executor plugins (beyond Claude).
+
+Nice-to-Haves:
+
+True container/VM fallback for high-security.
+Web dashboard / mobile voice companion.
+Open-source alignment corpus/examples.
+
+Potential Repo Structure
+kinox/ (or new name: e.g. lumen, nexus, axiom)
+├── install.sh / kx (CLI entry)
+├── config.toml / defaults
+├── alignment/          # shared contracts
+├── daemon/             # MCP broker, adapters
+├── preprocessors/ or stages/  # Squire pipeline
+├── hooks/              # Governance
+├── projects/           # User projects (gitignored or examples) project initiated from anywhere encored back to this project otherwise kinox 'kx' does not work!
+├── reviewers/          # Multi-model polish
+├── docs/               # MANIFEST, ROADMAP, superpowers
+├── dashboard/
+├── .claude/            # Hooks, skills
+└── tests/
+
+
+Risks & Mitigations
+
+Claude hook schema churn: Abstract hooks; kx doctor for diagnostics; bypass env var.
+Performance: Cap local calls aggressively; warm models; skip short prompts.
+Security: Document limitations clearly. Encourage containers for sensitive work.
+Complexity: Keep modules small/independent. Strong docs + good-first-issues.
+
+
+
+
+
+
+
+
+
+
+## High-Level Architecture
+
+Core Goals
+
+Cost & Efficiency: Prefer cheap/fast local models; load-on-demand + unload; cap expensive reasoning.
+Reliability: VRAM monitoring & scheduling to prevent OOM; fallbacks (CPU, smaller models).
+Observability: Metrics, logs, health (Prometheus? simple JSON endpoint).
+Extensibility: Pluggable backends & model registry.
+Integration: Easy for kx CLI, preprocessors, reviewers, and hooks. Daemon runs as system service or user session.
+
+
+Host Hardware (Detection at setup)
+    ↓
+Broker Daemon (Python + FastAPI / Typer CLI)
+├── Model Registry (config + manifest)
+├── Resource Monitor (VRAM/CPU/RAM via nvidia-smi, rocm-smi, psutil)
+├── Router / Dispatcher (task classifier + scoring)
+├── Backend Adapters (Ollama, vLLM, llama-server, etc.)
+├── Queue / Scheduler (async, priority, concurrency limits)
+├── API Server (OpenAI compat + internal)
+└── Logging / Metrics / Dashboard hook
+
+
+
+Daemon name suggestion: mcp (Model Control Plane) or kinoxd / kx-broker.
+Key Components
+
+Hardware & Resource Detection (at startup + periodic)
+Run once in kx setup: Detect GPUs (NVIDIA/AMD/Apple), VRAM per device, CPU cores, RAM.
+Store in ~/.kinox/hardware.json or TOML.
+Runtime monitoring:
+NVIDIA: nvidia-smi (subprocess or pynvml).
+AMD: rocm-smi / pyrsmi.
+CPU fallback: psutil.
+Track loaded models + estimated footprint (model size + KV cache buffer).
+
+
+Model Registry
+Central config: ~/.kinox/models.toml or JSON.
+Per-model metadata:
+[models.gemma3-4b]
+backend = "ollama"
+name = "gemma3:4b"  # or full tag
+size_gb = 3.2
+capabilities = ["fast", "gemma", "intent", "review"]
+preferred_for = ["grooming", "classification", "short"]
+max_context = 128000
+quantization = "Q4"
+vram_estimate = 4.5  # GB incl overhead
+
+
+Specialized roles: groomer, reviewer, coder, intent-classifier, general, vision (if multimodal).
+Auto-discovery from Ollama list + manual registration.
+
+
+
+Router / Dispatcher
+Input: Task description (prompt prefix, intent from preprocessor, length estimate, required capabilities, priority).
+Logic (hierarchical):
+Fast heuristic classifier (tiny local model or rules/regex) → category (short-groom, code, review, long-reason).
+Score candidates: availability (loaded?), VRAM fit, speed/latency profile, capability match, cost (none for local).
+Select best: e.g., small fast model for grooming; larger for deep review/coding.
+Fallback chain: Specific → general local → smaller quant → CPU.
+
+Warm models for common roles (configurable "always-ready" set).
+Load/unload policy: LRU + timeout; pre-warm on project context.
+
+
+Backend Adapters
+Ollama (default): Easiest, great for consumer hardware. Use /api/chat, /api/generate, /api/ps.
+vLLM: High-throughput when multi-GPU or concurrent.
+llama.cpp server: Raw performance/control.
+Others: OpenAI-compat proxy layer (LiteLLM style internally?).
+Adapter interface: load(model), unload, infer(prompt, params), status.
+Unified OpenAI-compatible output for easy swapping.
+
+API & Integration
+Public: OpenAI-compatible endpoint (e.g., http://localhost:11435/v1 — different port from Ollama).
+Clients (preprocessors, hooks, Claude tools) point here seamlessly.
+
+Internal: gRPC or simple HTTP for low-latency daemon-to-daemon comms.
+Endpoints:
+/v1/chat/completions
+/broker/status (loaded models, VRAM free, health)
+/broker/route (debug routing decision)
+/broker/models
+WebSocket for streaming + progress.
+
+
+Scheduling & Concurrency
+Async queue (asyncio + FastAPI).
+Per-GPU concurrency limits based on VRAM.
+Priority: Grooming/review high-priority (low latency); long agent sessions lower.
+KV cache awareness where possible (via backend).
+
+Observability
+Structured JSONL logs: task_id, model_used, latency, tokens, VRAM delta.
+Metrics: Prometheus export or simple /metrics.
+Dashboard integration (Streamlit or TUI via Rich).
+kx broker status / kx broker logs.
+
+
+Implementation Sketch (Python)
+Use:
+
+FastAPI + Uvicorn for server.
+Pydantic for configs/tasks.
+asyncio + httpx for backend calls.
+psutil, subprocess for monitoring.
+tomlkit or pyyaml for config.
+uv for packaging.
+
+Core files:
+
+daemon/main.py: Entry, lifespan (startup detection).
+broker/registry.py
+broker/monitor.py
+broker/router.py
+backends/ollama.py, backends/vllm.py, etc.
+cli.py: kx broker start|stop|status|register-model
+
+
+
+Example Task Dispatch:
+task = Task(
+    prompt=..., 
+    intent="code_review", 
+    max_tokens=2000, 
+    temperature=0.3
+)
+model = router.select(task)
+response = await backends.infer(model, task)
+
+
+
+
+Config & Extensibility
+
+Global + per-project overrides.
+Custom model profiles: "project-coder" alias that routes to best coding model.
+Plugin system for new backends (single Python file + register).
+Safety: Rate limits, prompt size caps, audit logging for sensitive tasks.
+
+Roadmap / Phased Implementation
+MVP:
+
+Ollama-only adapter.
+Basic VRAM monitor + simple routing (size-based).
+OpenAI compat API.
+CLI start/stop/status.
+Hardware detection.
+
+Phase 2:
+
+Multi-backend.
+Intelligent classifier (tiny LLM or heuristics).
+Load/unload automation.
+Metrics + dashboard.
+
+Phase 3:
+
+Advanced scheduling, multi-GPU.
+Vision/multimodal.
+Integration with reviewers/groomers as first-class.
+
+Risks & Mitigations
+
+Backend churn: Abstract adapter layer; fallback to Ollama.
+VRAM estimation inaccuracy: Conservative buffers + runtime measurement + unload on failure.
+Daemon complexity: Start minimal; make most features optional/config-driven.
+Platform differences: Abstract monitoring; test on Linux/Mac/Windows.
+
+This design directly supports the asymmetry thesis
+
+
+use https://github.com/EvoAgentX/Awesome-Self-Evolving-Agents
+
+The broker daemon + overall architecture (groomers, hooks, reviewers, governance) provides an excellent foundation. We can layer self-healing (reactive resilience) and self-evolving (proactive improvement) in a controlled, auditable way — aligned with your governance principles (fail-closed, human oversight, protected next.md/alignment rails).
+
+
+
+Self-Healing Mechanisms
+Focus on automatic detection + recovery for common failures (crashes, OOM, model unload, hook errors, config drift, hardware changes, session hangs).
+1. Broker Daemon Self-Healing (Core)
+
+Health Supervisor: Watchdog process (systemd or supervisord) + internal heartbeat. On failure: auto-restart with exponential backoff. Graceful shutdown/unload of models first.
+Resource Guardian:
+Continuous VRAM/CPU monitoring.
+On OOM risk: Auto-unload least-used models, downgrade quant, spill to CPU, or queue/reject low-priority tasks.
+Post-failure: Analyze logs, suggest model registry tweaks (e.g., "reduce concurrent for gemma3").
+
+Task Recovery:
+Retry policy per task type (grooming: 3x fast; deep review: human escalate).
+Circuit breakers: If a backend (Ollama) flakes, fallback chain + temporary quarantine.
+Checkpointing: For long sessions, save partial state (context, diffs) to resume.
+
+Config & State Reconciliation:
+Periodic kx doctor --auto-fix: Validate hardware manifest vs. runtime, reset drifted TOML, pull missing models.
+
+Hook/Preprocessor Resilience:
+Wrap all hooks in try/except with sandboxed execution (subprocess limits).
+On failure: Fallback to deterministic rules or cheaper model; log for review loop.
+
+
+2. System-Wide Healing
+
+Session Guardian: kx launcher monitors agent sessions. On hang/crash: Snapshot, rollback protected files (next.md, alignment), notify + offer replay with different model.
+Log-Driven Auto-Remediation: Dedicated reviewer agent (cheap local) scans error patterns → generates patches for hooks/preprocessors/broker. Human PR approval (or auto for low-risk).
+Hardware Adaptivity: On GPU change/hotplug: Re-run detection, update registry, restart affected models.
+
+Implementation Tip: Use libraries like tenacity for retries, psutil/pynvml for monitoring, and a simple state machine in the daemon.
+Self-Evolving Mechanisms
+Make the system learn from usage to improve prompts, hooks, routing, models, etc. — without full autonomy (keep governance).
+Core Loop (Meta-Review Cycle):
+
+Observe: Aggregate structured logs/metrics (tasks, models used, latency, success rate, user interventions, diffs applied).
+Analyze: Periodic (post-session or nightly) cheap local reviewer + frontier model (capped) evaluates:
+Failure patterns.
+Performance (e.g., "groomer too verbose → shorten").
+Opportunity (new common intent → specialize model).
+
+Propose & Apply:
+Generate improvements: Updated prompt templates, new preprocessor stage, router scoring tweak, hook addition.
+Store in evolutions/ or Git-tracked improvements/.
+A/B test safely (shadow mode) or staged rollout.
+Human review gate for code changes; auto-apply for prompts/config.
+
+Validate: Run regression tests/smoke + metrics before merge.
+
+Specific Evolution Targets:
+
+Broker/Routing: Meta-agent evolves model profiles, scoring heuristics, or adds new backends based on hardware/logs.
+Preprocessors & Hooks: Auto-refine stages (e.g., better redact regex from caught secrets), suggest new guards from failure modes.
+Model Registry: Suggest fine-tune jobs (via LoRA on usage data) or new Ollama pulls. Track "model fitness" scores.
+Project Scaffolding & Alignment: Evolve templates/next.md structures from successful projects.
+Skills/Hooks: Agent proposes new single-file skills based on repeated user patterns.
+
+Advanced (Kinox Vision):
+
+Self-Referential Editing: Broker or dedicated "architect" agent can propose edits to its own codebase (with heavy guards: diff review, tests, git revert easy).
+Population/Evo Methods: Maintain a small set of prompt variants or hook versions; evolve via selection (inspired by Darwin-Gödel or EvoAgentX).
+Memory: Persistent vector store (local) of past evolutions + outcomes for better proposals.
+
+
+
+
+Phased Implementation (Practical, Not Over-Visionary)
+MVP (Self-Healing Focus):
+
+Daemon watchdog + resource guardian.
+Basic retry + fallback in router.
+kx doctor --auto + logging dashboard.
+Session snapshot/rollback.
+
+Phase 2 (Light Evolution):
+
+Post-session review loop (local reviewer summarizes + suggests prompt tweaks).
+Git-integrated improvement proposals.
+Config auto-tuning (e.g., VRAM buffers).
+
+Phase 3 (Full Self-Evolving):
+
+Meta-agent swarm for deeper analysis.
+Safe self-editing with human-in-loop.
+Long-term memory across projects.
+
+Guardrails & Realism
+
+Governance First: All evolution outputs go through review loops, protected rails, and human approval for anything modifying code/behavior. Fail-closed on meta-changes.
+Observability Over Autonomy: Strong metrics/logs before evolution.
+Scope Limits: Start with config/prompts/hooks; code edits are high-risk (sandboxed or PR-only).
+Risks: Hallucinated "improvements," infinite loops, regression. Mitigate with evals, versioning, rollback, and rate-limiting meta-calls.
+Cost: Mostly local models for meta-work.
+
+This makes kinox a living system that gets better with use — cheaper, more reliable, more aligned — while staying under user control. It directly extends the asymmetry (local meta-work) and governance layers.
+
+
+
+
+
+Architectural Layout & Core Tech
+Runtime / Language: Node.js (or Bun for exceptional speed) with strict TypeScript.
+
+Framework: NestJS (natively supports modular architecture, separation of concerns, and decorators).
+
+Transport Layer: Fastify (as the underlying Nest HTTP driver for better throughput than Express).
+
+Concrete Dependencies Map
+
+CategoryPackage / LibraryWhy it's chosenFramework Core@nestjs/core & @nestjs/commonOut-of-the-box support for Modules, Guards, Interceptors, and Dependency Injection.Underlying HTTP@nestjs/platform-fastifyOffers up to 2x higher throughput and lower overhead compared to standard Express.Data LayerPrisma or Drizzle ORMStrong compile-time type safety for database operations. Drizzle is preferred if you want a lightweight query-builder.Validationclass-validator + class-transformerDeclarative request payload validation using TS decorators at the controller layer.Message Broker@nestjs/microservicesBuilt-in abstractions for RabbitMQ, Kafka, or NATS to decouple asynchronous modules.Observabilitynestjs-otelOpenTelemetry integration tailored specifically for the NestJS dependency injection lifecycle.
+
+
+
+
+
+The Cross-Stack Shared Infrastructure (The Bedrock)
+Regardless of whether you choose Go or TypeScript, the infrastructure supporting your application needs to remain identical to guarantee production resilience:
+
+Primary Database: PostgreSQL (supports robust ACID transactions necessary for the Outbox pattern, and has excellent JSONB indexing features).
+
+Caching & Idempotency: Redis (used as a distributed lock manager and high-speed temporary storage for processing unique token requests).
+
+Local Playground Orchestration: A standardized docker-compose.yml spinning up PostgreSQL, Redis, and an observability stack (Jaeger for tracing, Prometheus for metrics).
+
+Architectural Decision Matrix
+Go is the choice if your primary bottlenecks are CPU, memory consumption, or ultra-low latency response requirements under intense loads.
+
+TypeScript/NestJS is the choice if your bottleneck is shipping features quickly, onboarding developers fast, and managing complex polymorphic data structures with minimal code footprint.
+
+Which engine feels like the right match for the types of business problems you are looking to solve next?
+
+
+
+
+1. Unified "Next Turn" Feedback Loop (Highest ROI, ~1-2 days)
+This is the single biggest leverage point you already identified.
+Implementation (cheap):
+
+Add a tiny post-session hook that always captures:
+User’s next-turn correction / edit
+Final diffs applied
+Model used + tokens + latency
+
+Store in a simple append-only ./projects/<name>/feedback.jsonl (or SQLite)
+Feed this into your existing cheap local reviewer (e.g. Gemma/ModernBERT/Qwen3-4B) on a nightly or post-session basis.
+
+ROI:
+
+Free quality labels for fine-tuning routing scores, prompt templates, and groomer stages.
+Immediate self-evolving signal.
+Almost zero extra cost (you already have logging + reviewers).
+
+2. Capability Manifest + Model Fitness Scoring (Very cheap, huge reliability win)
+Extend your model registry with a simple JSON/TOML manifest per model:
+
+[models.gemma-4b]
+capabilities = ["grooming", "intent", "fast"]
+observed_fitness = { code_review = 0.92, grooming = 0.97, ... }
+last_evaluated = "2026-06-20"
+
+
+Cheap automation:
+
+After every N tasks or nightly, run a cheap evaluator on a sample of recent feedback.
+Update scores automatically.
+Router uses fitness × speed × vram_fit instead of static rules.
+
+ROI: Router becomes dramatically smarter over time with almost no manual work. Prevents the classic "this model is bad at X but we keep using it" problem.
+3. Squire Preprocessor Stages as Config-Driven Pipeline
+Turn your grooming stages into a declarative list in config.toml:
+
+
+[[preprocessors]]
+name = "redact"
+type = "regex"      # or "local-model"
+model = "tiny-classifier"
+priority = 10
+
+[[preprocessors]]
+name = "intent-tag"
+type = "local-model"
+model = "gemma-4b"
+max_tokens = 300
+
+
+ROI:
+
+Non-engineers (or future you) can add/reorder stages without touching code.
+Easy A/B testing of new stages.
+Perfect for self-evolution (meta-reviewer suggests new stages).
+
+
+4. Cheap Observability Dashboard (Weekend project)
+Use Streamlit (or even Rich + Textual TUI) pointed at your JSONL logs + feedback.
+Key views:
+
+Token/cost breakdown by intent & model
+Secrets caught (redaction win rate)
+Router decision heatmap
+Top failure patterns
+
+ROI: You stop flying blind. Makes self-healing and evolution decisions data-driven instead of guesswork.
+
+
+
+
+5. Transactional Outbox + Idempotency for Agent Actions
+Even in a local-first system, this pays off immediately.
+
+When agent wants to run git commit, pip install, or edit files → write intent to outbox table/file.
+Separate lightweight worker processes it.
+Attach request_id + idempotency key.
+
+Cheap version: Just use SQLite + a background thread instead of full PostgreSQL if you want to stay light.
+ROI: Prevents partial state disasters and makes retry logic trivial.
+6. "kx doctor" + Auto-fix Commands (Massive DX win)
+One command that:
+
+Runs hardware detection again
+Validates model registry vs installed Ollama models
+Checks protected files (next.md, alignment)
+Suggests/fixes common config drift
+Reports "your VRAM broker is using 2 models you never call — unload?"
+
+ROI: Dramatically reduces "it worked on my machine" and onboarding friction.
+7. Tiny Local Classifier for Intent/Routing (Extremely cheap)
+Use one of the small models you listed (e.g. knowledgator/gliclass-modern-base-v2, MoritzLaurer/ModernBERT, or even a fine-tuned 1B-3B) as first-stage intent classifier before hitting bigger models.
+This feeds better data into your router and preprocessor.
+Quick Wins Prioritization (by effort/impact)
+
+
+
+Priority,Enhancement,Effort,Impact,Time
+1,Next-turn feedback loop,Very Low,Very High,1-2 days
+2,Model fitness scoring,Low,High,2-3 days
+3,Config-driven preprocessor,Low,High,1-2 days
+4,kx doctor + auto-fix,Low,High,1 day
+5,Streamlit/TUI dashboard,Medium,High,2-4 days
+
+
+
+Bonus Architecture Hygiene (Almost free)
+
+Enforce domain/ never imports anything from primary/ or backup/ using a simple linter (e.g. pyright + import rules or dephell).
+Make every hook have an explicit fail_direction: closed | soft | ignore.
+
+
+1. Layer 1 (Input Grooming) Enhancements
+Exact & Semantic Local Caching Combo
+Running a local model (like Gemma or Qwen) for every prompt expansion or intent classification introduces unnecessary millisecond delays.
+
+The Cheap Fix: Implement a two-tiered local cache using an append-only SQLite database in WAL (Write-Ahead Logging) mode.
+
+Tier 1: An exact MD5 hash match of the incoming raw prompt. If matched, instantly return the previously generated intent/tags.
+
+Tier 2: A lightweight, localized semantic cache using raw cosine similarity over cheap local embeddings (e.g., using a tiny 33MB BGE-micro model). If the user asks for variations of the same routine task, bypass the local LLM entirely.
+
+Git-Diff Context Pruning
+Agents often hallucinate or drown in context when given entire files that haven't changed.
+
+The Cheap Fix: Instead of feeding full files to the prompt grooming layer, use a native regex/git shell wrapper to pull only the active git diff and the corresponding structural symbols (class signatures, function headers) using ctags. This costs virtually zero compute, slashes your token footprint, and keeps the agent hyper-focused on the exact surface area of the current change.
+
+2. Layer 2 (Runtime Governance) Enhancements
+Unix Domain Sockets (UDS) over TCP for the Daemon
+If the kx CLI tool, your preprocessor hooks, and your backend app communicate with the Model Control Plane (mcp) daemon over local TCP loops (localhost:11435), you incur network stack serialization overhead.
+
+The Cheap Fix: Bind the daemon to a native Unix Domain Socket (e.g., /var/run/kinox.sock). IPC (Inter-Process Communication) over a socket bypasses the network loopback entirely, dropping latency to near-zero and hardening the system against local port collisions or unauthorized local network scanning.
+
+The "Passive Correction" Data Harvester
+Your roadmap notes that the user's next-turn correction is a free quality label. Let's make collecting it passive and automatic.
+
+The Cheap Fix: When an agent writes code or edits a file, the kx launcher takes a snapshot of the file state. If the human immediately opens that file and manually edits the exact lines the agent touched within a 2-minute window, a post-commit hook packages the Agent's Output vs. Human's Correction into a local JSONL file (~/.kinox/evals.jsonl). You are building a production-grade, self-hosted evaluation dataset for fine-tuning future local models completely for free.
+
+3. Modular Monolith & Infrastructure Enhancements
+Zero-Infra SQLite Outbox for Local Dev
+While your production system uses PostgreSQL for the Transactional Outbox pattern, spinning up a full Postgres instance during local scaffolding or isolated testing can slow down the developer lifecycle.
+
+The Cheap Fix: In your local environment or test suites, swap the Outbox storage to an in-memory or single-file SQLite database. Because it supports standard SQL transactions, you can validate your entire transactional outbox and event-dispatching logic deterministically without needing a Docker container running for local CLI tasks.
+
+Inline Token Budgeting & Early Exits
+Runaway agent loops can chew through API credits or lock up local VRAM resources before a fail-closed gate is even triggered.
+
+The Cheap Fix: Build a primitive token-counter middleware directly into the kx launcher wrapper. If a single task or session exceeds a strictly defined token budget or depth limit (e.g., maximum 3 nested subagent calls), trigger an immediate fail-soft structural exit that flushes the current working directory state back to next.md and pauses for human intervention.
+
+4. Self-Healing Enhancements
+The kx doctor --auto-fix Integrity Verifier
+Config drift is the silent killer of local environments—a model gets pulled manually, an env var changes, or a dependency breaks.
+
+The Cheap Fix: Write a single, dependency-free shell or Python script for kx doctor. It performs four deterministic checks:
+
+Validates the existence of the Unix Socket.
+
+Queries the local container runtime or hardware map.
+
+Compares active model hashes against models.toml.
+
+Re-links corrupted project boundaries back to the central workspace storage.
+
+
+
+
+foundation/
+  kernel/                  the constant — agent-agnostic, dep-light, 100% tested
+    contracts.py           Task, Tier, Annotation, EventRecord, Manifest, FailDirection
+    manifest.py            probe → manifest.json (null, never a fabricated zero)
+    router.py              route(task) → tier  (determinism axis + capability axis)
+    gate.py                policy gate; fail-direction is a PARAM, not a global
+    metrics.py             append-only event log: exact where measured, labeled est. else
+    memory.py              working memory + secret-scrubbed corpus
+    sandbox.py             pure-argv + probe + hints (ported from kinox; unused at M0)
+  products/
+    groom/                 the FIRST product — squire's role, on the kernel
+      stages/              redact · expand · context · fingerprint  (ground-truth)
+      tag.py               the ONE fuzzy step → router → smallest fitting model
+      pipeline.py          orchestrates under the three laws
+  adapters/
+    claude_code.py         UserPromptSubmit hook — the ONLY Claude-specific file
+  docs/  next.md  CONSTITUTION.md   (the three laws live here)
+  tests/
+
+
+
+
+
+  The one rule that protects the whole design: kernel/ imports nothing from products/ or adapters/. Enforce that with a single import-lint test and later extraction into a versioned package is mechanical.
+The contracts (the load-bearing part)
+These shapes are where the kernel earns its keep — get them right and the stages are trivial. Two of them (correction_of, FailDirection) are the ideas that fell out of comparing all three repos:
+
+
+
+
+class Determinism(Enum): GROUND_TRUTH; FUZZY
+
+@dataclass
+class Task:
+    kind: str                       # "redact" | "tag" | ...
+    determinism: Determinism
+    budget_ms: int | None = None    # meaningful only for FUZZY
+
+@dataclass
+class Tier:                         # what router.route() returns
+    kind: Literal["deterministic", "model"]
+    model: str | None = None        # e.g. "qwen3:4b"
+    where: Literal["local", "cloud"] | None = None
+
+@dataclass
+class Annotation:                   # every stage returns this — ADDITIVE only
+    lines: list[str]                # injected context
+    block: BlockReason | None = None  # the only way to halt (gate, fail-closed)
+
+@dataclass
+class EventRecord:                  # one per groom — corpus + honest metrics
+    id: str
+    prompt_hash: str
+    stages: list[str]
+    tier: Tier
+    local_tokens: TokenCount | None       # exact, from Ollama
+    cloud_tokens_est: TokenCount | None   # labeled estimate, never claimed exact
+    correction_of: str | None = None      # backfilled by the correction detector
+
+class FailDirection(Enum): SOFT; CLOSED   # declared per gate — grooming is SOFT
+
+
+
+M0 — the smallest thing that's real
+Small enough to finish, big enough to force every kernel contract to be honest:
+
+kernel/manifest.py — probe the machine, list available tiers (which qwen3 rung fits + cloud iff a key exists). null, never zero.
+kernel/router.py — GROUND_TRUTH → deterministic; the lone tag task → smallest fitting model. Confidence-gated escalation is a post-M0 slice.
+kernel/metrics.py + EventRecord — append-only, exact local counts, the correction_of slot present from commit one.
+products/groom/pipeline.py — redact → expand → context → tag under the three laws.
+adapters/claude_code.py — the UserPromptSubmit hook; squire's wire-up, isolated.
+Correction detector — next prompt short + starts with no/actually/I meant → mark the prior EventRecord corrected. Heuristic now, model-scored later. This is nearly free and it's the compounding moat — it has to be in M0, not "someday."
+
+Deferred but already anticipated by the kernel: the sandbox (no effects in grooming yet), the agent/system altitudes, escalation, glossary/KB grounding, shareable profiles, shadow A/B.
+Two forks inside this choice
+
+Monorepo vs separate kernel lib. Start monorepo — there's no second consumer yet, and premature packaging is its own trap. The import rule above is what makes "extract later" free, so you lose nothing by waiting.
+How agent-agnostic to commit now. Emit a neutral Annotation and keep every Claude-Code specific in the one adapter — cheap insurance toward squire's roadmap 6.3. But don't write a second adapter until someone actually needs Cursor/Codex; agent-agnostic is a shape, not a second integration to build today.
+
+
+
+
+
+
+1. Type-Level Security Erasure (Type Theory)Right now, you are passing strings between Squire (grooming) and Kniox (governance). If a developer accidentally passes a raw, un-redacted user prompt straight to the frontier model executor, your pipeline fails silently from a security standpoint.The Pure TheoryInstead of relying on variable naming conventions, use Phantom Types (or Branded Types in TypeScript) to enforce data sanitation at compile time. You introduce type wrappers that carry no runtime computational overhead but turn structural mistakes into compiler errors.The Cheap FixDefine explicit type brands for your data pipeline. The core execution engine should only accept a Groomed type wrapper.Pythonfrom typing import NewType
+
+# Under the hood, these are just standard strings at runtime (zero overhead)
+RawPrompt = NewType('RawPrompt', str)
+GroomedPrompt = NewType('GroomedPrompt', str)
+
+def squire_groom(prompt: RawPrompt) -> GroomedPrompt:
+    # Run regex, secret scrubbing, local intent tagging
+    scrubbed_text = prompt.replace("SECRET_API_KEY", "[REDACTED]")
+    return GroomedPrompt(scrubbed_text)
+
+def kniox_execute(prompt: GroomedPrompt):
+    # This function strictly refuses to compile or pass type-checks 
+    # if fed a raw, un-grooming string.
+    pass
+2. Logprob Entropy Circuit Breakers (Information Theory)When local models (like Qwen or Gemma) get stuck in a repetitive loop or hit a token hallucination cascade, they waste VRAM, spike local CPU/GPU usage, and delay user feedback loops.The Pure TheoryMonitor the Shannon Entropy of the token stream outputted by your local MCP daemon. In structured or highly deterministic code generation, token predictability follows a healthy distribution. If a model starts looping or hallucinating wildly, the entropy ($H$) of the token probabilities shifts dramatically.The Cheap FixSince local inference backends (like Ollama or llama.cpp) can expose the logprobs for individual tokens, write a 5-line windowing function in your daemon router. If the variance or token entropy over the last 15 tokens approaches zero (monotonous looping) or shoots past a chaotic threshold, trip the fail-closed gate instantly.Pythonimport math
+
+def calculate_token_entropy(logprobs: list[float]) -> float:
+    # Cheap mathematical heuristic to gauge model certainty/looping
+    probs = [math.exp(lp) for lp in logprobs]
+    return -sum(p * math.log2(p) for p in probs if p > 0)
+3. State-Charted Prompts (Automata Theory)If your agent reads a sprawling next.md or CLAUDE.md and has full autonomy to choose its next action out of an arbitrary list of steps, it suffers from a massive search space. This results in execution drift and unnecessary frontier model token expenditure.The Pure TheoryConstrain the prompt boundary using a Deterministic Finite State Machine (FSM). The agent is never allowed to look at the entire landscape of your repository at once. Instead, the system prompt injected by the framework is hard-bounded by the current active node of a strict state chart.The Cheap FixIn your project structure, keep next.md structured like a clean state machine.MarkdownAllowed Transitions:
+- If tests pass -> Move to STATE: REFACTOR_STAGE
+- If tests fail -> Move to STATE: DEBUG_LOG_ANALYSIS
+Your kx launcher reads this markdown comment header, and injects only the system capabilities and prompt context allowed for IMPLEMENTING_TESTS. The agent cannot attempt to refactor or run diagnostics out of turn because the framework structurally denies it the context to do so.4. Temporal Decay Context Scopes (Physics / Math)When building a context window for an agent, using heavy vector databases or full semantic similarity searches over a whole codebase is complete overkill for local machine development.The Pure TheoryApply a basic exponential time-decay filter directly to your file system metrics. In active software engineering, files that were modified minutes ago have an orders-of-magnitude higher probability of being relevant than files touched three weeks ago, regardless of semantic similarity scores.The Cheap FixInstead of running an embedding model over your codebase, calculate a hybrid file weight using standard shell stats:$$\text{Weight} = \frac{\text{Locality Score}}{\Delta t}$$Where $\Delta t$ is the time elapsed since the last git commit or file write. Your prompt-grooming layer grabs the 3 highest-weighted files and appends them to the context automatically. It relies purely on the clock and file metadata—costing absolute zero in vector compute.Which of these theoretical constraints—Type-level gating, Entropy monitoring, Finite State tracking, or Temporal context decay—aligns best with how you want to harden the boundary layers between your guest agents and your local machine?
+
+
+1. Capability-Based Security & Least-Privilege Kernel (OS Theory: Capabilities, not ACLs)
+Your existing capability manifest + policy gates with per-component fail-direction is already close to a capability-based OS kernel (think seL4 or Fuchsia).
+Cheap win: Make the manifest the single source of truth for everything an agent/hook can do. Extend it with:
+
+Explicit capabilities like fs:read:project/*, git:diff, exec:safe_subset, model:route:grooming.
+At execution boundary (bwrap or launcher), probe and drop to exactly those caps.
+Gate checks become if not manifest.has_cap("fs:write:next.md") → fail-closed.
+
+Implementation cost: Extend your kernel/manifest.py, add a cheap capabilities.py checker used by launcher + hooks. Use Python's resource or seccomp bindings for real enforcement where possible.
+ROI: Turns "defense-in-depth" into structural impossibility of many classes of accidents. Zero runtime cost if you cache the checked manifest.
+2. Event-Sourced Session Corpus + Temporal Decay (OS: Journaling Filesystem + Working Set)
+Your next.md + feedback JSONL + working memory is great. Make it event-sourced cheaply.
+Cheap enhancement:
+
+Every significant event (groom, hook fire, agent turn, user correction, model dispatch) appends a tiny structured EventRecord (you already sketched this).
+For context building: Apply temporal decay + recency bias. Score files/context by weight = locality_score / (1 + hours_since_last_touch). Pull top-N via simple git log --since + stat (zero LLM cost).
+Nightly/periodic cheap reviewer compacts old events into summaries while preserving raw for audit.
+
+Theory tie-in: Like OS page replacement (LRU + working set) for context windows. Prevents bloat while keeping the "free quality labels" from corrections.
+ROI: Dramatically better context relevance with almost no code; turns your corpus into a self-improving long-term memory.
+3. State-Machine Guided Execution (Automata Theory + OS Process States)
+Agents drift because prompts are open-ended.
+Cheap fix:
+
+
+
+Structure next.md with explicit states/transitions (you already mentioned this)
+<!-- STATE: IMPLEMENT_TESTS -->
+<!-- ALLOWED: run_tests, edit_test_files, commit_draft -->
+<!-- NEXT_POSSIBLE: REFACTOR | DEBUG -->
+
+
+
+
+4. Entropy / Logprob Circuit Breakers + Token Budgeting (Information Theory)
+You mentioned this—ship it immediately.
+Cheap:
+
+In MCP daemon/router: On streaming responses, maintain a short window of logprobs (most backends expose them).
+If entropy drops too low (repetitive loop) or spikes chaotically → early exit + fail-soft to next.md.
+Global per-session token budget in launcher (easy counter).
+
+Theory: Monitors "model health" like OS CPU scheduling or watchdog timers. Prevents resource exhaustion.
+ROI: Immediate protection against common failure modes at near-zero cost.
+
+
+
+5. Passive Correction Harvester + Self-Evolving Pipeline Polish
+Already in your docs—make it automatic and richer.
+Cheap additions:
+
+Post-session or file-watch hook: Detect human edits within ~2-5 min of agent output → capture diff + context as high-quality correction_of label.
+Feed into a dedicated lightweight evolution pipeline: Local reviewer proposes prompt tweaks, stage reorderings, or new manifest capabilities. Store proposals in evolutions/ for human kx approve.
+Add a simple A/B shadow mode for preprocessor stages (run both, log which one led to fewer corrections).
+
+ROI: Compounds your self-evolving loop with zero extra user effort.
+6. kx Doctor + Self-Healing Upgrades
+Expand the existing doctor:
+
+Hardware/manifest reconciliation.
+Protected file checksums (next.md, alignment/, CLAUDE.md) with auto-restore from last-good snapshot.
+Model registry health (missing models, VRAM orphans).
+"Ghost process" cleanup (stale daemon children, locked sockets).
+
+OS analogy: Like fsck + systemd watchdog + package manager health checks.
+Add --auto-fix that uses your existing outbox or simple SQLite queue for safe mutations.
+7. Unix Domain Sockets + Zero-Infra Local Outbox/SQLite
+You already noted UDS—do it. Drops latency and attack surface.
+For outbox: Default to SQLite (WAL mode) for local/dev. Transactional by nature, no Docker needed. Swap to Postgres only for fleet/multi-user later.
+8. Other High-ROI Low-Hanging Fruit
+
+Exact + Semantic Cache (as you sketched): MD5 for exact, tiny embeddings (BGE-micro or similar) for fuzzy. Cache hit rate will be massive for repetitive dev tasks.
+Project-Aware Model Profiles: Aliases like project-coder that the router resolves based on project manifest + recent fitness scores.
+Voice/Generative UX Stub: Whisper → grooming pipeline → existing router. Even crude TUI feedback (Rich/Textual) for status.
+Import/Architecture Linting: Enforce kernel/ isolation in CI/tests. Cheap with pyright or dephell.
+Metrics Dashboard: Streamlit pointed at JSONL + SQLite. Views for token trends, correction rates, router decisions. Weekend project.
+
+Broader Theories to Keep in Mind (as "OS" Prefix)
+
+Capability-Based Security (above) — strongest mental model for governance.
+Event Sourcing + CQRS (light version): All state changes via append-only events; reads are projections (next.md as materialized view).
+Scheduler + Resource Management: Your MCP router is the scheduler. Add priorities, preemption (unload models), affinity (project-specific warm models).
+Microkernel vs Monolith: Your modular monolith with clean ports/adapters is perfect. Kernel (contracts + manifest/router/gate) stays tiny and pure.
+Asymmetric Computing (your core thesis): Deterministic ground-truth first, model last. Extend to all layers (e.g., git for context, regex for redact).
+Observability as First-Class: Every boundary emits EventRecord. "Honest" estimates vs exact measurements is gold.
+Self-Modifying Code with Human Gate (from EvoAgentX ideas): Safe because of protected rails + review loops.
+
+These keep the system simple, observable, and evolvable without bloat. Prioritize in this order for max leverage:
+
+Capability manifest enforcement + state-machine guidance.
+Temporal decay + correction harvester.
+Entropy breakers + enhanced doctor.
+
+
+
+
+Two more cheap wins from forgotten corners
+Plan 9's per-process namespaces are your context-pruning done structurally instead of by filtering. Rather than deciding what to remove from the agent's view, you mount only what it should see — the job's namespace literally doesn't contain the files it has no business touching. Union mounts and 9P are the mechanism; the idea is that context control becomes a property of the constructed namespace, not a hook that strips things after the fact. And content-addressed code (Nix's purely-functional, reproducible builds; Unison's code-identified-by-hash-of-its-AST) generalizes the MD5 prompt cache you already have: content-address your stages, prompts, and manifests and you get perfect caching and reproducibility with cryptographic guarantees, and "it worked on my machine" largely dies.
+If I had to rank by ROI
+Tightly, highest leverage first: (1) define the Job/Process object — it unlocks everything else; (2) formalize the syscall table + adopt the ocap mental model — your security story in one chokepoint using the manifest you already have; (3) supervision trees (steal OTP's shape) — gets self-healing as structure, not patchwork; (4) policy-as-logic via something Rego-shaped — explainable, evolvable gate; (5) the executor-utilization metric (frontier-tokens per unit work) as the north star; (6) structured concurrency for subagent budgets; (7) lottery/proportional-share scheduling for the broker. Everything below that — single-level store, Plan 9 namespaces, content-addressing, tuple spaces — is real value but a tier down in urgency.
+The throughline: you're not missing features, you're missing named primitives. You've reinvented half a dozen OS concepts under ad-hoc names, and the cheapest gain available is to recognize which classic primitive each one is, then steal its mature design instead of evolving your own.

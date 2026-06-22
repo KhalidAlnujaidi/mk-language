@@ -1,0 +1,40 @@
+[project]
+name = "kinox"
+version = "0.0.0"
+description = "A local-first, governed, cost-efficient workspace for running coding agents."
+readme = "README.md"
+requires-python = ">=3.11"
+# Kernel is dependency-light by design (vision §4). Runtime deps are added per
+# product/adapter as they earn their place — never speculatively.
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "pyright>=1.1.380",
+]
+
+# No [build-system]: kinox is an application, not a published library. uv manages
+# the environment; the top-level packages (kernel/ products/ adapters/ daemon/)
+# are imported directly from the repo root. Extraction of `kernel` into a
+# versioned package later is mechanical because of the import-isolation rule.
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+src = ["kernel", "products", "adapters", "daemon", "tests"]
+
+[tool.ruff.lint]
+# Sensible, strict-but-not-noisy default. Expand deliberately.
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "strict"
+include = ["kernel", "products", "adapters", "daemon", "tests"]
+reportMissingTypeStubs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"

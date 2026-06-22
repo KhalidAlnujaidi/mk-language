@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# uv
+# (uv.lock IS committed — it's the hermetic lockfile)
+
+# User projects live here but are not part of the repo (vision §8.4)
+/projects/*
+!/projects/.gitkeep
+
+# Local working memory / session buffers
+/.remember/
+
+# OS / editor
+.DS_Store
+*.swp
