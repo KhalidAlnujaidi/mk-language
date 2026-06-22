@@ -57,7 +57,7 @@ exists; wire it end-to-end:
 Acceptance: TDD tests proving a correction turn marks the prior task corrected
 in the JSONL, and the reviewer stub aggregates corrections; all green.
 
-## GOAL 3 — Self-healing + kx doctor (vision §6 reactive, §9 #4)  [ ]
+## GOAL 3 — Self-healing + kx doctor (vision §6 reactive, §9 #4)  [x] DONE
 - **Watchdog/heartbeat** with backoff restart for the broker daemon (pure,
   unit-testable backoff policy + a thin supervisor).
 - **Resource guardian**: under OOM risk, unload least-recently-used model /
