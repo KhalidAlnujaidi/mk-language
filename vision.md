@@ -11,6 +11,35 @@ file changes rarely and on purpose.
 
 ---
 
+## 0. Rule Zero — search and reuse before you build
+
+**Before writing any non-trivial component, assume it already exists — it does
+~80–90% of the time — and prove it doesn't before building it yourself.** This is
+the precondition for everything below.
+
+*The belief:* everything you need has almost certainly already been written and
+released. The job is to find it and put the pieces together — composition over
+creation, assembled from the ground up — not to invent.
+
+1. **Search first, broadly** — web + package indexes (PyPI, crates.io, npm) +
+   **Claude Code skills/plugins** + **MCP servers** + existing tools. A whole MCP
+   server or published skill can do an entire subsystem; prefer reusing one over
+   writing code at all.
+2. **Clone and harvest** — make a temporary scratch folder (e.g.
+   `/tmp/scout-<task>/`), clone the promising repos into it, and take what fits
+   (adopt, depend on, install a skill/MCP server, or vendor a piece) instead of
+   regenerating it.
+3. **Build only as the last resort**, and when you do, **state what you searched
+   (web, packages, skills, MCP servers) and why nothing fit.** "I assumed nothing
+   existed" is not a valid reason.
+
+The one honest exception is the **kernel** (§4): it stays dependency-light, so
+reuse there means vendoring a minimal piece or pushing the dependency to an outer
+layer (`daemon/`, `products/`, `adapters/`) — never adding a runtime dep to the
+pure core. Reuse-first still governs *which* outside thing you reach for.
+
+---
+
 ## 1. What this is
 
 `kinox` is a single system that sits between a human, a coding agent (Claude

@@ -43,13 +43,41 @@ def menu() -> int:
 
 
 def doctor() -> int:
-    print("kx doctor: stub — hardware/registry/protected-file checks land in M0.")
+    # Cold-start discipline: import kernel modules inside the function body.
+    from kernel.manifest import probe
+
+    m = probe()
+
+    def _fmt(val: object) -> str:
+        return str(val) if val is not None else "unknown"
+
+    fitting = m.fitting_local_models()
+    fitting_str = ", ".join(model.name for model in fitting) if fitting else "none"
+    cloud_str = "yes" if m.cloud_available else "no"
+
+    print("kx doctor — system health")
+    print(f"  cpu:                  {_fmt(m.cpu_count)}")
+    print(f"  ram (gb):             {_fmt(m.ram_gb)}")
+    print(f"  gpu vram (gb):        {_fmt(m.gpu_vram_gb)}")
+    print(f"  fitting local models: {fitting_str}")
+    print(f"  cloud:                {cloud_str}")
     return 0
 
 
 def new(name: str) -> int:
     _reject_reserved(name)
-    print(f"kx new {name!r}: stub — will scaffold projects/{name}/ (next.md + hooks).")
+    # Cold-start discipline: import Path inside the function body.
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent
+    project_dir = repo_root / "projects" / name
+    project_dir.mkdir(parents=True, exist_ok=True)
+    next_md = project_dir / "next.md"
+    next_md.write_text(
+        f"# {name}\n\nNext steps for this project.\n",
+        encoding="utf-8",
+    )
+    print(str(next_md))
     return 0
 
 

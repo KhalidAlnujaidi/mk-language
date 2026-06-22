@@ -1,0 +1,281 @@
+From the start, you need a single pane of glass that makes the system’s health, usage, and evolution visible and debuggable. Think of it as an aircraft cockpit, not a marketing dashboard. It must answer three questions at a glance:
+
+Is it working? (health, performance, safety)
+
+What is it learning? (corrections, model fitness, evolutions)
+
+Where is it heading? (code quality, architectural drift, self-healing progress)
+
+Given your principles (honest observability, self-evolving, asymmetric cost), here’s the concrete dashboard you should build on day one (even before you have many features).
+
+1. Core Data Sources (Already in Your Design)
+EventRecord logs – append‑only JSONL (per project or global) with exact/labeled metrics.
+
+Hardware manifest – ~/.kinox/hardware.json (GPU, VRAM, models loaded).
+
+Correction feedback – harvested from user edits (via file‑watch or post‑session).
+
+Model registry – with fitness scores and capabilities.
+
+Git metadata – commit hashes, branch, test results.
+
+System logs – daemon errors, hook failures, circuit‑breaker events.
+
+2. Dashboard Views (What to Show)
+A. System Health & Resource Bar (Top Row)
+Hardware status: VRAM used / total, loaded models and their footprint, CPU/RAM.
+
+Daemon health: uptime, active tasks, queue depth, recent errors (red/orange/green).
+
+Protected files integrity: checksum drift of next.md, alignment/ (instant alert).
+
+Model readiness: which models are warm, which are cold, fallback activations.
+
+B. Routing & Cost Efficiency (The Asymmetry Theorem in Action)
+Model usage pie chart: % of tasks assigned to each model (local small, local large, cloud).
+
+Token burn: exact local vs. estimated cloud, broken down by intent (grooming, review, code).
+
+Router decision heatmap: for each intent, which model was chosen and why (deterministic vs. fuzzy).
+
+Latency percentiles: p50, p95 for each stage (grooming, inference, hook execution).
+
+C. Quality & Corrections (The Self‑Evolution Signal)
+Correction rate per model: % of tasks that were corrected by the user within 5 minutes.
+
+Correction type breakdown: redaction failures, wrong intent, hallucinated code, etc. (inferred from diff).
+
+Fitness trend: line chart of model fitness scores (for each capability) over the last N sessions.
+
+Top failure patterns: common regex mismatches, prompt over‑verbosity, etc. (tagged by local reviewer).
+
+D. Evolution & Self‑Healing Pipeline
+Improvement proposals: number of pending, accepted, rejected (from meta‑review).
+
+A/B test results: if you run shadow stages, show which variant yields fewer corrections.
+
+Auto‑fix actions: how often kx doctor --auto-fix repaired config drift or missing models.
+
+Regression suite status: golden eval pass/fail for latest proposals.
+
+E. Project & Developer Metrics (for Progression of the Project)
+Test coverage (if you run pytest --cov) and lint warnings over time.
+
+Architecture rule violations – number of imports that break kernel/ isolation (caught by CI).
+
+Scaffolding velocity: new modules created, commits per day, time to first “kx doctor” pass.
+
+Versioned artifact store: last successful eval, last merged proposal.
+
+3. Implementation Cheat Sheet
+Tool Choice
+Streamlit – fastest to build, perfect for MVP. Run it as kx dashboard; read JSONL/SQLite directly.
+
+Alternative: Textual (TUI) – if you want a terminal‑native dashboard that stays in the CLI workflow.
+
+First Iteration (Day 1‑2)
+Write a simple script that reads your feedback.jsonl and logs/*.jsonl, aggregates counts.
+
+Use streamlit with a sidebar for project selection.
+
+Display:
+
+A big “System OK” / “Warning” banner.
+
+Current VRAM and model list.
+
+A table of last 20 EventRecords with correction flag.
+
+Keep it read‑only and refresh every 5 seconds.
+
+Second Iteration (Week 1)
+Add plots (Plotly or Altair) for the charts above.
+
+Inject a “Drill‑down” to see raw logs for a selected event.
+
+Add a “Proposals” tab that shows pending evolution PRs and their eval results.
+
+Long‑Term (after M0)
+Make the dashboard interactive: allow toggling a shadow feature, restarting a model, or running a regression suite.
+
+Embed a trace view (Jaeger integration) to follow a single session from squire to file edit.
+
+
+4. What Makes This Dashboard “Crucial”
+It validates your kernel: You see the asymmetric router working – deterministic tasks don’t touch models; fuzzy ones use the smallest fitting model.
+
+It exposes self‑evolution: You can watch correction rates drop as prompts improve – proof that your “free quality label” loop is effective.
+
+It catches drift early: The architecture linter and protected file checks prevent violations before they become technical debt.
+
+It guides development: By tracking test coverage and scaffolding velocity, you know where to invest next (e.g., more evaluators, better context pruning).
+
+
+
+
+5. Example Layout (ASCII)
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ KX CONTROL PLANE DASHBOARD  (updated: 2026-06-22 14:32)   [SYSTEM: GREEN] │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ VRAM: 12.4/24 GB  |  Models warm: gemma-4b, qwen3-4b  |  Queue: 2 tasks  │
+│ ─────────────────────────────────────────────────────────────────────────── │
+│ ROUTING                     QUALITY                     EVOLUTION          │
+│ ┌──────────────────────┐   ┌──────────────────────┐   ┌─────────────────┐ │
+│ │ Model usage          │   │ Correction rate      │   │ Proposals: 5    │ │
+│ │  ██████ local-small  │   │  ──────────────────  │   │  2 accepted     │ │
+│ │  ████ local-large    │   │  gemma-4b:  12%  ███ │   │  1 pending      │ │
+│ │  ██ cloud            │   │  qwen3-4b:  8%   ██  │   │  2 rejected     │ │
+│ │  █ deterministic     │   │  claude:    5%   █   │   │                 │ │
+│ └──────────────────────┘   └──────────────────────┘   └─────────────────┘ │
+│ ─────────────────────────────────────────────────────────────────────────── │
+│ RECENT EVENTS                                                             │
+│ 14:30  groom  |  qwen3‑4b  |  OK   |  tokens: 345  |  no correction      │
+│ 14:28  review |  claude    |  OK   |  tokens: 2.1k |  corrected (redact) │
+│ 14:25  hook   |  regex     |  FAIL |  retry 2/3   |  fallback to rule    │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+
+6. Final Advice
+Build it before you write the 10th line of business logic. This dashboard will save you countless hours of “what just happened?”.
+
+Keep it simple – use the JSONL logs you’re already writing; no extra telemetry service.
+
+Make it the default output of kx status (like a TUI) so every developer sees it automatically.
+
+Evolve it – as you add self‑healing, add a tab for auto‑fix actions. As you add evolution, show proposal stats.
+
+This dashboard is the observable face of your kernel – it will tell you when your asymmetry thesis is working, when a model is degrading, and when your architecture is staying clean. It turns “progression” from a feeling into a graph.
+
+Evolution Path
+
+M0: Static health + logs viewer + basic charts from JSONL.
+M1: Interactive (filter by project, drill into traces, one-click apply evolution).
+Later: Real-time WebSocket updates from daemon, A/B experiment views, exportable reports, multi-machine fleet overview.
+
+This dashboard becomes the visible manifestation of your immutable kernel principles — capability manifest, honest observability, feedback-driven evolution, and protected rails all in one place. It makes progression tangible and prevents the system from "slowly breaking itself" as warned in the source material.
+Build the data pipeline (EventRecord, structured logging, correction harvester) first, then the dashboard consumes it naturally. Start minimal; the ROI is immediate and compounds as the system grows.
+
+A unified observability dashboard (the "mainframe") is one of the highest-leverage pieces you should build early — ideally in Phase 0/1 alongside the kernel and kx doctor. It turns your append-only EventRecord logs, JSONL files, hardware manifest, and correction harvester into actionable visibility, preventing silent drift and making self-healing/self-evolving loops concrete and measurable.
+Why It’s Crucial From Day One
+
+Detects architectural drift immediately (e.g., router misbehaving, grooming stages regressing, protected files touched).
+Feeds the self-evolving loop with real data (correction rates, model fitness, token trends).
+Enables honest observability — exact measurements where possible, labeled estimates elsewhere.
+Reduces onboarding and debugging friction — kx dashboard or kx status --full becomes your single pane of glass.
+Supports governance — visual audit of rails integrity, safety events, and human overrides.
+
+Recommended Tech & Deployment
+Start with Streamlit (Python-native, lives in the Python governance plane). It’s fast to iterate on, handles dataframes/logs/metrics beautifully, and can be launched via kx dashboard.
+Alternatives/fallbacks:
+
+Rich/Textual TUI for a zero-dependency, terminal-first experience (great for kx doctor --ui).
+Later: Embed a lightweight panel in the NestJS/TS side if you go that route, or add Prometheus + Grafana for fleet scale.
+
+Run it locally (no extra infra), point it at ~/.kinox/logs/, project dirs, and SQLite/JSONL stores. Launch via the kx CLI.
+Core Dashboard Sections (MVP Views)
+Build these as tabs or expandable sections. Prioritize simplicity — start with 4–5 panels using Plotly/Altair for charts and Pandas for tables.
+
+System Health & Manifest (Top Banner / Home)
+Hardware snapshot: GPU(s), VRAM total/free, loaded models, warm-set status.
+Broker/daemon status: Running? Uptime, socket health, recent errors.
+Protected rails integrity: Checksums/hashes for alignment/, next.md templates, CONSTITUTION.md. Green/red + last verified timestamp.
+kx doctor summary with one-click --auto-fix buttons.
+Capability manifest table: Models + verified capabilities + fitness scores.
+
+Project Overview
+List of projects (~/kinox/projects/) with status (active, last activity, next.md progress summary).
+Recent sessions per project.
+Quick links to scaffold new, activate, or view next.md.
+
+Usage & Routing Metrics (Core Progression View)
+Token/cost trends (local vs cloud, by intent/task kind, over time).
+Router decisions heatmap: TaskKind → chosen model/tier + success rate.
+Model fitness evolution chart (how scores improve via feedback loop).
+Warm-set utilization and OOM events.
+Asymmetry adherence: % of work done by deterministic/ground-truth layers vs models.
+
+Grooming & Safety (Squire Layer)
+Preprocessor pipeline stats: Stage timings, secrets redacted, cache hit rate.
+Intent tagging accuracy/distribution.
+Hook firings: Guards triggered, fail-directions respected, bypass attempts.
+Passive correction rate (user edits after agent output).
+
+Feedback & Evolution Loop (Self-Evolving Heart)
+Recent corrections harvested (agent output vs human diff).
+Pending evolution proposals (prompt tweaks, new stages, router changes) with confidence/impact scores.
+Regression eval status on golden set.
+Nightly review summaries from cheap local models.
+
+Logs & Traces (Drill-Down)
+Unified trace viewer (filter by trace ID, session, project).
+Recent EventRecord timeline with search (prompt hash, correction_of, etc.).
+Error patterns and self-healing actions taken.
+
+
+Data Sources (Tie Directly to Your Kernel)
+
+Append-only EventRecord JSONL (your metrics.py).
+SQLite for sessions/feedback/outbox (WAL mode for speed).
+Hardware manifest + model registry TOML/JSON.
+Git-tracked proposals in evolutions/ or similar.
+Traces via OpenTelemetry propagated from squire hooks → broker → tools.
+
+(idea)
+
+Implementation Sketch (Build This Early)
+# In dashboard/app.py or similar
+import streamlit as st
+import pandas as pd
+from pathlib import Path
+
+st.set_page_config(page_title="Kinox Mainframe", layout="wide")
+
+# Sidebar: Quick kx actions
+st.sidebar.button("Run kx doctor --auto-fix")
+
+tab1, tab2, tab3, ... = st.tabs(["Health", "Projects", "Metrics", "Evolution", "Logs"])
+
+with tab1:
+    # Load manifest, show hardware cards, rails status
+    ...
+
+with tab3:
+    df = pd.read_jsonl(log_path)
+    st.line_chart(df.groupby(...).tokens.sum())
+    st.dataframe(router_decisions)
+
+    
+
+
+Textual (from Textualize, paired with Rich) is the strongest starting point from the awesome-tuis list for your Kinox mainframe dashboard.
+Why Textual?
+
+Modern, full-featured TUI framework built on Rich (which you’ll likely use anyway for pretty output, tables, markdown, etc.).
+Supports widgets (tables, tabs, data tables, trees, buttons, inputs, progress bars, etc.), layouts, CSS-like styling (.tcss files), mouse/keyboard events, and even animations — perfect for a "mainframe" dashboard with tabs for Health, Projects, Metrics, Evolution, Logs, etc.
+Python-native — fits seamlessly into your uv + Python governance/ML plane (no language switch).
+Reactive & event-driven like modern web apps (inspired by that), which makes building interactive views (refresh buttons, drill-downs, filters) straightforward.
+Active, well-maintained, and has excellent docs/examples/gallery. Many real-world dashboards and tools are built with it.
+
+Rich alone is great for static/pretty output inside CLIs (kx doctor, logs, etc.), but Textual gives you the full interactive application layer you need for the unified observability dashboard.
+
+Comparison to Other Strong Options in the List
+
+Library/Tool,Language,Best For,Fit for Kinox Dashboard,Recommendation
+Textual,Python,"Full interactive apps, widgets, layouts","Excellent (tabs, live metrics, tables, events)",Best starting point
+Rich,Python,"Beautiful rendering (tables, syntax, panels)",Complementary (use inside Textual),Use together
+Urwid,Python,"Older, lower-level widgets","More boilerplate, less modern",Avoid unless you need something very minimal
+prompt-toolkit,Python,REPLs / advanced input,"Good for CLI prompts, not full dashboards",Secondary
+bubbletea / tview / ratatui,Go,High-perf Go TUIs,Great if you go TS/Go route later,Not for Python stack
+"ncurses-based (htop, glances, etc.)",C / others,System monitors,"Inspirational examples, but low-level",Study for UX ideas
+
+
+
+
+Next Steps
+
+Check the official Textual docs and gallery for dashboard examples.
+Look at projects like Glances, bottom (btop), or WTF in awesome-tuis for dashboard UX inspiration (even if they use different tech).
+Prototype the Health + Metrics tabs first — they give immediate value.
