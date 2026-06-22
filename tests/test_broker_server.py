@@ -5,10 +5,16 @@ suite runs offline — no live Ollama, no Unix socket, no GPU (spec §7). The
 ``call`` transport and the manifest source are injected through ``BrokerConfig``
 so the HTTP surface can be exercised deterministically.
 """
+# fastapi's TestClient (and its httpx return types) are untyped in this env, so
+# resp/.post/.json infer as unknown. That is a third-party typing gap in the
+# test transport, not in daemon/ (which is pyright-clean on its own), so scope
+# the unknown-type rules off for this file only.
+# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from daemon.exec import BackendError, BackendResponse
 from daemon.server import BrokerConfig, create_app
@@ -48,7 +54,7 @@ def test_chat_completions_happy_path_openai_shape(tmp_path: Path) -> None:
         json={"model": "auto", "messages": [{"role": "user", "content": "hi"}]},
     )
     assert resp.status_code == 200
-    body = resp.json()
+    body: Any = resp.json()
     assert body["object"] == "chat.completion"
     assert body["choices"][0]["message"]["role"] == "assistant"
     assert body["choices"][0]["message"]["content"] == "hello there"
@@ -94,7 +100,7 @@ def test_chat_completions_exhausted_returns_503_error_object(tmp_path: Path) -> 
         json={"messages": [{"role": "user", "content": "hi"}]},
     )
     assert resp.status_code == 503
-    body = resp.json()
+    body: Any = resp.json()
     # OpenAI-shape error object, never an unhandled crash (spec §6).
     assert "error" in body
     assert body["error"]["type"] == "broker_chain_exhausted"
@@ -143,7 +149,7 @@ def test_route_returns_chain_without_executing(tmp_path: Path) -> None:
     config = BrokerConfig(probe=_manifest, call=call, metrics_path=tmp_path / "e.jsonl")
     resp = _client(config).get("/broker/route", params={"model": "big"})
     assert resp.status_code == 200
-    body = resp.json()
+    body: Any = resp.json()
     assert [t["model_name"] for t in body["chain"]] == ["big", "small"]
     assert called is False  # /broker/route never executes
 
@@ -153,7 +159,7 @@ def test_route_default_chain_smallest_first(tmp_path: Path) -> None:
         return BackendResponse(content="x")
 
     config = BrokerConfig(probe=_manifest, call=call, metrics_path=tmp_path / "e.jsonl")
-    body = _client(config).get("/broker/route").json()
+    body: Any = _client(config).get("/broker/route").json()
     assert [t["model_name"] for t in body["chain"]] == ["small", "big"]
 
 
@@ -170,7 +176,7 @@ def test_status_shape(tmp_path: Path) -> None:
     )
     resp = client.get("/broker/status")
     assert resp.status_code == 200
-    body = resp.json()
+    body: Any = resp.json()
     assert "manifest" in body
     assert body["manifest"]["gpu_vram_gb"] == 20.0
     assert body["last_tier_used"] == "model:local:small"
@@ -183,6 +189,6 @@ def test_status_empty_when_no_events(tmp_path: Path) -> None:
         return BackendResponse(content="x")
 
     config = BrokerConfig(probe=_manifest, call=call, metrics_path=tmp_path / "e.jsonl")
-    body = _client(config).get("/broker/status").json()
+    body: Any = _client(config).get("/broker/status").json()
     assert body["last_tier_used"] is None
     assert body["recent_events"] == []
