@@ -46,7 +46,7 @@ Brick 1 is just the FastAPI surface + a route/fallback skeleton. Deepen it:
 Acceptance: TDD tests for registry+canary, resource monitor (mocked probes →
 null-honesty), scoring order, and fallback ordering; all green.
 
-## GOAL 2 — Next-turn feedback loop (vision §9 #1, thesis #3)  [ ]
+## GOAL 2 — Next-turn feedback loop (vision §9 #1, thesis #3)  [x] DONE
 The compounding moat. The detector (`kernel.corrections.looks_like_correction`)
 exists; wire it end-to-end:
 - In the adapter/groom path, when the next prompt looks like a correction of the
