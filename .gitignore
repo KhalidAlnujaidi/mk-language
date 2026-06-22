@@ -19,3 +19,6 @@ __pycache__/
 # OS / editor
 .DS_Store
 *.swp
+
+# temp dev-entry helper (not part of the repo)
+enter.sh
