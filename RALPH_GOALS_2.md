@@ -52,7 +52,7 @@ Acceptance: TDD tests for parse/validate/default/reorder; an enabled=false stage
 is skipped; unknown stage name is rejected; all green. (Wire into the pipeline
 only as far as selecting the stage order — keep behavior backward-compatible.)
 
-## GOAL 3 — Agent outbox (vision hard truth #4)  [ ]
+## GOAL 3 — Agent outbox (vision hard truth #4)  [x] DONE
 One durable log that pays three ways. Every intended effect (file edit / shell
 command / tool call) is written to an append-only outbox **before** execution.
 - `OutboxEntry` (id, kind, payload, status: pending|done|failed) + an append-only
