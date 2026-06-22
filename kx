@@ -35,6 +35,7 @@ def _reject_reserved(name: str) -> None:
 def menu() -> int:
     print(BANNER)
     print("  kx doctor          health check")
+    print("  kx status          observability dashboard")
     print("  kx new <project>   scaffold a new project")
     print("  kx <project>       activate an existing project")
     print()
@@ -61,23 +62,44 @@ def doctor() -> int:
     print(f"  gpu vram (gb):        {_fmt(m.gpu_vram_gb)}")
     print(f"  fitting local models: {fitting_str}")
     print(f"  cloud:                {cloud_str}")
+
+    # Reconciliation: expected-vs-runtime drift (no persisted baseline yet, so
+    # expected == present → healthy; protected-file checksums wire in later).
+    from daemon.doctor import diagnose
+    from products.cli.commands import format_doctor_findings
+
+    present = {model.name for model in m.local_models}
+    findings = diagnose(expected_models=present, present_models=present)
+    print(format_doctor_findings(findings))
     return 0
 
 
 def new(name: str) -> int:
     _reject_reserved(name)
-    # Cold-start discipline: import Path inside the function body.
+    # Cold-start discipline: import inside the function body.
     from pathlib import Path
 
+    from products.cli.commands import scaffold_project
+
     repo_root = Path(__file__).resolve().parent
-    project_dir = repo_root / "projects" / name
-    project_dir.mkdir(parents=True, exist_ok=True)
-    next_md = project_dir / "next.md"
-    next_md.write_text(
-        f"# {name}\n\nNext steps for this project.\n",
-        encoding="utf-8",
-    )
-    print(str(next_md))
+    project = scaffold_project(repo_root / "projects", name)
+    print(str(project / "next.md"))
+    return 0
+
+
+def status() -> int:
+    # Cold-start discipline: heavy imports (rich) only on demand.
+    from pathlib import Path
+
+    from rich.console import Console
+
+    from products.dashboard.app import build_summary, render
+
+    metrics = Path.home() / ".kinox" / "broker-events.jsonl"
+    if not metrics.exists():
+        print(f"kx status: no metrics yet at {metrics}")
+        return 0
+    Console().print(render(build_summary(metrics)))
     return 0
 
 
@@ -93,6 +115,8 @@ def main(argv: list[str]) -> int:
     cmd, *rest = argv
     if cmd == "doctor":
         return doctor()
+    if cmd == "status":
+        return status()
     if cmd == "new":
         if not rest:
             print("usage: kx new <project>")
