@@ -17,13 +17,21 @@ file changes rarely and on purpose.
 ~80–90% of the time — and prove it doesn't before building it yourself.** This is
 the precondition for everything below.
 
-1. **Search first** — web + package indexes (PyPI, crates.io, npm) + existing
-   tools / plugins / skills.
+*The belief:* everything you need has almost certainly already been written and
+released. The job is to find it and put the pieces together — composition over
+creation, assembled from the ground up — not to invent.
+
+1. **Search first, broadly** — web + package indexes (PyPI, crates.io, npm) +
+   **Claude Code skills/plugins** + **MCP servers** + existing tools. A whole MCP
+   server or published skill can do an entire subsystem; prefer reusing one over
+   writing code at all.
 2. **Clone and harvest** — make a temporary scratch folder (e.g.
    `/tmp/scout-<task>/`), clone the promising repos into it, and take what fits
-   (adopt, depend on, or vendor a piece) instead of regenerating it.
+   (adopt, depend on, install a skill/MCP server, or vendor a piece) instead of
+   regenerating it.
 3. **Build only as the last resort**, and when you do, **state what you searched
-   and why nothing fit.** "I assumed nothing existed" is not a valid reason.
+   (web, packages, skills, MCP servers) and why nothing fit.** "I assumed nothing
+   existed" is not a valid reason.
 
 The one honest exception is the **kernel** (§4): it stays dependency-light, so
 reuse there means vendoring a minimal piece or pushing the dependency to an outer
