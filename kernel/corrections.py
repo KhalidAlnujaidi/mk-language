@@ -17,7 +17,7 @@ CORRECTION_CUES: frozenset[str] = frozenset(
 MAX_CORRECTION_WORDS: int = 12
 
 # Punctuation characters that may immediately follow a cue at a word boundary.
-_BOUNDARY_CHARS: tuple[str, ...] = (" ", ",", ".", "!")
+_BOUNDARY_CHARS: tuple[str, ...] = (" ", ",", ".", "!", "?", ";")
 
 
 def looks_like_correction(prev_prompt: str, next_prompt: str) -> bool:

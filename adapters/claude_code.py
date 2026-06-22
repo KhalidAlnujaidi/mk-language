@@ -13,6 +13,7 @@ The hook must never block the user because the adapter choked.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import sys
 import uuid
@@ -117,7 +118,13 @@ def handle(
 
         if current_tag is not None:
             # Append a new correction boundary record — never mutate history.
-            correction_record = current_tag.as_correction_of(prior_tag.task_id)
+            # The correction record must have its OWN unique task_id so that no
+            # two records in the event log share an id.
+            correction_record = dataclasses.replace(
+                current_tag,
+                task_id=str(uuid.uuid4()),
+                correction_of=prior_tag.task_id,
+            )
             sink.record(correction_record)
             was_correction = True
 

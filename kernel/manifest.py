@@ -66,8 +66,14 @@ class Manifest:
             for m in self.local_models
             if m.vram_gb_required is not None and m.vram_gb_required <= self.gpu_vram_gb
         ]
+
+        def _vram_key(m: LocalModel) -> float:
+            # vram_gb_required is guaranteed non-None by the list comprehension above.
+            assert m.vram_gb_required is not None
+            return m.vram_gb_required
+
         # Sort by smallest VRAM requirement first.
-        fitting.sort(key=lambda m: m.vram_gb_required)  # type: ignore[arg-type,return-value]
+        fitting.sort(key=_vram_key)
         return tuple(fitting)
 
     def available_tiers(self) -> tuple[Tier, ...]:

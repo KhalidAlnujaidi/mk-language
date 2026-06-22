@@ -17,8 +17,10 @@ FAIL_DIRECTION: FailDirection = FailDirection.SOFT
 
 # Match @<token> where token looks like a path: contains / or . (but not email @word).
 # A path token starts with / (absolute) or contains a / or . separator.
+# The @ must appear at start-of-string or be preceded by whitespace so that
+# email addresses (user@example.com) do NOT match.
 _PATH_MENTION: re.Pattern[str] = re.compile(
-    r"@((?:/[^\s,;\"']*)|(?:[^\s@,;\"']*[/.][^\s,;\"']*))"
+    r"(?:^|(?<=\s))@((?:/[^\s,;\"']*)|(?:[^\s@,;\"']*[/.][^\s,;\"']*))"
 )
 
 

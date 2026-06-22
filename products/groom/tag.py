@@ -52,12 +52,18 @@ def _keyword_tags(text: str) -> tuple[str, ...]:
     """Deterministic keyword scan — emits any tag whose trigger appears in *text*.
 
     Preserves insertion-discovery order and deduplicates.
+
+    Asserts every produced tag is in ``_VALID_TAGS`` so that the trigger map
+    and the valid-tag set cannot silently drift.
     """
     lowered = text.lower()
     seen: set[str] = set()
     tags: list[str] = []
     for trigger, label in _TRIGGERS:
         if trigger in lowered and label not in seen:
+            assert label in _VALID_TAGS, (
+                f"Trigger {trigger!r} maps to {label!r} which is not in _VALID_TAGS"
+            )
             seen.add(label)
             tags.append(label)
     return tuple(tags)
