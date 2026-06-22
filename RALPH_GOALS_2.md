@@ -41,7 +41,7 @@ Acceptance: TDD tests for each command's pure core (a Typer `CliRunner` or the
 underlying functions) — doctor formats findings, new scaffolds the dir, status
 renders; all green. Keep I/O thin; logic testable.
 
-## GOAL 2 — Config-driven groom stages (vision §9 #3)  [ ]
+## GOAL 2 — Config-driven groom stages (vision §9 #3)  [x] DONE
 Make the groom pipeline declarative + reorderable instead of hard-coded.
 - A `config.toml` schema (parsed with stdlib `tomllib`) listing stages in order
   with an `enabled` flag, e.g. `[[stage]] name="redact" enabled=true`.
