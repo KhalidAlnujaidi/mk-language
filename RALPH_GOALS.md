@@ -68,7 +68,7 @@ Acceptance: TDD tests for backoff policy, LRU-unload decision, and doctor
 reconciliation (pure decision functions, no real processes killed in tests);
 all green.
 
-## GOAL 4 — Observability dashboard (vision §9 #5)  [ ]
+## GOAL 4 — Observability dashboard (vision §9 #5)  [x] DONE
 A view over the EventRecord JSONL + `/broker/status` so we stop flying blind:
 per-task model, latency, tokens (labeled exact/estimate), correction rate,
 fallback frequency. Reuse Streamlit or a TUI lib (Rule Zero) — do not hand-roll.
