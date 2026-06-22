@@ -6,6 +6,30 @@ If a decision contradicts one of these, the decision is wrong._
 
 ---
 
+## Rule Zero — search and reuse before you build
+
+_Added 2026-06-22 (deliberate change): the strongest cost-and-quality lever is not
+writing code that already exists. This sits above the three theses because it
+governs whether we build at all._
+
+**Before writing any non-trivial component, assume it already exists — it does
+~80–90% of the time — and prove it doesn't first.** The belief underneath this:
+everything you need has almost certainly already been written and released; the
+job is to find it and assemble the pieces, not to invent — composition over
+creation. Search broadly — the web, package indexes, **Claude Code skills/plugins,
+and MCP servers** (a whole MCP server or published skill can do an entire
+subsystem for us); clone promising repositories into a temporary scratch folder
+and harvest what fits (adopt, depend on, install, or vendor a piece); build from
+scratch only as a last resort, and when you do, state what you searched and why
+nothing fit.
+
+The single exception is **the kernel rule below**: the kernel takes no runtime
+dependency, so reuse there means vendoring a minimal piece or keeping the
+integration in an outer layer — never adding a dep to the pure core. Reuse-first
+still decides *what* you reach for.
+
+---
+
 ## The three theses
 
 1. **Asymmetry — ground truth beats the model.**
