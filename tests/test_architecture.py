@@ -16,13 +16,22 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 KERNEL = REPO_ROOT / "kernel"
+DAEMON = REPO_ROOT / "daemon"
 
 # The kernel must not depend on the outer layers.
 FORBIDDEN_TOPLEVEL = {"products", "adapters", "daemon"}
 
+# The daemon (broker, M1) is an outer layer: it may consume the kernel but must
+# not reach sideways into the other product/adapter layers.
+DAEMON_FORBIDDEN_TOPLEVEL = {"products", "adapters"}
+
 
 def _kernel_modules() -> list[Path]:
     return sorted(KERNEL.rglob("*.py"))
+
+
+def _daemon_modules() -> list[Path]:
+    return sorted(DAEMON.rglob("*.py"))
 
 
 def _imported_toplevels(source: str, path: Path) -> set[str]:
@@ -53,3 +62,25 @@ def test_guardrail_actually_scans_files() -> None:
     # Sanity: if the kernel ever empties out, the test above passes vacuously.
     # This ensures the guardrail is pointed at real files.
     assert _kernel_modules(), "expected at least one module under kernel/"
+
+
+def test_daemon_does_not_import_other_product_layers() -> None:
+    # The broker daemon may import kernel/, but never products/ or adapters/.
+    violations: list[str] = []
+    for path in _daemon_modules():
+        imported = _imported_toplevels(path.read_text(), path)
+        for bad in sorted(imported & DAEMON_FORBIDDEN_TOPLEVEL):
+            rel = path.relative_to(REPO_ROOT)
+            violations.append(f"{rel} imports forbidden top-level package '{bad}'")
+    assert not violations, "daemon layering violated:\n  " + "\n  ".join(violations)
+
+
+def test_daemon_may_import_kernel() -> None:
+    # The broker is a real consumer of the kernel contracts; prove the allowed
+    # direction is actually exercised (and so the reverse-import ban is meaningful).
+    kernel_consumers = [
+        path
+        for path in _daemon_modules()
+        if "kernel" in _imported_toplevels(path.read_text(), path)
+    ]
+    assert kernel_consumers, "expected daemon/ to import kernel/ (consumes contracts)"
