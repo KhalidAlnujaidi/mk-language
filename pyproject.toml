@@ -8,11 +8,25 @@ requires-python = ">=3.11"
 # product/adapter as they earn their place — never speculatively.
 dependencies = []
 
+[project.optional-dependencies]
+# The broker daemon (M1) — the kernel stays stdlib-only; these live in the
+# outer layer only and are NEVER imported from kernel/ (see test_architecture.py).
+daemon = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "httpx>=0.27",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
     "pyright>=1.1.380",
+    # The daemon extra is exercised by the test suite, so it must be present in
+    # the dev environment for tests/type-checks to run.
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "httpx>=0.27",
 ]
 
 # No [build-system]: kinox is an application, not a published library. uv manages
