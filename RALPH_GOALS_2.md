@@ -62,7 +62,7 @@ Acceptance: TDD tests — append then mark_done round-trips; `pending()` returns
 only unfinished entries (the crash-replay source); append-only (history never
 rewritten); all green.
 
-## GOAL 4 — Self-evolving proposer, GATED (vision §6 proactive)  [ ]
+## GOAL 4 — Self-evolving proposer, GATED (vision §6 proactive)  [x] DONE
 The capstone the §8.3 harness unlocks. A governed observe → propose → validate →
 gate cycle (deterministic stub — NO live LLM, NO autonomous code merge):
 - **observe**: aggregate corrections via `products.feedback.review`.
