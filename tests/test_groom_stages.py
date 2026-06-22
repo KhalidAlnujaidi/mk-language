@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from kernel.contracts import FailDirection
-from products.groom.stages import redact, expand, context
+from products.groom.stages import context, expand, redact
 
 
 def test_redact_replaces_anthropic_key_and_reports_kind() -> None:
