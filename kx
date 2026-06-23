@@ -7,8 +7,9 @@ Three laws (vision §8.2, braindump):
   kx new <project>   → scaffold a project under projects/<name>/
   kx <project>       → activate an existing project's framework
 
-`kin` is the reserved admin/core scope — blacklisted as a project name and
-hard-rejected at every entry point (the "keyword jail").
+`kin` is the reserved admin/core scope — blacklisted as a project *name*
+(`kx new kin` is rejected), but `kx kin` opens it: it hands off to the `kin`
+admin entry, a repo-rooted admin subshell. The name stays jailed; the door opens.
 
 Cold-start discipline: no heavy imports, no config processing on bare `kx`.
 This is a stub. Subcommands print intent and exit 0 until M0 wires them up.
@@ -38,6 +39,7 @@ def menu() -> int:
     print("  kx status          observability dashboard")
     print("  kx new <project>   scaffold a new project")
     print("  kx <project>       activate an existing project")
+    print("  kin                admin scope — subshell at the repo root")
     print()
     print("  (stub — subcommands are wired up incrementally; see vision.md §8)")
     return 0
@@ -104,7 +106,15 @@ def status() -> int:
 
 
 def activate(name: str) -> int:
-    _reject_reserved(name)
+    if name in RESERVED:
+        # `kin` is the admin/core scope, not a project — hand off to the kin
+        # admin entry (drops you into a repo-rooted admin subshell) rather than
+        # rejecting. `kx new kin` is still jailed; only this activate path opens.
+        import os
+        from pathlib import Path
+
+        kin = Path(__file__).resolve().parent / "kin"
+        os.execv(str(kin), [str(kin)])  # replaces this process; never returns
     print(f"kx {name!r}: stub — will activate the project framework.")
     return 0
 

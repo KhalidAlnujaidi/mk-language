@@ -31,6 +31,19 @@ def test_kx_new_rejects_reserved_scope() -> None:
     assert out.returncode == 2
 
 
+def test_kx_kin_enters_admin_scope_not_rejected() -> None:
+    # `kx kin` is no longer a rejection — it hands off to the kin admin scope.
+    out = subprocess.run(
+        [sys.executable, str(REPO / "kx"), "kin"],
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+        timeout=30,
+    )
+    assert out.returncode == 0
+    assert "admin" in out.stdout.lower()
+
+
 def test_kx_new_scaffolds_next_md(tmp_path: Path) -> None:
     name = "demoproj"
     out = subprocess.run(
