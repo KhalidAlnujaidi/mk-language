@@ -149,8 +149,6 @@ daemon = [
 dashboard = [
     { name = "rich" },
 ]
-    { name = "uvicorn" },
-]
 
 [package.dev-dependencies]
 dev = [
@@ -171,9 +169,6 @@ requires-dist = [
     { name = "uvicorn", marker = "extra == 'daemon'", specifier = ">=0.29" },
 ]
 provides-extras = ["daemon", "dashboard"]
-    { name = "uvicorn", marker = "extra == 'daemon'", specifier = ">=0.29" },
-]
-provides-extras = ["daemon"]
 
 [package.metadata.requires-dev]
 dev = [
