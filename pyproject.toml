@@ -52,6 +52,9 @@ dev = [
 target-version = "py311"
 line-length = 88
 src = ["kernel", "products", "adapters", "daemon", "tests"]
+# `kx` is an extensionless Python entrypoint — lint it too so its code is gated
+# (it isn't picked up by the default *.py discovery). `kin` is bash, not Python.
+extend-include = ["kx"]
 
 [tool.ruff.lint]
 # Sensible, strict-but-not-noisy default. Expand deliberately.
@@ -60,7 +63,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.pyright]
 pythonVersion = "3.11"
 typeCheckingMode = "strict"
-include = ["kernel", "products", "adapters", "daemon", "tests"]
+include = ["kernel", "products", "adapters", "daemon", "tests", "kx"]
 reportMissingTypeStubs = false
 
 [tool.pytest.ini_options]

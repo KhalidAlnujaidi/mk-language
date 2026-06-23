@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-"""kx — the kinox entrypoint.
+"""kx — the kinox entrypoint (vision §8.2).
 
-Three laws (vision §8.2, braindump):
-  kx                 → banner + interactive menu
+  kx                 → the launcher hub (the default working environment)
   kx doctor          → health check
-  kx new <project>   → scaffold a project under projects/<name>/
-  kx <project>       → activate an existing project's framework
+  kx status          → observability dashboard
+  kx new <project>   → scaffold a project under projects/<name>/, then enter it
+  kx <project>       → activate an existing project (enter a Claude Code session)
+  kx kin             → enter the admin scope at the repo root
 
-`kin` is the reserved admin/core scope — blacklisted as a project *name*
-(`kx new kin` is rejected), but `kx kin` opens it: it hands off to the `kin`
-admin entry, which launches a governed Claude Code session at the repo root
-(`kin shell` gives a plain admin subshell). The name stays jailed; the door opens.
+Bare `kx` opens the hub: pick the admin scope / a project / an action, and it
+runs, then you return to the hub. Naming a scope (`kx kin`, `kx <project>`)
+skips the hub and execve's the `kin` launcher straight into Claude Code.
+`kin` is the reserved admin/core scope — jailed as a project *name*
+(`kx new kin` is rejected) but openable via `kx kin`.
 
-Cold-start discipline: no heavy imports, no config processing on bare `kx`.
-This is a stub. Subcommands print intent and exit 0 until M0 wires them up.
+Cold-start discipline: stdlib-only imports at module load; heavy imports
+(rich/questionary/kernel/products) live inside the functions that use them.
 """
 
 import os
@@ -123,9 +125,6 @@ def _enter(cwd: object, *, scope: str | None) -> int:
     entry (admin, new project, activate) shares ONE launcher. ``scope=None`` is
     the admin scope (repo root). Replaces this process; does not return.
     """
-    import os
-    from pathlib import Path
-
     kin = Path(__file__).resolve().parent / "kin"
     env = dict(os.environ)
     if scope is not None:
@@ -138,9 +137,7 @@ def _enter(cwd: object, *, scope: str | None) -> int:
 
 def new(name: str) -> int:
     _reject_reserved(name)
-    # Cold-start discipline: import inside the function body.
-    from pathlib import Path
-
+    # Cold-start discipline: heavy imports inside the function body.
     from products.cli.commands import scaffold_project
 
     repo_root = Path(__file__).resolve().parent
@@ -152,11 +149,8 @@ def new(name: str) -> int:
 
 def status() -> int:
     # Cold-start discipline: heavy imports (rich) only on demand.
-    from pathlib import Path
-
-    from rich.console import Console
-
     from products.dashboard.app import build_summary, render
+    from rich.console import Console
 
     metrics = Path.home() / ".kinox" / "broker-events.jsonl"
     if not metrics.exists():
@@ -167,8 +161,6 @@ def status() -> int:
 
 
 def activate(name: str) -> int:
-    from pathlib import Path
-
     repo_root = Path(__file__).resolve().parent
     if name in RESERVED:
         # `kin` is the admin/core scope, not a project — open the admin scope
