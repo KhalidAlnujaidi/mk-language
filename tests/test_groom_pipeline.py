@@ -30,6 +30,66 @@ def test_tag_emits_keyword_tags_and_a_tier() -> None:
     assert r.tier.is_model and r.tier.where == "local"
 
 
+def test_tag_uses_model_tags_when_provided() -> None:
+    def model_tag(tier: object, text: str) -> tuple[str, ...] | None:
+        return ("refactor",)
+
+    r = tagmod.tag(
+        "anything at all",
+        _m(local_models=(LocalModel("s", 4.0),)),
+        model_tag=model_tag,
+    )
+    assert r.tags == ("refactor",)
+    assert r.tier.is_model and r.tier.where == "local"
+
+
+def test_tag_falls_soft_to_keywords_when_model_returns_none() -> None:
+    def model_tag(tier: object, text: str) -> tuple[str, ...] | None:
+        return None  # model declined / failed → SOFT fallback to keywords
+
+    r = tagmod.tag(
+        "please fix the error",
+        _m(local_models=(LocalModel("s", 4.0),)),
+        model_tag=model_tag,
+    )
+    assert "bug" in r.tags
+
+
+def test_tag_skips_model_for_deterministic_tier() -> None:
+    calls: list[object] = []
+
+    def model_tag(tier: object, text: str) -> tuple[str, ...] | None:
+        calls.append(tier)
+        return ("refactor",)
+
+    # No local models and no cloud → router yields the deterministic tier, so the
+    # model tagger must NOT be invoked (no model to offload to).
+    r = tagmod.tag(
+        "fix bug",
+        _m(gpu_vram_gb=None, cloud_available=False),
+        model_tag=model_tag,
+    )
+    assert calls == []
+    assert "bug" in r.tags
+
+
+def test_pipeline_uses_model_tag_when_provided(tmp_path: Path) -> None:
+    sink = MetricsSink(tmp_path / "e.jsonl")
+
+    def model_tag(tier: object, text: str) -> tuple[str, ...] | None:
+        return ("refactor",)
+
+    ann = groom(
+        "anything",
+        manifest=_m(local_models=(LocalModel("s", 4.0),)),
+        sink=sink,
+        cwd=tmp_path,
+        task_id="t",
+        model_tag=model_tag,
+    )
+    assert any("refactor" in line for line in ann.lines)
+
+
 def test_pipeline_redacts_and_records_an_event_per_stage(tmp_path: Path) -> None:
     sink = MetricsSink(tmp_path / "e.jsonl")
     ann = groom(

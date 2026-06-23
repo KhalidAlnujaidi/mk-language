@@ -24,7 +24,9 @@ from kernel.contracts import Annotation, EventRecord
 from kernel.corrections import looks_like_correction
 from kernel.manifest import probe
 from kernel.metrics import MetricsSink
+from products.groom.model_tag import broker_tag
 from products.groom.pipeline import groom
+from products.groom.tag import ModelTag
 
 # ---------------------------------------------------------------------------
 # State paths
@@ -58,6 +60,7 @@ def handle(
     cwd: Path,
     sink: MetricsSink,
     last_prompt: str | None,
+    model_tag: ModelTag | None = None,
 ) -> AdapterResult:
     """Process one ``UserPromptSubmit`` hook payload.
 
@@ -77,6 +80,10 @@ def handle(
     last_prompt:
         The prompt from the immediately preceding turn, or ``None`` if there
         was no prior turn.
+    model_tag:
+        Optional broker-backed tagger for the fuzzy tag step (offload to a local
+        model). ``None`` keeps the deterministic keyword tagging (tests inject
+        ``None``; the live ``main`` injects ``broker_tag()``).
 
     Returns
     -------
@@ -104,7 +111,14 @@ def handle(
 
     manifest = probe()
     task_id = str(uuid.uuid4())
-    annotation = groom(prompt, manifest=manifest, sink=sink, cwd=cwd, task_id=task_id)
+    annotation = groom(
+        prompt,
+        manifest=manifest,
+        sink=sink,
+        cwd=cwd,
+        task_id=task_id,
+        model_tag=model_tag,
+    )
 
     was_correction = False
     if is_correction and prior_tag is not None:
@@ -153,7 +167,15 @@ def main(stdin_text: str) -> int:
         sink = MetricsSink(EVENTS_PATH)
         cwd = Path.cwd()
 
-        result = handle(hook_input, cwd=cwd, sink=sink, last_prompt=last_prompt)
+        # Live path offloads the fuzzy tag step to a local model via the broker;
+        # broker_tag fails soft to keyword tags if no backend answers.
+        result = handle(
+            hook_input,
+            cwd=cwd,
+            sink=sink,
+            last_prompt=last_prompt,
+            model_tag=broker_tag(),
+        )
 
         # Persist the current prompt for the next turn.
         prompt = str(hook_input["prompt"])
