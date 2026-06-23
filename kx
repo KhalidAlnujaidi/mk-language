@@ -45,21 +45,31 @@ def _reject_reserved(name: str) -> None:
         sys.exit(2)
 
 
-def hub() -> int:
+def hub(role: str | None = None) -> int:
     """The default working environment: the launcher hub (vision §8.2).
 
-    Lists the admin scope + every project + actions; pick one and it runs, then
-    you return here. Launches claude by SPAWNING the ``kin`` script as a
-    subprocess (so control returns when claude exits), unlike the direct
-    shortcuts which execve into it.
+    Opens with a login layer (pick admin / developer) unless *role* is given,
+    checks GitHub (fetch + notify), then lists the scopes + actions for that
+    role. Launches claude by SPAWNING the ``kin`` script as a subprocess (so
+    control returns when claude exits), unlike the direct shortcuts which execve.
     """
     from products.cli.commands import scaffold_project
-    from products.launcher.app import make_kin_spawner
-    from products.launcher.app import run as run_hub
+    from products.launcher import sync
+    from products.launcher.app import make_kin_spawner, run, select_role
 
     repo_root = Path(__file__).resolve().parent
     projects_dir = repo_root / "projects"
-    spawn = make_kin_spawner(repo_root / "kin")
+    is_tty = sys.stdin.isatty()
+
+    # Login layer: explicit arg → inherited env → interactive pick → admin.
+    if role is None:
+        role = os.environ.get("KINOX_ROLE") or (select_role() if is_tty else "admin")
+
+    # Startup sync: check origin only when interactive (no network in tests/pipes).
+    if is_tty:
+        print(sync.startup_status())
+
+    spawn = make_kin_spawner(repo_root / "kin", role=role)
 
     def open_dashboard() -> None:
         status()
@@ -77,14 +87,23 @@ def hub() -> int:
             print(f"  {exc}")
             return None
 
-    return run_hub(
+    return run(
         projects_dir=projects_dir,
         spawn=spawn,
-        is_tty=sys.stdin.isatty(),
+        role=role,
+        is_tty=is_tty,
         dashboard=open_dashboard,
         doctor=run_doctor,
         new_project=new_project,
     )
+
+
+def update_cmd() -> int:
+    """`kx update` — fetch origin and fast-forward when behind, clean, and safe."""
+    from products.launcher import sync
+
+    print(sync.update())
+    return 0
 
 
 def doctor() -> int:
@@ -182,6 +201,10 @@ def main(argv: list[str]) -> int:
         return doctor()
     if cmd == "status":
         return status()
+    if cmd == "update":
+        return update_cmd()
+    if cmd == "dev":
+        return hub(role="developer")  # the hub as a developer (projects only)
     if cmd == "new":
         if not rest:
             print("usage: kx new <project>")

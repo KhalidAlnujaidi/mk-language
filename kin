@@ -36,6 +36,7 @@ bold() { printf '\033[1m%s\033[0m\n' "$*"; }
 case "$MODE" in
   shell | sh) PLAN="admin shell" ;;
   hub)        PLAN="open the kinox launcher hub (kx)" ;;
+  dev)        PLAN="open the kinox launcher hub as developer (kx dev)" ;;
   *)          PLAN="launch Claude Code (claude ${KIN_CLAUDE_ARGS})" ;;
 esac
 
@@ -59,7 +60,12 @@ enter_env() {
 # Hub mode (the default): hand off to the launcher, which IS the default working
 # environment. kx does its own TTY-gating (non-interactive -> prints the menu
 # plan and exits 0), so we exec it unconditionally. Activate the venv first so
-# kx's outer-layer deps (rich / questionary) import.
+# kx's outer-layer deps (rich / questionary) import. `dev` opens the hub as a
+# developer (`kx dev`); bare hub lets you pick the role.
+if [ "$MODE" = "dev" ]; then
+  enter_env
+  exec "$REPO_DIR/kx" dev
+fi
 if [ "$MODE" = "hub" ]; then
   enter_env
   exec "$REPO_DIR/kx"

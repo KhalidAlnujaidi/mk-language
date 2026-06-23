@@ -11,6 +11,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
+import products.launcher.app as app
+import pytest
 from products.launcher.app import make_kin_spawner, run
 from products.launcher.menu import MenuItem
 
@@ -124,6 +126,45 @@ def test_new_project_cancelled_does_not_spawn(tmp_path: Path) -> None:
     )
     assert rc == 0
     assert spawned == []
+
+
+def test_non_tty_plan_reflects_role(tmp_path: Path, capsys: object) -> None:
+    projects = _projects(tmp_path, "alpha")
+    run(projects_dir=projects, spawn=lambda _: None, is_tty=False, role="admin")
+    admin_out = capsys.readouterr().out  # type: ignore[attr-defined]
+    assert "admin scope" in admin_out
+
+    run(projects_dir=projects, spawn=lambda _: None, is_tty=False, role="developer")
+    dev_out = capsys.readouterr().out  # type: ignore[attr-defined]
+    assert "admin scope" not in dev_out  # developer never sees the admin row
+    assert "alpha" in dev_out
+
+
+def test_make_kin_spawner_sets_role_env() -> None:
+    calls: list[tuple[list[str], dict[str, str]]] = []
+    spawn = make_kin_spawner(
+        Path("/repo/kin"),
+        role="developer",
+        runner=lambda argv, env: calls.append((argv, env)),
+    )
+    spawn(Path("/repo/projects/alpha"))
+    _, env = calls[0]
+    assert env["KINOX_ROLE"] == "developer"
+    assert env["KIN_SCOPE_DIR"] == "/repo/projects/alpha"
+
+
+def test_text_role_select() -> None:
+    assert app.text_role_select(prompt=lambda _: "1") == "admin"
+    assert app.text_role_select(prompt=lambda _: "2") == "developer"
+    assert app.text_role_select(prompt=lambda _: "") == "admin"  # default
+    assert app.text_role_select(prompt=lambda _: "9") == "admin"  # out of range
+
+
+def test_select_role_falls_back_to_text_without_questionary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(app, "_import_questionary", lambda: None)
+    assert app.select_role(prompt=lambda _: "2") == "developer"
 
 
 def test_make_kin_spawner_runs_kin_claude_with_scope_env() -> None:
