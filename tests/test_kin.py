@@ -87,3 +87,11 @@ def test_kin_claude_args_are_overridable() -> None:
     assert out.returncode == 0
     assert "claude --model opus --foo" in out.stdout
     assert "dangerously" not in out.stdout  # the override replaces the default flag
+
+
+def test_kin_honors_scope_dir_override(tmp_path: Path) -> None:
+    # kx new/activate point kin at a project dir via KIN_SCOPE_DIR; the launch
+    # happens there, not at the repo root.
+    out = _run_kin(env={"KIN_SCOPE_DIR": str(tmp_path)})
+    assert out.returncode == 0
+    assert str(tmp_path) in out.stdout
