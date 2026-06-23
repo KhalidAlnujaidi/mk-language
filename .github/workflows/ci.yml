@@ -17,7 +17,9 @@ jobs:
           enable-cache: true
 
       - name: Sync environment
-        run: uv sync
+        # --all-extras installs the daemon (fastapi/uvicorn/httpx/psutil) and
+        # dashboard (rich) optional deps the broker + dashboard tests/types need.
+        run: uv sync --all-extras
 
       - name: Lint (ruff)
         run: uv run ruff check .

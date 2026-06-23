@@ -22,3 +22,9 @@ __pycache__/
 
 # temp dev-entry helper (not part of the repo)
 enter.sh
+
+# Ralph loop / session scaffolding (not framework)
+RALPH_GOAL*.md
+day1_dev.txt
+gate-experiment-plan.md
+.claude/ralph-loop.local.md
