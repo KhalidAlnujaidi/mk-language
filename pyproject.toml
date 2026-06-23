@@ -20,20 +20,27 @@ daemon = [
 dashboard = [
     "rich>=15.0.0",
 ]
+# The launcher hub (the default working environment) — questionary for the
+# arrow-key menu selection, rich (above) for the header. Outer-layer only.
+tui = [
+    "questionary>=2.0",
+    "rich>=15.0.0",
+]
 
 [dependency-groups]
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
     "pyright>=1.1.380",
-    # The daemon + dashboard extras are exercised by the test suite (and by
-    # `kx status`/the resource monitor), so they must be present in the dev
+    # The daemon + dashboard + tui extras are exercised by the test suite (and by
+    # `kx status` / the launcher hub), so they must be present in the dev
     # environment for a plain `uv sync` (e.g. install.sh) to leave it working.
     "fastapi>=0.110",
     "uvicorn>=0.29",
     "httpx>=0.27",
     "psutil>=7.2.2",
     "rich>=15.0.0",
+    "questionary>=2.0",
 ]
 
 # No [build-system]: kinox is an application, not a published library. uv manages
