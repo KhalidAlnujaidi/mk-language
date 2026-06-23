@@ -18,6 +18,8 @@ from typing import Any
 
 from daemon.exec import BackendError, BackendResponse
 from daemon.resources import ResourceSnapshot
+
+from daemon.exec import BackendError, BackendResponse
 from daemon.server import BrokerConfig, create_app
 from fastapi.testclient import TestClient
 from kernel.contracts import Tier
@@ -56,6 +58,7 @@ def test_chat_completions_happy_path_openai_shape(tmp_path: Path) -> None:
     )
     assert resp.status_code == 200
     body: Any = resp.json()
+    body = resp.json()
     assert body["object"] == "chat.completion"
     assert body["choices"][0]["message"]["role"] == "assistant"
     assert body["choices"][0]["message"]["content"] == "hello there"
@@ -102,6 +105,7 @@ def test_chat_completions_exhausted_returns_503_error_object(tmp_path: Path) -> 
     )
     assert resp.status_code == 503
     body: Any = resp.json()
+    body = resp.json()
     # OpenAI-shape error object, never an unhandled crash (spec §6).
     assert "error" in body
     assert body["error"]["type"] == "broker_chain_exhausted"
@@ -151,6 +155,7 @@ def test_route_returns_chain_without_executing(tmp_path: Path) -> None:
     resp = _client(config).get("/broker/route", params={"model": "big"})
     assert resp.status_code == 200
     body: Any = resp.json()
+    body = resp.json()
     assert [t["model_name"] for t in body["chain"]] == ["big", "small"]
     assert called is False  # /broker/route never executes
 
@@ -161,6 +166,7 @@ def test_route_default_chain_smallest_first(tmp_path: Path) -> None:
 
     config = BrokerConfig(probe=_manifest, call=call, metrics_path=tmp_path / "e.jsonl")
     body: Any = _client(config).get("/broker/route").json()
+    body = _client(config).get("/broker/route").json()
     assert [t["model_name"] for t in body["chain"]] == ["small", "big"]
 
 
@@ -178,6 +184,7 @@ def test_status_shape(tmp_path: Path) -> None:
     resp = client.get("/broker/status")
     assert resp.status_code == 200
     body: Any = resp.json()
+    body = resp.json()
     assert "manifest" in body
     assert body["manifest"]["gpu_vram_gb"] == 20.0
     assert body["last_tier_used"] == "model:local:small"
@@ -215,3 +222,6 @@ def test_status_includes_live_resource_snapshot(tmp_path: Path) -> None:
     body: Any = _client(config).get("/broker/status").json()
     assert body["resources"]["vram_total_gb"] == 24.0
     assert body["resources"]["vram_free_gb"] == 20.0  # derived total - used
+    body = _client(config).get("/broker/status").json()
+    assert body["last_tier_used"] is None
+    assert body["recent_events"] == []
