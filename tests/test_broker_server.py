@@ -5,12 +5,19 @@ suite runs offline — no live Ollama, no Unix socket, no GPU (spec §7). The
 ``call`` transport and the manifest source are injected through ``BrokerConfig``
 so the HTTP surface can be exercised deterministically.
 """
+# fastapi's TestClient (and its httpx return types) are untyped in this env, so
+# resp/.post/.json infer as unknown. That is a third-party typing gap in the
+# test transport, not in daemon/ (which is pyright-clean on its own), so scope
+# the unknown-type rules off for this file only.
+# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from daemon.exec import BackendError, BackendResponse
+from daemon.resources import ResourceSnapshot
 from daemon.server import BrokerConfig, create_app
 from fastapi.testclient import TestClient
 from kernel.contracts import Tier
@@ -48,6 +55,7 @@ def test_chat_completions_happy_path_openai_shape(tmp_path: Path) -> None:
         json={"model": "auto", "messages": [{"role": "user", "content": "hi"}]},
     )
     assert resp.status_code == 200
+    body: Any = resp.json()
     body = resp.json()
     assert body["object"] == "chat.completion"
     assert body["choices"][0]["message"]["role"] == "assistant"
@@ -94,6 +102,7 @@ def test_chat_completions_exhausted_returns_503_error_object(tmp_path: Path) -> 
         json={"messages": [{"role": "user", "content": "hi"}]},
     )
     assert resp.status_code == 503
+    body: Any = resp.json()
     body = resp.json()
     # OpenAI-shape error object, never an unhandled crash (spec §6).
     assert "error" in body
@@ -143,6 +152,7 @@ def test_route_returns_chain_without_executing(tmp_path: Path) -> None:
     config = BrokerConfig(probe=_manifest, call=call, metrics_path=tmp_path / "e.jsonl")
     resp = _client(config).get("/broker/route", params={"model": "big"})
     assert resp.status_code == 200
+    body: Any = resp.json()
     body = resp.json()
     assert [t["model_name"] for t in body["chain"]] == ["big", "small"]
     assert called is False  # /broker/route never executes
@@ -153,6 +163,7 @@ def test_route_default_chain_smallest_first(tmp_path: Path) -> None:
         return BackendResponse(content="x")
 
     config = BrokerConfig(probe=_manifest, call=call, metrics_path=tmp_path / "e.jsonl")
+    body: Any = _client(config).get("/broker/route").json()
     body = _client(config).get("/broker/route").json()
     assert [t["model_name"] for t in body["chain"]] == ["small", "big"]
 
@@ -170,6 +181,7 @@ def test_status_shape(tmp_path: Path) -> None:
     )
     resp = client.get("/broker/status")
     assert resp.status_code == 200
+    body: Any = resp.json()
     body = resp.json()
     assert "manifest" in body
     assert body["manifest"]["gpu_vram_gb"] == 20.0
@@ -183,6 +195,31 @@ def test_status_empty_when_no_events(tmp_path: Path) -> None:
         return BackendResponse(content="x")
 
     config = BrokerConfig(probe=_manifest, call=call, metrics_path=tmp_path / "e.jsonl")
+    body: Any = _client(config).get("/broker/status").json()
+    assert body["last_tier_used"] is None
+    assert body["recent_events"] == []
+
+
+def test_status_includes_live_resource_snapshot(tmp_path: Path) -> None:
+    async def call(tier: Tier, messages: list[dict[str, str]]) -> BackendResponse:
+        return BackendResponse(content="x")
+
+    snap = ResourceSnapshot(
+        vram_total_gb=24.0,
+        vram_used_gb=4.0,
+        cpu_percent=5.0,
+        ram_used_gb=8.0,
+        ram_total_gb=64.0,
+    )
+    config = BrokerConfig(
+        probe=_manifest,
+        call=call,
+        metrics_path=tmp_path / "e.jsonl",
+        resources=lambda: snap,
+    )
+    body: Any = _client(config).get("/broker/status").json()
+    assert body["resources"]["vram_total_gb"] == 24.0
+    assert body["resources"]["vram_free_gb"] == 20.0  # derived total - used
     body = _client(config).get("/broker/status").json()
     assert body["last_tier_used"] is None
     assert body["recent_events"] == []

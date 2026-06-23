@@ -47,6 +47,8 @@ from daemon.exec import (
     tier_label,
 )
 from daemon.fallback import build_chain
+from daemon.resources import ResourceSnapshot
+from daemon.resources import sample as default_resources
 from daemon.serializer import Serializer
 
 # How many recent events ``/broker/status`` surfaces.
@@ -78,6 +80,7 @@ class BrokerConfig:
     probe: Callable[[], Manifest] = default_probe
     call: Call | None = None
     metrics_path: Path = _DEFAULT_METRICS_PATH
+    resources: Callable[[], ResourceSnapshot] = default_resources
 
 
 # --- Untyped-JSON coercion helpers -------------------------------------------
@@ -255,6 +258,7 @@ def create_app(config: BrokerConfig | None = None) -> FastAPI:
     async def broker_status() -> dict[str, object]:  # pyright: ignore[reportUnusedFunction]
         manifest = cfg.probe()
         recent = sink.read_all()[-_RECENT_EVENTS_LIMIT:]
+        snap = cfg.resources()
         return {
             "manifest": {
                 "cpu_count": manifest.cpu_count,
@@ -262,6 +266,14 @@ def create_app(config: BrokerConfig | None = None) -> FastAPI:
                 "gpu_vram_gb": manifest.gpu_vram_gb,
                 "local_models": [m.name for m in manifest.local_models],
                 "cloud_available": manifest.cloud_available,
+            },
+            "resources": {
+                "vram_total_gb": snap.vram_total_gb,
+                "vram_used_gb": snap.vram_used_gb,
+                "vram_free_gb": snap.vram_free_gb,  # derived property
+                "cpu_percent": snap.cpu_percent,
+                "ram_used_gb": snap.ram_used_gb,
+                "ram_total_gb": snap.ram_total_gb,
             },
             "last_tier_used": state["last_tier_used"],
             "recent_events": [dataclasses.asdict(e) for e in recent],
