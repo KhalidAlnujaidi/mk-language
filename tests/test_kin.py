@@ -52,3 +52,38 @@ def test_kin_resolves_repo_root_through_a_symlink(tmp_path: Path) -> None:
     )
     assert out.returncode == 0
     assert str(REPO) in out.stdout  # resolved through the symlink, not tmp_path
+
+
+def _run_kin(
+    *args: str, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    full_env = {**os.environ, **(env or {})}
+    return subprocess.run(
+        [str(KIN), *args],
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,  # no TTY → prints the plan and exits, never launches
+        cwd="/tmp",
+        timeout=30,
+        env=full_env,
+    )
+
+
+def test_kin_default_plan_launches_claude_with_skip_permissions() -> None:
+    out = _run_kin()
+    assert out.returncode == 0
+    assert "claude --dangerously-skip-permissions" in out.stdout
+
+
+def test_kin_shell_mode_plans_an_admin_shell() -> None:
+    out = _run_kin("shell")
+    assert out.returncode == 0
+    assert "admin shell" in out.stdout.lower()
+    assert "claude" not in out.stdout.lower()  # shell mode does not launch claude
+
+
+def test_kin_claude_args_are_overridable() -> None:
+    out = _run_kin(env={"KIN_CLAUDE_ARGS": "--model opus --foo"})
+    assert out.returncode == 0
+    assert "claude --model opus --foo" in out.stdout
+    assert "dangerously" not in out.stdout  # the override replaces the default flag

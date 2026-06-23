@@ -9,7 +9,8 @@ Three laws (vision §8.2, braindump):
 
 `kin` is the reserved admin/core scope — blacklisted as a project *name*
 (`kx new kin` is rejected), but `kx kin` opens it: it hands off to the `kin`
-admin entry, a repo-rooted admin subshell. The name stays jailed; the door opens.
+admin entry, which launches a governed Claude Code session at the repo root
+(`kin shell` gives a plain admin subshell). The name stays jailed; the door opens.
 
 Cold-start discipline: no heavy imports, no config processing on bare `kx`.
 This is a stub. Subcommands print intent and exit 0 until M0 wires them up.
@@ -39,7 +40,7 @@ def menu() -> int:
     print("  kx status          observability dashboard")
     print("  kx new <project>   scaffold a new project")
     print("  kx <project>       activate an existing project")
-    print("  kin                admin scope — subshell at the repo root")
+    print("  kin                admin scope — Claude Code session at repo root")
     print()
     print("  (stub — subcommands are wired up incrementally; see vision.md §8)")
     return 0
