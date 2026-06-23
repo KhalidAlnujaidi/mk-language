@@ -19,21 +19,14 @@ against ``httpx.MockTransport`` — no network, no live server.
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 
 import httpx
 from kernel.contracts import Tier
+from kernel.jsonutil import as_dict, as_int
+from kernel.manifest import local_backend_urls
 
 from daemon.exec import BackendError, BackendResponse, Call, Messages
-
-# Default OpenAI-compatible endpoints, one per local backend. Each is overridable
-# via env so a remote/relocated server can be pointed at without code changes.
-_DEFAULT_BASE_URLS: dict[str, tuple[str, str]] = {
-    "ollama": ("KINOX_OLLAMA_URL", "http://127.0.0.1:11434/v1"),
-    "vllm": ("KINOX_VLLM_URL", "http://127.0.0.1:8000/v1"),
-    "llamacpp": ("KINOX_LLAMACPP_URL", "http://127.0.0.1:8080/v1"),
-}
 
 _DEFAULT_TIMEOUT_S = 120.0
 
@@ -48,30 +41,13 @@ class BackendSpec:
 
 
 def backend_specs() -> dict[str, BackendSpec]:
-    """The configured local-backend table, base URLs read from env at call time.
+    """The configured local-backend table, one spec per backend.
 
-    Read lazily (not at import) so tests and operators can override the endpoints
-    via env without re-importing the module.
+    Base URLs come from :func:`kernel.manifest.local_backend_urls` — the single
+    source of truth the probe also reads, so dispatch and discovery always agree
+    on where each backend lives. All local backends report exact token counts.
     """
-    return {
-        name: BackendSpec(os.environ.get(env_var, default))
-        for name, (env_var, default) in _DEFAULT_BASE_URLS.items()
-    }
-
-
-# --- Untyped-JSON coercion helpers (shared with the server) -------------------
-
-
-def as_dict(value: object) -> dict[str, object]:
-    """Return *value* as a ``dict[str, object]`` if it is a mapping, else ``{}``."""
-    if isinstance(value, dict):
-        return {str(k): v for k, v in value.items()}  # type: ignore[misc]
-    return {}
-
-
-def as_int(value: object) -> int | None:
-    """Return *value* as an ``int`` if it is one (and not a bool), else ``None``."""
-    return value if isinstance(value, int) and not isinstance(value, bool) else None
+    return {name: BackendSpec(url) for name, url in local_backend_urls().items()}
 
 
 # --- The generic OpenAI-compatible transport ---------------------------------

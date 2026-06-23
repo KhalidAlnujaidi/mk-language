@@ -200,6 +200,18 @@ def test_status_empty_when_no_events(tmp_path: Path) -> None:
     assert body["recent_events"] == []
 
 
+def test_status_lists_backend_per_local_model(tmp_path: Path) -> None:
+    async def call(tier: Tier, messages: list[dict[str, str]]) -> BackendResponse:
+        return BackendResponse(content="x")
+
+    config = BrokerConfig(probe=_manifest, call=call, metrics_path=tmp_path / "e.jsonl")
+    body: Any = _client(config).get("/broker/status").json()
+    models = body["manifest"]["local_models"]
+    # Each entry carries its serving backend so the operator sees a multi-backend
+    # manifest (the _manifest fixture's models default to ollama).
+    assert {"name": "small", "backend": "ollama"} in models
+
+
 def test_status_includes_live_resource_snapshot(tmp_path: Path) -> None:
     async def call(tier: Tier, messages: list[dict[str, str]]) -> BackendResponse:
         return BackendResponse(content="x")

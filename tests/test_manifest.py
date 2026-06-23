@@ -7,8 +7,14 @@ hits the real machine but only asserts that ``probe()`` does not raise.
 
 from __future__ import annotations
 
+import pytest
 from kernel.contracts import Tier
-from kernel.manifest import CLOUD_DEFAULT_MODEL, LocalModel, Manifest
+from kernel.manifest import (
+    CLOUD_DEFAULT_MODEL,
+    LocalModel,
+    Manifest,
+    local_backend_urls,
+)
 
 
 def _m(**kw: object) -> Manifest:
@@ -90,6 +96,80 @@ def test_cloud_tier_backend_is_anthropic() -> None:
     with_cloud = _m(cloud_available=True).available_tiers()
     cloud = next(t for t in with_cloud if t.where == "cloud")
     assert cloud.backend == "anthropic"
+
+
+# --- Canonical local-backend endpoints (single source of truth) --------------
+
+
+def test_local_backend_urls_has_the_three_local_backends() -> None:
+    urls = local_backend_urls()
+    assert set(urls) == {"ollama", "vllm", "llamacpp"}
+    assert urls["ollama"].endswith(":11434/v1")
+    assert urls["vllm"].endswith(":8000/v1")
+    assert urls["llamacpp"].endswith(":8080/v1")
+
+
+def test_local_backend_urls_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("KINOX_LLAMACPP_URL", "http://box:9999/v1")
+    assert local_backend_urls()["llamacpp"] == "http://box:9999/v1"
+
+
+# --- Probing OpenAI-compatible /v1/models endpoints (via probe()) ------------
+#
+# The HTTP fetch is the injectable seam (``_http_get_json``); these tests drive
+# the public ``probe()`` with that seam stubbed, so no live server is touched and
+# discovery + backend-tagging + merging are all exercised end-to-end.
+
+
+def test_probe_discovers_and_tags_openai_backends(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import kernel.manifest as mod
+
+    monkeypatch.setattr(mod, "_probe_local_models", lambda: ())
+    urls = mod.local_backend_urls()
+
+    def fake_get(url: str, *, timeout: float) -> object | None:
+        if url == urls["vllm"].rstrip("/") + "/models":
+            return {"data": [{"id": "qwen-7b"}, {"id": "llama-8b"}]}
+        return None  # llama.cpp not running
+
+    monkeypatch.setattr(mod, "_http_get_json", fake_get)
+    tagged = {(m.name, m.backend) for m in mod.probe().local_models}
+    assert ("qwen-7b", "vllm") in tagged
+    assert ("llama-8b", "vllm") in tagged
+    assert all(b != "llamacpp" for _, b in tagged)  # unreachable contributes none
+
+
+def test_probe_unreachable_backends_contribute_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import kernel.manifest as mod
+
+    monkeypatch.setattr(
+        mod, "_probe_local_models", lambda: (LocalModel("ollama-m", None, "ollama"),)
+    )
+
+    def unreachable(url: str, *, timeout: float) -> object | None:
+        return None
+
+    monkeypatch.setattr(mod, "_http_get_json", unreachable)
+    backends = {m.backend for m in mod.probe().local_models}
+    assert backends == {"ollama"}  # only the CLI-probed Ollama survives
+
+
+def test_probe_malformed_backend_response_contributes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import kernel.manifest as mod
+
+    monkeypatch.setattr(mod, "_probe_local_models", lambda: ())
+
+    def malformed(url: str, *, timeout: float) -> object:
+        return {"unexpected": "shape"}
+
+    monkeypatch.setattr(mod, "_http_get_json", malformed)
+    assert mod.probe().local_models == ()
 
 
 def test_probe_never_raises_and_returns_a_manifest() -> None:
