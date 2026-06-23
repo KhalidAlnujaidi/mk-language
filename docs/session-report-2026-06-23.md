@@ -52,6 +52,21 @@ New product `products/launcher/`. Rule-Zero reuse: `questionary` (selection) +
 - Disable: `rtk init -g --uninstall` (RTK) / empty the `UserPromptSubmit` array
   or restore a backup (groom).
 
+### 3b. Hook logging (observability) — ACTIVE
+Both hooks are routed through transparent tee-loggers
+(`tools/hooklog/{groom,rtk}-hook-logged.sh`) that dump raw stdin (input) + raw
+stdout (output) per invocation, while passing stdout through unchanged and
+preserving the exit code (verified identical to the raw commands).
+- Dump files: `~/.kinox/hooklog/groom.log`, `~/.kinox/hooklog/rtk.log`.
+- Watch live: `tail -f ~/.kinox/hooklog/groom.log ~/.kinox/hooklog/rtk.log`.
+- Each record = timestamp + `--- INPUT ---` block + `--- OUTPUT ---` block.
+  Example: groom logs your prompt JSON → emitted tags/context; rtk logs the Bash
+  payload → its rewrite (`git status` → `rtk git status` via `updatedInput`).
+- **Turn OFF** (revert to raw, no logging): point the two commands in
+  `~/.claude/settings.json` back at
+  `PYTHONPATH=/home/khalid/kinox /home/khalid/kinox/.venv/bin/python -m adapters.claude_code`
+  and `rtk hook claude` — or restore `~/.claude/settings.json.bak-hooklog-*`.
+
 ### 4. Parked candidate models (evaluated, not adopted)
 Read each card; **none are context compressors**:
 - **BAAI/bge-reranker-v2-m3** — relevance reranker (0.6B, Apache-2.0).
