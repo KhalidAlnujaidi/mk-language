@@ -88,6 +88,25 @@ def test_model_tier_rejects_unknown_location() -> None:
         Tier.model("gpt-x", where="mars")  # type: ignore[arg-type]
 
 
+def test_model_tier_defaults_to_ollama_backend() -> None:
+    # Backward compatible: an untagged local tier is Ollama (today's only backend).
+    tier = Tier.model("qwen2.5-coder:7b", where="local")
+    assert tier.backend == "ollama"
+
+
+def test_model_tier_carries_an_explicit_backend() -> None:
+    # M2: a tier knows which backend serves it so the transport can be chosen.
+    tier = Tier.model("qwen2.5-coder:7b", where="local", backend="vllm")
+    assert tier.backend == "vllm"
+    assert tier.where == "local"
+    assert tier.model_name == "qwen2.5-coder:7b"
+
+
+def test_deterministic_tier_has_no_backend() -> None:
+    # Plain code runs nowhere — no backend to name.
+    assert Tier.deterministic().backend is None
+
+
 # --- Annotation: passthrough vs the single halt path -------------------------
 
 

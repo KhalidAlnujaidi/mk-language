@@ -26,14 +26,17 @@ CLOUD_DEFAULT_MODEL: str = "claude-haiku-4-5"
 
 @dataclass(frozen=True)
 class LocalModel:
-    """A model served locally (e.g. via ollama).
+    """A model served locally (e.g. via ollama, vLLM, or llama.cpp).
 
     ``vram_gb_required`` is ``None`` when we have no information about the
-    model's memory footprint — we never fabricate a value of ``0``.
+    model's memory footprint — we never fabricate a value of ``0``. ``backend``
+    names the serving backend so the broker can dispatch to the right transport;
+    it defaults to ``"ollama"`` (the only local backend before M2).
     """
 
     name: str
     vram_gb_required: float | None
+    backend: str = "ollama"
 
 
 @dataclass(frozen=True)
@@ -88,9 +91,11 @@ class Manifest:
         """
         tiers: list[Tier] = [Tier.deterministic()]
         for m in self.fitting_local_models():
-            tiers.append(Tier.model(m.name, where="local"))
+            tiers.append(Tier.model(m.name, where="local", backend=m.backend))
         if self.cloud_available:
-            tiers.append(Tier.model(CLOUD_DEFAULT_MODEL, where="cloud"))
+            tiers.append(
+                Tier.model(CLOUD_DEFAULT_MODEL, where="cloud", backend="anthropic")
+            )
         return tuple(tiers)
 
 

@@ -90,23 +90,32 @@ _VALID_LOCATIONS: frozenset[str] = frozenset({"local", "cloud"})
 
 @dataclass(frozen=True)
 class Tier:
-    """Where and how a task gets executed. Construct via the factories."""
+    """Where and how a task gets executed. Construct via the factories.
+
+    ``backend`` names which serving backend handles a model tier (``"ollama"`` /
+    ``"vllm"`` / ``"llamacpp"`` locally, ``"anthropic"`` for cloud) so the broker
+    can dispatch to the right transport. It is ``None`` for the deterministic
+    tier, which runs no model at all.
+    """
 
     is_model: bool
     model_name: str | None = None
     where: Location | None = None
+    backend: str | None = None
 
     @classmethod
     def deterministic(cls) -> Tier:
         """Plain code — no model (thesis #1)."""
-        return cls(is_model=False, model_name=None, where=None)
+        return cls(is_model=False, model_name=None, where=None, backend=None)
 
     @classmethod
-    def model(cls, name: str, *, where: Location) -> Tier:
+    def model(cls, name: str, *, where: Location, backend: str = "ollama") -> Tier:
+        """A model tier on *where*, served by *backend* (defaults to Ollama —
+        the only local backend before M2, so untagged callers stay correct)."""
         if where not in _VALID_LOCATIONS:
             valid = sorted(_VALID_LOCATIONS)
             raise ValueError(f"unknown location {where!r}; want one of {valid}")
-        return cls(is_model=True, model_name=name, where=where)
+        return cls(is_model=True, model_name=name, where=where, backend=backend)
 
 
 # --- Annotation (the groom output; the only halt path) -----------------------
