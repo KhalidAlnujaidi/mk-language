@@ -17,9 +17,11 @@ uv sync
 BIN_DIR="${HOME}/.local/bin"
 if [ -d "$BIN_DIR" ]; then
   ln -sf "$REPO_DIR/kx" "$BIN_DIR/kx"
-  echo "==> Linked kx -> $BIN_DIR/kx"
+  ln -sf "$REPO_DIR/kin" "$BIN_DIR/kin"
+  echo "==> Linked kx  -> $BIN_DIR/kx"
+  echo "==> Linked kin -> $BIN_DIR/kin"
 else
-  echo "==> $BIN_DIR not found; run kinox via ./kx from $REPO_DIR"
+  echo "==> $BIN_DIR not found; run kinox via ./kx and ./kin from $REPO_DIR"
 fi
 
 echo "==> Done. Try: ./kx"
