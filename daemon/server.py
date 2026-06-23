@@ -13,8 +13,9 @@ Exposes an OpenAI-compatible surface over a Unix domain socket:
 
 The backend transport and manifest source are injected via ``BrokerConfig`` so
 the app is fully testable offline (``TestClient`` + a stub backend). The real
-transport is :func:`ollama_call`, an httpx client against Ollama's OpenAI-
-compatible ``/v1/chat/completions`` endpoint.
+transport is :func:`daemon.backends.make_dispatch`, which routes each tier to its
+backend's OpenAI-compatible ``/v1/chat/completions`` endpoint (Ollama, vLLM, or
+llama.cpp).
 
 Launch (production):
     uvicorn daemon.server:app --uds /run/kinox/broker.sock
@@ -30,17 +31,15 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-import httpx
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
-from kernel.contracts import EventRecord, Tier
+from kernel.contracts import EventRecord
 from kernel.manifest import Manifest
 from kernel.manifest import probe as default_probe
 from kernel.metrics import MetricsSink
 
+from daemon.backends import as_dict, make_dispatch
 from daemon.exec import (
-    BackendError,
-    BackendResponse,
     Call,
     ChainExhausted,
     execute,
@@ -53,9 +52,6 @@ from daemon.serializer import Serializer
 
 # How many recent events ``/broker/status`` surfaces.
 _RECENT_EVENTS_LIMIT = 20
-
-# Default Ollama endpoint (OpenAI-compatible). Overridable via env.
-_OLLAMA_BASE_URL = os.environ.get("KINOX_OLLAMA_URL", "http://127.0.0.1:11434/v1")
 
 # Default Unix socket path for the broker.
 DEFAULT_SOCKET_PATH = os.environ.get("KINOX_BROKER_SOCKET", "/run/kinox/broker.sock")
@@ -81,62 +77,6 @@ class BrokerConfig:
     call: Call | None = None
     metrics_path: Path = _DEFAULT_METRICS_PATH
     resources: Callable[[], ResourceSnapshot] = default_resources
-
-
-# --- Untyped-JSON coercion helpers -------------------------------------------
-
-
-def _as_dict(value: object) -> dict[str, object]:
-    """Return *value* as a ``dict[str, object]`` if it is a mapping, else ``{}``."""
-    if isinstance(value, dict):
-        return {str(k): v for k, v in value.items()}  # type: ignore[misc]
-    return {}
-
-
-def _as_int(value: object) -> int | None:
-    """Return *value* as an ``int`` if it is one (and not a bool), else ``None``."""
-    return value if isinstance(value, int) and not isinstance(value, bool) else None
-
-
-# --- Real backend transport (httpx → Ollama) ---------------------------------
-
-
-async def ollama_call(tier: Tier, messages: list[dict[str, str]]) -> BackendResponse:
-    """Execute one chat completion against Ollama's OpenAI-compatible endpoint.
-
-    Maps transport/timeout/5xx failures to a retryable ``BackendError`` so the
-    executor falls through to the next tier. Tokens are read exact from Ollama's
-    ``usage`` block (``tokens_exact=True``); a cloud tier would instead estimate.
-    """
-    payload = {"model": tier.model_name, "messages": messages, "stream": False}
-    try:
-        async with httpx.AsyncClient(
-            base_url=_OLLAMA_BASE_URL, timeout=120.0
-        ) as client:
-            resp = await client.post("/chat/completions", json=payload)
-            if resp.status_code >= 500:
-                raise BackendError(f"ollama {resp.status_code}", retryable=True)
-            resp.raise_for_status()
-            data: dict[str, object] = resp.json()
-    except BackendError:
-        raise
-    except httpx.HTTPError as exc:
-        raise BackendError(f"ollama transport: {exc}", retryable=True) from exc
-
-    raw_choices = data.get("choices")
-    if not isinstance(raw_choices, list) or not raw_choices:
-        raise BackendError("ollama returned no choices", retryable=True)
-    choices: list[object] = list(raw_choices)  # type: ignore[arg-type]  # untyped JSON
-    first = _as_dict(choices[0])
-    message = _as_dict(first.get("message"))
-    content = message.get("content", "")
-    usage = _as_dict(data.get("usage"))
-    return BackendResponse(
-        content=str(content),
-        tokens_in=_as_int(usage.get("prompt_tokens")),
-        tokens_out=_as_int(usage.get("completion_tokens")),
-        tokens_exact=tier.where == "local",
-    )
 
 
 # --- OpenAI-shape helpers -----------------------------------------------------
@@ -175,9 +115,9 @@ def _coerce_messages(raw: object) -> list[dict[str, str]]:
     items: list[object] = list(raw)  # type: ignore[arg-type]  # JSON list is untyped
     out: list[dict[str, str]] = []
     for item in items:
-        as_dict = _as_dict(item)
-        if as_dict:
-            out.append({k: str(v) for k, v in as_dict.items()})
+        coerced = as_dict(item)
+        if coerced:
+            out.append({k: str(v) for k, v in coerced.items()})
     return out
 
 
@@ -195,7 +135,7 @@ def _error_response(message: str, *, type_: str, status: int) -> JSONResponse:
 def create_app(config: BrokerConfig | None = None) -> FastAPI:
     """Build the broker FastAPI app wired from *config* (injectable for tests)."""
     cfg = config or BrokerConfig()
-    call: Call = cfg.call or ollama_call
+    call: Call = cfg.call or make_dispatch()
     serializer = Serializer()
     sink = MetricsSink(cfg.metrics_path)
     # In-memory record of the last tier used (status debug aid; null until first call).
