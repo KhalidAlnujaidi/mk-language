@@ -26,18 +26,18 @@ VENV="$REPO_DIR/.venv"
 # The directory the session opens in. Defaults to the repo root (admin scope);
 # `kx new`/`kx <project>` point it at a project dir via KIN_SCOPE_DIR.
 SCOPE_DIR="${KIN_SCOPE_DIR:-$REPO_DIR}"
-MODE="${1:-claude}"                                       # bare kin -> claude
+MODE="${1:-hub}"                                          # bare kin -> the hub
 # ${VAR-default} (no colon): default only when UNSET, so KIN_CLAUDE_ARGS="" wins.
 KIN_CLAUDE_ARGS="${KIN_CLAUDE_ARGS---dangerously-skip-permissions}"
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
 
 # What this invocation will do (printed always; the non-interactive contract).
-if [ "$MODE" = "shell" ] || [ "$MODE" = "sh" ]; then
-  PLAN="admin shell"
-else
-  PLAN="launch Claude Code (claude ${KIN_CLAUDE_ARGS})"
-fi
+case "$MODE" in
+  shell | sh) PLAN="admin shell" ;;
+  hub)        PLAN="open the kinox launcher hub (kx)" ;;
+  *)          PLAN="launch Claude Code (claude ${KIN_CLAUDE_ARGS})" ;;
+esac
 
 bold "==> kin · admin scope"
 echo "    root:  $REPO_DIR"
@@ -45,7 +45,28 @@ echo "    scope: $SCOPE_DIR"
 echo "    plan:  $PLAN"
 [ -d "$VENV" ] || echo "    (no .venv — run '$REPO_DIR/install.sh' first)" >&2
 
-# No TTY → report the plan and exit; never hang or launch an automated caller.
+# Activate the venv + repo env in THIS process, ready to exec into it.
+# Opens in SCOPE_DIR (repo root for admin; the project dir for kx new/activate).
+enter_env() {
+  # shellcheck disable=SC1091
+  [ -d "$VENV" ] && source "$VENV/bin/activate"
+  export PATH="$REPO_DIR:$PATH"
+  export KINOX_HOME="$REPO_DIR"
+  export KINOX_ADMIN=1
+  cd "$SCOPE_DIR" || exit 1
+}
+
+# Hub mode (the default): hand off to the launcher, which IS the default working
+# environment. kx does its own TTY-gating (non-interactive -> prints the menu
+# plan and exits 0), so we exec it unconditionally. Activate the venv first so
+# kx's outer-layer deps (rich / questionary) import.
+if [ "$MODE" = "hub" ]; then
+  enter_env
+  exec "$REPO_DIR/kx"
+fi
+
+# Non-hub modes (claude / shell): no TTY → report the plan and exit; never hang
+# or launch an automated caller.
 if [ ! -t 0 ]; then
   echo "    (non-interactive: not entering the admin scope)"
   exit 0
@@ -69,17 +90,6 @@ echo "Type 'exit' to leave."
 RCEOF
   bash --rcfile "$rc" -i || true
   rm -f "$rc"
-}
-
-# Activate the venv + repo env in THIS process, ready to exec claude into it.
-# Opens in SCOPE_DIR (repo root for admin; the project dir for kx new/activate).
-enter_env() {
-  # shellcheck disable=SC1091
-  [ -d "$VENV" ] && source "$VENV/bin/activate"
-  export PATH="$REPO_DIR:$PATH"
-  export KINOX_HOME="$REPO_DIR"
-  export KINOX_ADMIN=1
-  cd "$SCOPE_DIR" || exit 1
 }
 
 if [ "$MODE" = "shell" ] || [ "$MODE" = "sh" ]; then

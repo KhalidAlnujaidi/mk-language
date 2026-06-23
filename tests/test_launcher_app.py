@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from products.launcher.app import run
+from products.launcher.app import make_kin_spawner, run
 from products.launcher.menu import MenuItem
 
 
@@ -124,6 +124,21 @@ def test_new_project_cancelled_does_not_spawn(tmp_path: Path) -> None:
     )
     assert rc == 0
     assert spawned == []
+
+
+def test_make_kin_spawner_runs_kin_claude_with_scope_env() -> None:
+    # The hub launches by SPAWNING `kin claude` (subprocess, so it returns) with
+    # the scope passed via KIN_SCOPE_DIR — not execve.
+    calls: list[tuple[list[str], dict[str, str]]] = []
+    spawn = make_kin_spawner(
+        Path("/repo/kin"),
+        runner=lambda argv, env: calls.append((argv, env)),
+    )
+    spawn(Path("/repo/projects/alpha"))
+    assert len(calls) == 1
+    argv, env = calls[0]
+    assert argv == ["/repo/kin", "claude"]  # claude mode = direct launch, no hub
+    assert env["KIN_SCOPE_DIR"] == "/repo/projects/alpha"
 
 
 def test_non_tty_prints_plan_and_never_selects(

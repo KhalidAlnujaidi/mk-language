@@ -16,16 +16,25 @@ Cold-start discipline: no heavy imports, no config processing on bare `kx`.
 This is a stub. Subcommands print intent and exit 0 until M0 wires them up.
 """
 
+import os
 import sys
+from pathlib import Path
 
 RESERVED = {"kin"}
-BANNER = r"""
-  _    _
- | | _(_)_ __   _____  __
- | |/ / | '_ \ / _ \ \/ /   local-first · governed · cost-efficient
- |   <| | | | | (_) >  <    workspace for coding agents
- |_|\_\_|_| |_|\___/_/\_\
-"""
+
+
+def _ensure_venv() -> None:
+    """Re-exec under the repo's venv interpreter so outer-layer deps import.
+
+    Running ``kx`` cold (via the ~/.local/bin symlink) uses the system python,
+    which lacks rich/questionary. If a ``.venv`` exists and we're not already in
+    it, replace this process with the venv python running the same args. A no-op
+    under tests (pytest already runs as the venv interpreter).
+    """
+    repo = Path(__file__).resolve().parent
+    venv_py = repo / ".venv" / "bin" / "python3"
+    if venv_py.exists() and Path(sys.executable).resolve() != venv_py.resolve():
+        os.execv(str(venv_py), [str(venv_py), str(repo / "kx"), *sys.argv[1:]])
 
 
 def _reject_reserved(name: str) -> None:
@@ -34,16 +43,46 @@ def _reject_reserved(name: str) -> None:
         sys.exit(2)
 
 
-def menu() -> int:
-    print(BANNER)
-    print("  kx doctor          health check")
-    print("  kx status          observability dashboard")
-    print("  kx new <project>   scaffold a new project")
-    print("  kx <project>       activate an existing project")
-    print("  kin                admin scope — Claude Code session at repo root")
-    print()
-    print("  (stub — subcommands are wired up incrementally; see vision.md §8)")
-    return 0
+def hub() -> int:
+    """The default working environment: the launcher hub (vision §8.2).
+
+    Lists the admin scope + every project + actions; pick one and it runs, then
+    you return here. Launches claude by SPAWNING the ``kin`` script as a
+    subprocess (so control returns when claude exits), unlike the direct
+    shortcuts which execve into it.
+    """
+    from products.cli.commands import scaffold_project
+    from products.launcher.app import make_kin_spawner
+    from products.launcher.app import run as run_hub
+
+    repo_root = Path(__file__).resolve().parent
+    projects_dir = repo_root / "projects"
+    spawn = make_kin_spawner(repo_root / "kin")
+
+    def open_dashboard() -> None:
+        status()
+
+    def run_doctor() -> None:
+        doctor()
+
+    def new_project() -> "Path | None":
+        name = input("new project name> ").strip()
+        if not name:
+            return None
+        try:
+            return scaffold_project(projects_dir, name)
+        except ValueError as exc:  # reserved name (kin)
+            print(f"  {exc}")
+            return None
+
+    return run_hub(
+        projects_dir=projects_dir,
+        spawn=spawn,
+        is_tty=sys.stdin.isatty(),
+        dashboard=open_dashboard,
+        doctor=run_doctor,
+        new_project=new_project,
+    )
 
 
 def doctor() -> int:
@@ -92,7 +131,9 @@ def _enter(cwd: object, *, scope: str | None) -> int:
     if scope is not None:
         env["KIN_SCOPE_DIR"] = str(cwd)
     sys.stdout.flush()  # flush prints before execve replaces the process
-    os.execve(str(kin), [str(kin)], env)
+    # "claude" mode = launch straight into Claude Code (bypass the hub). A named
+    # scope means you want to be IN it, not back at the menu.
+    os.execve(str(kin), [str(kin), "claude"], env)
 
 
 def new(name: str) -> int:
@@ -143,7 +184,7 @@ def activate(name: str) -> int:
 
 def main(argv: list[str]) -> int:
     if not argv:
-        return menu()
+        return hub()  # bare `kx` → the default working environment (the hub)
     cmd, *rest = argv
     if cmd == "doctor":
         return doctor()
@@ -158,4 +199,5 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
+    _ensure_venv()  # ensure outer-layer deps (rich/questionary) are importable
     raise SystemExit(main(sys.argv[1:]))

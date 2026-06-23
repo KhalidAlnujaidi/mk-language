@@ -69,8 +69,16 @@ def _run_kin(
     )
 
 
-def test_kin_default_plan_launches_claude_with_skip_permissions() -> None:
+def test_kin_bare_delegates_to_the_launcher_hub() -> None:
+    # Bare `kin` is now the default working environment: it hands off to the hub
+    # (kx). With no TTY the hub prints the menu as a plan and exits 0.
     out = _run_kin()
+    assert out.returncode == 0
+    assert "hub" in out.stdout.lower()  # delegated to the launcher hub
+
+
+def test_kin_claude_mode_launches_claude_with_skip_permissions() -> None:
+    out = _run_kin("claude")
     assert out.returncode == 0
     assert "claude --dangerously-skip-permissions" in out.stdout
 
@@ -83,15 +91,15 @@ def test_kin_shell_mode_plans_an_admin_shell() -> None:
 
 
 def test_kin_claude_args_are_overridable() -> None:
-    out = _run_kin(env={"KIN_CLAUDE_ARGS": "--model opus --foo"})
+    out = _run_kin("claude", env={"KIN_CLAUDE_ARGS": "--model opus --foo"})
     assert out.returncode == 0
     assert "claude --model opus --foo" in out.stdout
     assert "dangerously" not in out.stdout  # the override replaces the default flag
 
 
-def test_kin_honors_scope_dir_override(tmp_path: Path) -> None:
+def test_kin_claude_mode_honors_scope_dir_override(tmp_path: Path) -> None:
     # kx new/activate point kin at a project dir via KIN_SCOPE_DIR; the launch
     # happens there, not at the repo root.
-    out = _run_kin(env={"KIN_SCOPE_DIR": str(tmp_path)})
+    out = _run_kin("claude", env={"KIN_SCOPE_DIR": str(tmp_path)})
     assert out.returncode == 0
     assert str(tmp_path) in out.stdout

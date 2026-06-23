@@ -12,6 +12,21 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 
 
+def test_bare_kx_opens_the_launcher_hub_non_interactively() -> None:
+    # Bare `kx` is now the default working environment (the hub). With no TTY it
+    # prints the menu as a plan and exits 0 — never blocking on selection.
+    out = subprocess.run(
+        [sys.executable, str(REPO / "kx")],
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+        timeout=30,
+    )
+    assert out.returncode == 0
+    assert "hub" in out.stdout.lower()  # launcher hub plan, not the old static menu
+    assert "kin" in out.stdout.lower()  # the admin row is listed
+
+
 def test_kx_doctor_runs_and_reports() -> None:
     out = subprocess.run(
         [sys.executable, str(REPO / "kx"), "doctor"],
