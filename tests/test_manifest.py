@@ -69,6 +69,29 @@ def test_available_tiers_adds_cloud_only_when_available() -> None:
     )
 
 
+def test_local_model_defaults_to_ollama_backend() -> None:
+    # Backward compatible: positional construction still works; backend is ollama.
+    assert LocalModel("mistral", 4.0).backend == "ollama"
+
+
+def test_available_tiers_tag_each_local_models_backend() -> None:
+    # A vLLM-served model produces a tier the broker can route to vLLM.
+    models = (
+        LocalModel("ollama-model", 4.0, backend="ollama"),
+        LocalModel("vllm-model", 6.0, backend="vllm"),
+    )
+    tiers = _m(gpu_vram_gb=20.0, local_models=models).available_tiers()
+    local = [t for t in tiers if t.is_model and t.where == "local"]
+    by_name = {t.model_name: t.backend for t in local}
+    assert by_name == {"ollama-model": "ollama", "vllm-model": "vllm"}
+
+
+def test_cloud_tier_backend_is_anthropic() -> None:
+    with_cloud = _m(cloud_available=True).available_tiers()
+    cloud = next(t for t in with_cloud if t.where == "cloud")
+    assert cloud.backend == "anthropic"
+
+
 def test_probe_never_raises_and_returns_a_manifest() -> None:
     from kernel.manifest import probe
 
