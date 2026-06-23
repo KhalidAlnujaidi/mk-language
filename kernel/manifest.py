@@ -10,16 +10,43 @@ machine with no GPU, no ollama, or no network.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
+import urllib.request
 from dataclasses import dataclass
 
 from kernel.contracts import Tier
+from kernel.jsonutil import as_dict
 
 # --- Constants ----------------------------------------------------------------
 
 CLOUD_DEFAULT_MODEL: str = "claude-haiku-4-5"
+
+# Canonical OpenAI-compatible endpoint per local backend (env var, default URL).
+# The SINGLE SOURCE OF TRUTH for where local backends live: the manifest probes
+# these, and ``daemon.backends`` imports :func:`local_backend_urls` to dispatch
+# to the same URLs. Kept in the (stdlib-only) kernel so both layers agree.
+_LOCAL_BACKEND_DEFAULTS: dict[str, tuple[str, str]] = {
+    "ollama": ("KINOX_OLLAMA_URL", "http://127.0.0.1:11434/v1"),
+    "vllm": ("KINOX_VLLM_URL", "http://127.0.0.1:8000/v1"),
+    "llamacpp": ("KINOX_LLAMACPP_URL", "http://127.0.0.1:8080/v1"),
+}
+
+# How long an OpenAI ``/v1/models`` probe waits before giving up (seconds).
+_PROBE_TIMEOUT_S = 2.0
+
+
+def local_backend_urls() -> dict[str, str]:
+    """The configured base URL per local backend, env read at call time.
+
+    Lazy (not import-time) so operators/tests can override endpoints via env.
+    """
+    return {
+        name: os.environ.get(env_var, default)
+        for name, (env_var, default) in _LOCAL_BACKEND_DEFAULTS.items()
+    }
 
 # --- Data types ---------------------------------------------------------------
 
@@ -172,6 +199,47 @@ def _probe_local_models() -> tuple[LocalModel, ...]:
         return ()
 
 
+def _http_get_json(url: str, *, timeout: float = _PROBE_TIMEOUT_S) -> object | None:
+    """GET *url* and JSON-decode the body; ``None`` on any failure (stdlib only).
+
+    Defensive like every other probe: unreachable host, timeout, non-200, or
+    unparseable body all collapse to ``None`` so ``probe()`` never raises. This is
+    the seam tests stub (``monkeypatch`` the module attribute) to avoid a live
+    server.
+    """
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:  # noqa: S310
+            if getattr(resp, "status", 200) != 200:
+                return None
+            return json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
+
+
+def _probe_openai_models(
+    base_url: str, backend: str, *, timeout: float = _PROBE_TIMEOUT_S
+) -> tuple[LocalModel, ...]:
+    """List models from an OpenAI-compatible ``{base_url}/models`` endpoint.
+
+    Each returned model id becomes a ``LocalModel`` tagged with *backend* and an
+    unknown (``None``) VRAM footprint. Any failure or unexpected shape yields an
+    empty tuple — vLLM/llama.cpp simply contribute nothing when not running.
+    """
+    data = _http_get_json(base_url.rstrip("/") + "/models", timeout=timeout)
+    items = as_dict(data).get("data")
+    if not isinstance(items, list):
+        return ()
+    item_list: list[object] = list(items)  # type: ignore[arg-type]  # untyped JSON
+    models: list[LocalModel] = []
+    for item in item_list:
+        model_id = as_dict(item).get("id")
+        if isinstance(model_id, str) and model_id:
+            models.append(
+                LocalModel(name=model_id, vram_gb_required=None, backend=backend)
+            )
+    return tuple(models)
+
+
 def _probe_cloud() -> bool:
     """``True`` iff at least one recognised API-key env var is set and non-empty."""
     try:
@@ -191,11 +259,21 @@ def probe() -> Manifest:
 
     Never raises.  Each probe degrades gracefully so callers always get a
     complete ``Manifest`` object, even on a bare container with no GPU.
+
+    Local models come from all configured backends: Ollama (via its CLI) plus any
+    vLLM / llama.cpp servers reachable on their OpenAI-compatible endpoints. A
+    backend that is not running simply contributes no models.
     """
+    urls = local_backend_urls()
+    local_models = (
+        *_probe_local_models(),
+        *_probe_openai_models(urls["vllm"], "vllm"),
+        *_probe_openai_models(urls["llamacpp"], "llamacpp"),
+    )
     return Manifest(
         cpu_count=_probe_cpu(),
         ram_gb=_probe_ram_gb(),
         gpu_vram_gb=_probe_gpu_vram_gb(),
-        local_models=_probe_local_models(),
+        local_models=local_models,
         cloud_available=_probe_cloud(),
     )

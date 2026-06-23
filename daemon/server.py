@@ -34,11 +34,12 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from kernel.contracts import EventRecord
+from kernel.jsonutil import as_dict
 from kernel.manifest import Manifest
 from kernel.manifest import probe as default_probe
 from kernel.metrics import MetricsSink
 
-from daemon.backends import as_dict, make_dispatch
+from daemon.backends import make_dispatch
 from daemon.exec import (
     Call,
     ChainExhausted,
@@ -204,7 +205,10 @@ def create_app(config: BrokerConfig | None = None) -> FastAPI:
                 "cpu_count": manifest.cpu_count,
                 "ram_gb": manifest.ram_gb,
                 "gpu_vram_gb": manifest.gpu_vram_gb,
-                "local_models": [m.name for m in manifest.local_models],
+                "local_models": [
+                    {"name": m.name, "backend": m.backend}
+                    for m in manifest.local_models
+                ],
                 "cloud_available": manifest.cloud_available,
             },
             "resources": {
