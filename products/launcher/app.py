@@ -14,6 +14,7 @@ as a plan and exits 0 — it never blocks on ``select``.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,8 @@ from products.launcher.menu import MenuItem, build_menu
 
 #: Read one line of input (injectable so the text fallback is testable).
 Prompt = Callable[[str], str]
+#: Run a launcher subprocess: (argv, env) -> None (injectable for tests).
+KinRunner = Callable[[list[str], dict[str, str]], None]
 #: Pick a row (or None to quit).
 Selector = Callable[[list[MenuItem]], MenuItem | None]
 #: Launch claude in the given scope dir (blocks until it exits).
@@ -110,6 +113,29 @@ def default_render(items: list[MenuItem]) -> None:
             border_style="cyan",
         )
     )
+
+
+def _subprocess_runner(argv: list[str], env: dict[str, str]) -> None:
+    import subprocess
+
+    subprocess.run(argv, env=env)
+
+
+def make_kin_spawner(kin: Path, *, runner: KinRunner = _subprocess_runner) -> Spawner:
+    """Build the hub's ``spawn``: run the ``kin`` launcher as a SUBPROCESS so the
+    hub regains control when claude exits (unlike the execve direct shortcuts).
+
+    ``kin claude`` launches straight into Claude Code in ``scope``; the scope is
+    passed via ``KIN_SCOPE_DIR``. ``runner`` is injected in tests to capture the
+    argv/env shape without spawning anything.
+    """
+
+    def spawn(scope: Path) -> None:
+        env = dict(os.environ)
+        env["KIN_SCOPE_DIR"] = str(scope)
+        runner([str(kin), "claude"], env)
+
+    return spawn
 
 
 def run(
