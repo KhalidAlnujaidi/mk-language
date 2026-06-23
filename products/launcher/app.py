@@ -45,6 +45,21 @@ def _print_plan(items: list[MenuItem]) -> None:
         print(f"    {item.label}{target}")
 
 
+# --- multi-terminal notifications (cosmetic): title symbol + attention bell ----
+
+
+def set_terminal_title(text: str) -> None:
+    """Set the terminal window/tab title (OSC 0) — visible across terminals so
+    you can tell which one is the kinox hub vs a running session."""
+    print(f"\033]0;{text}\007", end="", flush=True)
+
+
+def bell() -> None:
+    """Ring the terminal bell (BEL) for attention. Silenced by KINOX_NO_BELL."""
+    if not os.environ.get("KINOX_NO_BELL"):
+        print("\a", end="", flush=True)
+
+
 # --- selection seams (Rule Zero: reuse questionary; rich for the header) ------
 
 
@@ -189,6 +204,7 @@ def run(
     """
     pick = select if select is not None else default_select
     draw = render if render is not None else default_render
+    first = True
     while True:
         items = build_menu(projects_dir, role=role)
 
@@ -197,18 +213,28 @@ def run(
             _print_plan(items)
             return 0
 
+        # Hub is waiting for you: flag it in the title, and ring once when we
+        # RETURN here (a session/action just finished) — handy across terminals.
+        set_terminal_title(f"● kinox hub ({role}) — pick a scope")
+        if not first:
+            bell()
+        first = False
+
         draw(items)
 
         choice = pick(items)
         if choice is None or choice.kind == "quit":
+            set_terminal_title("kinox")
             return 0
 
         kind = choice.kind
         if kind in ("admin", "project") and choice.scope_dir is not None:
+            set_terminal_title(f"kinox · {choice.scope_dir.name} (claude)")
             spawn(choice.scope_dir)
         elif kind == "new" and new_project is not None:
             scope = new_project()
             if scope is not None:
+                set_terminal_title(f"kinox · {scope.name} (claude)")
                 spawn(scope)
         elif kind == "dashboard" and dashboard is not None:
             dashboard()

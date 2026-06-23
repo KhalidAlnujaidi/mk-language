@@ -182,6 +182,32 @@ def test_make_kin_spawner_runs_kin_claude_with_scope_env() -> None:
     assert env["KIN_SCOPE_DIR"] == "/repo/projects/alpha"
 
 
+def test_set_terminal_title_emits_osc(capsys: pytest.CaptureFixture[str]) -> None:
+    app.set_terminal_title("kinox hub")
+    assert "\033]0;kinox hub\007" in capsys.readouterr().out
+
+
+def test_bell_emits_bel_and_respects_opt_out(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv("KINOX_NO_BELL", raising=False)
+    app.bell()
+    assert "\a" in capsys.readouterr().out
+    monkeypatch.setenv("KINOX_NO_BELL", "1")
+    app.bell()
+    assert "\a" not in capsys.readouterr().out  # silenced
+
+
+def test_notifications_do_not_leak_into_non_tty_plan(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The non-TTY plan path must stay clean — no title/bell escapes.
+    projects = _projects(tmp_path, "alpha")
+    run(projects_dir=projects, spawn=lambda _: None, is_tty=False)
+    out = capsys.readouterr().out
+    assert "\033]0;" not in out and "\a" not in out
+
+
 def test_non_tty_prints_plan_and_never_selects(
     tmp_path: Path, capsys: object
 ) -> None:
