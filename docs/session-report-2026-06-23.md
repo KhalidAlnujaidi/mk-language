@@ -7,8 +7,11 @@
 - Wired a **two-layer token-ingestion stack** into Claude Code (global hooks):
   **groom** (augments your prompt) + **RTK / Rust Token Killer** (compresses
   command output 60–90%).
-- `main` is green: **249 tests pass**, ruff + pyright clean (now incl. `kx`),
-  kernel purity intact. Not pushed to origin.
+- Added a **role login layer** (admin / developer) with an **enforced dev-guard**
+  (developers can't edit framework code), plus **startup git-sync** (fetch +
+  notify, safe `kx update`).
+- `main` is green: **270 tests pass**, ruff + pyright clean (incl. `kx`), kernel
+  purity intact, **pushed to origin** (GitHub is current).
 
 ---
 
@@ -67,6 +70,20 @@ preserving the exit code (verified identical to the raw commands).
   `PYTHONPATH=/home/khalid/kinox /home/khalid/kinox/.venv/bin/python -m adapters.claude_code`
   and `rtk hook claude` — or restore `~/.claude/settings.json.bak-hooklog-*`.
 
+### 3c. Role login layer + enforced dev-guard + startup sync — MERGED & PUSHED
+- **Login layer:** `kx`/`kin` open with a role pick (admin / developer);
+  `kx dev`/`kin dev` go straight to developer. Developer = hub scoped to
+  `projects/` only; `KINOX_ROLE=developer` is threaded into the launched session.
+- **Enforced guard:** `adapters/guard.py` (PreToolUse) DENIES a developer editing
+  framework code — repo paths outside `projects/` via Write/Edit/MultiEdit/
+  NotebookEdit. Fast bash gate `tools/guard/dev-guard.sh` no-ops instantly unless
+  `KINOX_ROLE=developer`, so admin sessions pay nothing. Registered globally
+  next to groom + rtk. *Limitation:* covers the edit tools, not arbitrary Bash —
+  a guardrail with teeth, not an airtight sandbox.
+- **Startup sync:** `products/launcher/sync.py` — hub prints fetch + ahead/behind
+  on entry (interactive only); `kx update` fast-forwards only when behind, clean,
+  and ff-able. Never blind-pulls.
+
 ### 4. Parked candidate models (evaluated, not adopted)
 Read each card; **none are context compressors**:
 - **BAAI/bge-reranker-v2-m3** — relevance reranker (0.6B, Apache-2.0).
@@ -94,17 +111,26 @@ the shell.
 
 ### Enter (from any directory)
 ```bash
-kx                    # opens the launcher HUB — arrow-key pick a scope/action
+kx                    # LOGIN LAYER: pick a role (admin / developer) → the HUB
 ```
+- **admin** → full repo: admin scope + every project + actions.
+- **developer** → projects/ only (no admin scope); the dev-guard blocks edits to
+  framework code (kernel/, configs, etc.) outside your project.
+
 Other entries:
 ```bash
+kx dev                # skip the role pick → developer hub
 kx kin                # skip the hub → straight into the admin scope (repo root)
 kx <project>          # skip the hub → into an existing project
 kx new <project>      # scaffold projects/<project>/ then enter it
-kin                   # same as bare kx (opens the hub)
+kx update             # fetch origin + fast-forward (only if behind, clean, ff-able)
+kin                   # same as bare kx (login → hub)
+kin dev               # developer hub
 kin claude            # admin scope, straight to Claude (bypass hub)
 kin shell             # admin bash subshell (no Claude)
 ```
+On entry the hub also prints a **git sync status** (fetch + ahead/behind vs
+origin/main); it never auto-pulls — use `kx update` to pull.
 If you get `command not found` right after install:
 ```bash
 hash -r               # clear the shell's stale command cache, then retry
