@@ -77,6 +77,24 @@ def doctor() -> int:
     return 0
 
 
+def _enter(cwd: object, *, scope: str | None) -> int:
+    """Launch a governed Claude Code session rooted at *cwd* (via the kin entry).
+
+    Hands off to the ``kin`` script with ``KIN_SCOPE_DIR`` set, so every scope
+    entry (admin, new project, activate) shares ONE launcher. ``scope=None`` is
+    the admin scope (repo root). Replaces this process; does not return.
+    """
+    import os
+    from pathlib import Path
+
+    kin = Path(__file__).resolve().parent / "kin"
+    env = dict(os.environ)
+    if scope is not None:
+        env["KIN_SCOPE_DIR"] = str(cwd)
+    sys.stdout.flush()  # flush prints before execve replaces the process
+    os.execve(str(kin), [str(kin)], env)
+
+
 def new(name: str) -> int:
     _reject_reserved(name)
     # Cold-start discipline: import inside the function body.
@@ -87,7 +105,8 @@ def new(name: str) -> int:
     repo_root = Path(__file__).resolve().parent
     project = scaffold_project(repo_root / "projects", name)
     print(str(project / "next.md"))
-    return 0
+    # Scaffolded → drop straight into a Claude Code session in the new project.
+    return _enter(project, scope=name)
 
 
 def status() -> int:
@@ -107,17 +126,19 @@ def status() -> int:
 
 
 def activate(name: str) -> int:
-    if name in RESERVED:
-        # `kin` is the admin/core scope, not a project — hand off to the kin
-        # admin entry (drops you into a repo-rooted admin subshell) rather than
-        # rejecting. `kx new kin` is still jailed; only this activate path opens.
-        import os
-        from pathlib import Path
+    from pathlib import Path
 
-        kin = Path(__file__).resolve().parent / "kin"
-        os.execv(str(kin), [str(kin)])  # replaces this process; never returns
-    print(f"kx {name!r}: stub — will activate the project framework.")
-    return 0
+    repo_root = Path(__file__).resolve().parent
+    if name in RESERVED:
+        # `kin` is the admin/core scope, not a project — open the admin scope
+        # (repo root) rather than rejecting. `kx new kin` is still jailed.
+        return _enter(repo_root, scope=None)
+    project = repo_root / "projects" / name
+    if not project.is_dir():
+        print(f"kx {name!r}: no such project — scaffold it with: kx new {name}")
+        return 2
+    # Activate an existing project → Claude Code session in its dir.
+    return _enter(project, scope=name)
 
 
 def main(argv: list[str]) -> int:

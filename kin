@@ -23,6 +23,9 @@ set -uo pipefail
 SOURCE="$(readlink -f "${BASH_SOURCE[0]}")"
 REPO_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
 VENV="$REPO_DIR/.venv"
+# The directory the session opens in. Defaults to the repo root (admin scope);
+# `kx new`/`kx <project>` point it at a project dir via KIN_SCOPE_DIR.
+SCOPE_DIR="${KIN_SCOPE_DIR:-$REPO_DIR}"
 MODE="${1:-claude}"                                       # bare kin -> claude
 # ${VAR-default} (no colon): default only when UNSET, so KIN_CLAUDE_ARGS="" wins.
 KIN_CLAUDE_ARGS="${KIN_CLAUDE_ARGS---dangerously-skip-permissions}"
@@ -37,8 +40,9 @@ else
 fi
 
 bold "==> kin · admin scope"
-echo "    root: $REPO_DIR"
-echo "    plan: $PLAN"
+echo "    root:  $REPO_DIR"
+echo "    scope: $SCOPE_DIR"
+echo "    plan:  $PLAN"
 [ -d "$VENV" ] || echo "    (no .venv — run '$REPO_DIR/install.sh' first)" >&2
 
 # No TTY → report the plan and exit; never hang or launch an automated caller.
@@ -57,7 +61,7 @@ admin_subshell() {
 export PATH="$REPO_DIR:\$PATH"                        # kx + kin + claude on PATH
 export KINOX_HOME="$REPO_DIR"
 export KINOX_ADMIN=1
-cd "$REPO_DIR"
+cd "$SCOPE_DIR"
 PS1="(kin·admin) \w \\\$ "
 echo
 echo "Admin scope. Tools: kx | claude | pytest -q | ruff check . | pyright | git"
@@ -68,13 +72,14 @@ RCEOF
 }
 
 # Activate the venv + repo env in THIS process, ready to exec claude into it.
+# Opens in SCOPE_DIR (repo root for admin; the project dir for kx new/activate).
 enter_env() {
-  cd "$REPO_DIR" || exit 1
   # shellcheck disable=SC1091
   [ -d "$VENV" ] && source "$VENV/bin/activate"
   export PATH="$REPO_DIR:$PATH"
   export KINOX_HOME="$REPO_DIR"
   export KINOX_ADMIN=1
+  cd "$SCOPE_DIR" || exit 1
 }
 
 if [ "$MODE" = "shell" ] || [ "$MODE" = "sh" ]; then

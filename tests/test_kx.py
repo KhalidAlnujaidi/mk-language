@@ -50,10 +50,75 @@ def test_kx_new_scaffolds_next_md(tmp_path: Path) -> None:
         [sys.executable, str(REPO / "kx"), "new", name],
         capture_output=True,
         text=True,
+        stdin=subprocess.DEVNULL,  # no TTY → scaffolds, prints plan, does not launch
         cwd=str(REPO),
+        timeout=30,
     )
     assert out.returncode == 0
     p = REPO / "projects" / name / "next.md"
     assert p.exists()
     p.unlink()
     (REPO / "projects" / name).rmdir()  # clean up scaffolded fixture
+
+
+def test_kx_new_then_launches_claude_in_the_project() -> None:
+    # `kx new` scaffolds AND enters a governed Claude Code session in the project
+    # dir (non-TTY here, so we see the launch PLAN rather than a real launch).
+    name = "demolaunch"
+    project = REPO / "projects" / name
+    out = subprocess.run(
+        [sys.executable, str(REPO / "kx"), "new", name],
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+        cwd=str(REPO),
+        timeout=30,
+    )
+    try:
+        assert out.returncode == 0
+        assert "claude --dangerously-skip-permissions" in out.stdout
+        assert str(project) in out.stdout  # scope is the new project's dir
+    finally:
+        (project / "next.md").unlink(missing_ok=True)
+        if project.exists():
+            project.rmdir()
+
+
+def test_kx_activate_existing_project_launches_claude() -> None:
+    name = "demoactivate"
+    project = REPO / "projects" / name
+    subprocess.run(
+        [sys.executable, str(REPO / "kx"), "new", name],
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+        cwd=str(REPO),
+        timeout=30,
+    )
+    try:
+        out = subprocess.run(
+            [sys.executable, str(REPO / "kx"), name],
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            timeout=30,
+        )
+        assert out.returncode == 0
+        assert "claude --dangerously-skip-permissions" in out.stdout
+        assert str(project) in out.stdout
+    finally:
+        (project / "next.md").unlink(missing_ok=True)
+        if project.exists():
+            project.rmdir()
+
+
+def test_kx_activate_missing_project_hints_new() -> None:
+    out = subprocess.run(
+        [sys.executable, str(REPO / "kx"), "no_such_project_xyz"],
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+        timeout=30,
+    )
+    assert out.returncode == 2
+    assert "kx new" in out.stdout
