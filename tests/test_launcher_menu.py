@@ -71,6 +71,26 @@ def test_missing_projects_dir_does_not_crash(tmp_path: Path) -> None:
     assert kinds == ["admin", "new", "dashboard", "doctor", "quit"]
 
 
+def test_admin_role_includes_the_admin_scope(tmp_path: Path) -> None:
+    projects = tmp_path / "projects"
+    projects.mkdir()
+    kinds = _kinds(build_menu(projects, role="admin"))
+    assert "admin" in kinds
+
+
+def test_developer_role_hides_the_admin_scope(tmp_path: Path) -> None:
+    # A developer works in projects/ only — no repo-root/admin scope row.
+    projects = tmp_path / "projects"
+    projects.mkdir()
+    (projects / "proj").mkdir()
+    items = build_menu(projects, role="developer")
+    kinds = _kinds(items)
+    assert "admin" not in kinds
+    assert "project" in kinds  # projects still listed
+    for action in ("new", "dashboard", "doctor", "quit"):
+        assert action in kinds
+
+
 def test_every_item_has_a_nonempty_label(tmp_path: Path) -> None:
     projects = tmp_path / "projects"
     projects.mkdir()

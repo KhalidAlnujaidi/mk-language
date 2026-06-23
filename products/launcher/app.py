@@ -121,27 +121,59 @@ def _subprocess_runner(argv: list[str], env: dict[str, str]) -> None:
     subprocess.run(argv, env=env)
 
 
-def make_kin_spawner(kin: Path, *, runner: KinRunner = _subprocess_runner) -> Spawner:
+def make_kin_spawner(
+    kin: Path, *, role: str = "admin", runner: KinRunner = _subprocess_runner
+) -> Spawner:
     """Build the hub's ``spawn``: run the ``kin`` launcher as a SUBPROCESS so the
     hub regains control when claude exits (unlike the execve direct shortcuts).
 
     ``kin claude`` launches straight into Claude Code in ``scope``; the scope is
-    passed via ``KIN_SCOPE_DIR``. ``runner`` is injected in tests to capture the
-    argv/env shape without spawning anything.
+    passed via ``KIN_SCOPE_DIR`` and the session's ``KINOX_ROLE`` is set so the
+    dev-guard hook knows whether to enforce. ``runner`` is injected in tests.
     """
 
     def spawn(scope: Path) -> None:
         env = dict(os.environ)
         env["KIN_SCOPE_DIR"] = str(scope)
+        env["KINOX_ROLE"] = role
         runner([str(kin), "claude"], env)
 
     return spawn
+
+
+ROLES = ["admin", "developer"]
+
+
+def text_role_select(*, prompt: Prompt = input) -> str:
+    """Numbered role fallback. Defaults to ``admin`` (the owner) on empty/bad input."""
+    print("kinox — sign in as:")
+    for n, r in enumerate(ROLES, 1):
+        print(f"  {n}. {r}")
+    raw = prompt("role> ").strip()
+    if raw.isdigit() and 1 <= int(raw) <= len(ROLES):
+        return ROLES[int(raw) - 1]
+    return "admin"
+
+
+def select_role(*, prompt: Prompt = input) -> str:
+    """The login layer: pick a role. questionary if present, else numbered text.
+
+    Returns ``"admin"`` or ``"developer"`` (defaults to ``"admin"`` — the owner).
+    """
+    qmod = _import_questionary()
+    if qmod is None:
+        return text_role_select(prompt=prompt)
+    answer: str | None = qmod.select(
+        "kinox — sign in as:", choices=ROLES, qmark="▸", pointer="▸"
+    ).ask()
+    return answer if answer in ROLES else "admin"
 
 
 def run(
     *,
     projects_dir: Path,
     spawn: Spawner,
+    role: str = "admin",
     select: Selector | None = None,
     is_tty: bool = True,
     render: Renderer | None = None,
@@ -151,13 +183,14 @@ def run(
 ) -> int:
     """Run the hub loop until the user quits. Returns a process exit code.
 
-    ``select``/``render`` default to the real questionary + rich seams; tests
-    inject fakes. The no-TTY path returns before either is touched.
+    ``role`` filters the menu (developers see no admin scope). ``select``/
+    ``render`` default to the real questionary + rich seams; tests inject fakes.
+    The no-TTY path returns before either is touched.
     """
     pick = select if select is not None else default_select
     draw = render if render is not None else default_render
     while True:
-        items = build_menu(projects_dir)
+        items = build_menu(projects_dir, role=role)
 
         # No TTY (tests / pipes / CI): report the menu and leave — never block.
         if not is_tty:

@@ -43,17 +43,22 @@ def _project_dirs(projects_dir: Path) -> list[Path]:
     return sorted(dirs, key=lambda p: p.name)
 
 
-def build_menu(projects_dir: Path, *, manifest: object | None = None) -> list[MenuItem]:
-    """Build the hub rows for the given ``projects/`` dir.
+def build_menu(
+    projects_dir: Path, *, role: str = "admin", manifest: object | None = None
+) -> list[MenuItem]:
+    """Build the hub rows for the given ``projects/`` dir, filtered by ``role``.
 
-    The repo root is the parent of ``projects_dir`` (the admin scope). ``manifest``
-    is accepted for future label enrichment (e.g. showing fitting models) and is
-    not used yet.
+    The repo root is the parent of ``projects_dir`` (the admin scope). The
+    ``developer`` role omits the admin scope row — developers work inside
+    ``projects/`` only (enforced separately by the dev-guard hook). ``manifest``
+    is accepted for future label enrichment and is not used yet.
     """
     repo_root = projects_dir.parent
-    items: list[MenuItem] = [
-        MenuItem("kin", "kin — admin scope (repo root)", "admin", repo_root),
-    ]
+    items: list[MenuItem] = []
+    if role != "developer":
+        items.append(
+            MenuItem("kin", "kin — admin scope (repo root)", "admin", repo_root)
+        )
     for project in _project_dirs(projects_dir):
         items.append(
             MenuItem(project.name, f"{project.name} — project", "project", project)
