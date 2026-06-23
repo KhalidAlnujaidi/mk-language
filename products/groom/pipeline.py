@@ -25,6 +25,7 @@ from products.groom import tag as tagmod
 from products.groom.stages import context as context_stage
 from products.groom.stages import expand as expand_stage
 from products.groom.stages import redact as redact_stage
+from products.groom.tag import ModelTag
 
 _DETERMINISTIC_TIER: str = "deterministic"
 
@@ -43,6 +44,7 @@ def groom(
     sink: MetricsSink,
     cwd: Path,
     task_id: str,
+    model_tag: ModelTag | None = None,
 ) -> Annotation:
     """Run the four-stage squire pipeline and return an ``Annotation``.
 
@@ -50,10 +52,12 @@ def groom(
         1. redact  — detect and replace secrets (CLOSED, ground-truth)
         2. expand  — resolve @-path mentions (SOFT, ground-truth)
         3. context — gather git/fs context lines (SOFT, ground-truth)
-        4. tag     — keyword tag + real router call (SOFT, M0 no model call)
+        4. tag     — fuzzy tag: real router call, optional local-model offload
+                     via *model_tag*, SOFT fallback to keyword tags
 
     One ``EventRecord`` is written to *sink* per stage.  ``latency_ms`` is
-    measured with ``time.perf_counter``.  ``tokens_exact=False`` throughout M0.
+    measured with ``time.perf_counter``.  ``tokens_exact=False`` on these
+    boundary records (the offloaded model's own token usage is not yet folded in).
     """
     lines: list[str] = []
 
@@ -122,10 +126,11 @@ def groom(
         lines.append(ctx_line)
 
     # ------------------------------------------------------------------
-    # Stage 4: tag (the ONE fuzzy step — router is real, model call deferred)
+    # Stage 4: tag (the ONE fuzzy step — router is real; offloads to a local
+    # model when model_tag is supplied, else deterministic keyword tags)
     # ------------------------------------------------------------------
     t0 = time.perf_counter()
-    tag_result = tagmod.tag(working_text, manifest)
+    tag_result = tagmod.tag(working_text, manifest, model_tag=model_tag)
     latency_tag = (time.perf_counter() - t0) * 1000.0
 
     sink.record(
