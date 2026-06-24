@@ -77,29 +77,29 @@ def test_kin_bare_delegates_to_the_launcher_hub() -> None:
     assert "hub" in out.stdout.lower()  # delegated to the launcher hub
 
 
-def test_kin_claude_mode_launches_claude_with_skip_permissions() -> None:
-    out = _run_kin("claude")
+def test_kin_session_mode_launches_session() -> None:
+    out = _run_kin("session")
     assert out.returncode == 0
-    assert "claude --dangerously-skip-permissions" in out.stdout
+    assert "kinox chat session" in out.stdout.lower()
 
 
 def test_kin_shell_mode_plans_an_admin_shell() -> None:
     out = _run_kin("shell")
     assert out.returncode == 0
     assert "admin shell" in out.stdout.lower()
-    assert "claude" not in out.stdout.lower()  # shell mode does not launch claude
+    assert "kinox session" not in out.stdout.lower()  # shell mode skips the session
 
 
-def test_kin_claude_args_are_overridable() -> None:
-    out = _run_kin("claude", env={"KIN_CLAUDE_ARGS": "--model opus --foo"})
+def test_kin_session_plan_launches_kinox_chat() -> None:
+    out = _run_kin("session")
     assert out.returncode == 0
-    assert "claude --model opus --foo" in out.stdout
-    assert "dangerously" not in out.stdout  # the override replaces the default flag
+    assert "kinox chat session" in out.stdout.lower()
+    assert "deepseek" not in out.stdout.lower()
 
 
-def test_kin_claude_mode_honors_scope_dir_override(tmp_path: Path) -> None:
+def test_kin_session_mode_honors_scope_dir_override(tmp_path: Path) -> None:
     # kx new/activate point kin at a project dir via KIN_SCOPE_DIR; the launch
     # happens there, not at the repo root.
-    out = _run_kin("claude", env={"KIN_SCOPE_DIR": str(tmp_path)})
+    out = _run_kin("session", env={"KIN_SCOPE_DIR": str(tmp_path)})
     assert out.returncode == 0
     assert str(tmp_path) in out.stdout

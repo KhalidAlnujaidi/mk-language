@@ -3,7 +3,7 @@
 The hub is the default working environment: it shows the menu, routes the
 choice, and returns to the menu until you quit. Everything that touches the
 terminal or spawns a process is injected — ``select`` (pick a row), ``spawn``
-(launch claude in a scope), and the ``dashboard``/``doctor``/``new_project``
+(launch a kinox session in a scope), and the ``dashboard``/``doctor``/``new_project``
 action handlers — so the routing here is pure control flow, unit-testable
 without a real TTY. The real seams (questionary selection, rich header, the
 ``kin`` subprocess) are wired in G4-3/G4-4.
@@ -27,7 +27,7 @@ Prompt = Callable[[str], str]
 KinRunner = Callable[[list[str], dict[str, str]], None]
 #: Pick a row (or None to quit).
 Selector = Callable[[list[MenuItem]], MenuItem | None]
-#: Launch claude in the given scope dir (blocks until it exits).
+#: Launch a kinox session in the given scope dir (blocks until it exits).
 Spawner = Callable[[Path], None]
 #: A simple action (dashboard / doctor).
 Action = Callable[[], None]
@@ -45,10 +45,25 @@ def _print_plan(items: list[MenuItem]) -> None:
         print(f"    {item.label}{target}")
 
 
+# --- multi-terminal notifications (cosmetic): title symbol + attention bell ----
+
+
+def set_terminal_title(text: str) -> None:
+    """Set the terminal window/tab title (OSC 0) — visible across terminals so
+    you can tell which one is the kinox hub vs a running session."""
+    print(f"\033]0;{text}\007", end="", flush=True)
+
+
+def bell() -> None:
+    """Ring the terminal bell (BEL) for attention. Silenced by KINOX_NO_BELL."""
+    if not os.environ.get("KINOX_NO_BELL"):
+        print("\a", end="", flush=True)
+
+
 # --- selection seams (Rule Zero: reuse questionary; rich for the header) ------
 
 
-def _import_questionary() -> Any | None:
+def import_questionary() -> Any | None:
     """Return the questionary module, or None if it isn't installed (SOFT)."""
     try:
         import questionary
@@ -87,13 +102,15 @@ def _questionary_select(qmod: Any, items: list[MenuItem]) -> MenuItem | None:
         choices=choices,
         qmark="▸",
         pointer="▸",
+        use_shortcuts=True,
+        use_jk_keys=True,
     ).ask()
     return answer
 
 
 def default_select(items: list[MenuItem], *, prompt: Prompt = input) -> MenuItem | None:
     """The real selector: questionary if present, else the numbered text menu."""
-    qmod = _import_questionary()
+    qmod = import_questionary()
     if qmod is None:
         return text_select(items, prompt=prompt)
     return _questionary_select(qmod, items)
@@ -125,10 +142,10 @@ def make_kin_spawner(
     kin: Path, *, role: str = "admin", runner: KinRunner = _subprocess_runner
 ) -> Spawner:
     """Build the hub's ``spawn``: run the ``kin`` launcher as a SUBPROCESS so the
-    hub regains control when claude exits (unlike the execve direct shortcuts).
+    hub regains control when the session exits (unlike the execve direct shortcuts).
 
-    ``kin claude`` launches straight into Claude Code in ``scope``; the scope is
-    passed via ``KIN_SCOPE_DIR`` and the session's ``KINOX_ROLE`` is set so the
+    ``kin session`` launches straight into a kinox session in ``scope``; the scope
+    is passed via ``KIN_SCOPE_DIR`` and the session's ``KINOX_ROLE`` is set so the
     dev-guard hook knows whether to enforce. ``runner`` is injected in tests.
     """
 
@@ -136,7 +153,7 @@ def make_kin_spawner(
         env = dict(os.environ)
         env["KIN_SCOPE_DIR"] = str(scope)
         env["KINOX_ROLE"] = role
-        runner([str(kin), "claude"], env)
+        runner([str(kin), "session"], env)
 
     return spawn
 
@@ -160,7 +177,7 @@ def select_role(*, prompt: Prompt = input) -> str:
 
     Returns ``"admin"`` or ``"developer"`` (defaults to ``"admin"`` — the owner).
     """
-    qmod = _import_questionary()
+    qmod = import_questionary()
     if qmod is None:
         return text_role_select(prompt=prompt)
     answer: str | None = qmod.select(
@@ -179,6 +196,7 @@ def run(
     render: Renderer | None = None,
     dashboard: Action | None = None,
     doctor: Action | None = None,
+    chat: Action | None = None,
     new_project: NewProject | None = None,
 ) -> int:
     """Run the hub loop until the user quits. Returns a process exit code.
@@ -189,6 +207,7 @@ def run(
     """
     pick = select if select is not None else default_select
     draw = render if render is not None else default_render
+    first = True
     while True:
         items = build_menu(projects_dir, role=role)
 
@@ -197,19 +216,34 @@ def run(
             _print_plan(items)
             return 0
 
+        # Hub is waiting for you: flag it in the title, and ring once when we
+        # RETURN here (a session/action just finished) — handy across terminals.
+        set_terminal_title(f"● kinox hub ({role}) — pick a scope")
+        if not first:
+            bell()
+        first = False
+
         draw(items)
 
         choice = pick(items)
         if choice is None or choice.kind == "quit":
+            set_terminal_title("kinox")
             return 0
 
         kind = choice.kind
-        if kind in ("admin", "project") and choice.scope_dir is not None:
+        if kind == "admin" and choice.scope_dir is not None:
+            set_terminal_title("kinox · admin")
+            spawn(choice.scope_dir)
+        elif kind == "project" and choice.scope_dir is not None:
+            set_terminal_title(f"kinox · {choice.scope_dir.name}")
             spawn(choice.scope_dir)
         elif kind == "new" and new_project is not None:
             scope = new_project()
             if scope is not None:
+                set_terminal_title(f"kinox · {scope.name}")
                 spawn(scope)
+        elif kind == "chat" and chat is not None:
+            chat()
         elif kind == "dashboard" and dashboard is not None:
             dashboard()
         elif kind == "doctor" and doctor is not None:

@@ -5,12 +5,17 @@
   kx doctor          → health check
   kx status          → observability dashboard
   kx new <project>   → scaffold a project under projects/<name>/, then enter it
-  kx <project>       → activate an existing project (enter a Claude Code session)
-  kx kin             → enter the admin scope at the repo root
+  kx <project>       → activate an existing project (enter its scope directly)
+  kx kin             → enter the launcher hub as admin
+  kx session         → launch a kinox chat session (called by `kin`)
+  kx broker <cmd>    → control the broker daemon (status | start | stop)
 
-Bare `kx` opens the hub: pick the admin scope / a project / an action, and it
-runs, then you return to the hub. Naming a scope (`kx kin`, `kx <project>`)
-skips the hub and execve's the `kin` launcher straight into Claude Code.
+Bare `kx` opens the hub: pick a role, a scope, or an action, and it runs, then
+you return. Every `kx*` entry stays inside the hub — naming a scope (`kx kin`,
+`kx <project>`, `kx new`) pre-selects it, spawns a fresh kinox session as a
+SUBPROCESS, and falls back into the hub when that session exits (no execve, so
+control always returns). The broker daemon is brought up lazily before the first
+session so the groom pipeline's fuzzy tag step has a local model to call.
 `kin` is the reserved admin/core scope — jailed as a project *name*
 (`kx new kin` is rejected) but openable via `kx kin`.
 
@@ -45,13 +50,19 @@ def _reject_reserved(name: str) -> None:
         sys.exit(2)
 
 
-def hub(role: str | None = None) -> int:
+def hub(role: str | None = None, *, preselect: "Path | None" = None) -> int:
     """The default working environment: the launcher hub (vision §8.2).
 
     Opens with a login layer (pick admin / developer) unless *role* is given,
-    checks GitHub (fetch + notify), then lists the scopes + actions for that
-    role. Launches claude by SPAWNING the ``kin`` script as a subprocess (so
-    control returns when claude exits), unlike the direct shortcuts which execve.
+    brings the broker up lazily, checks GitHub (fetch + notify), then lists the
+    scopes + actions for that role. Sessions launch by SPAWNING the ``kin``
+    script as a subprocess, so control returns to the hub when a session exits —
+    there is no execve anywhere; the hub is the persistent container.
+
+    *preselect* is the named-scope fast path: ``kx kin`` / ``kx <project>`` /
+    ``kx new`` pass the scope dir here so it is spawned immediately, then the hub
+    loop takes over on exit. With no TTY (tests / pipes / CI) the entry prints
+    its plan and exits 0 without spawning — the existing non-interactive contract.
     """
     from products.cli.commands import scaffold_project
     from products.launcher import sync
@@ -65,8 +76,19 @@ def hub(role: str | None = None) -> int:
     if role is None:
         role = os.environ.get("KINOX_ROLE") or (select_role() if is_tty else "admin")
 
-    # Startup sync: check origin only when interactive (no network in tests/pipes).
+    # Backbone + startup sync: only when interactive (no daemon/network in tests).
     if is_tty:
+        # Bring the broker up lazily so the groom tag step has a local model to
+        # call. Fail-soft (thesis #2): if it can't start, tagging falls back to
+        # deterministic keywords. Verbose only for admin/developer roles.
+        try:
+            from daemon.launch import ensure_up
+
+            broker = ensure_up()
+            if role in ("admin", "developer"):
+                print(f"  broker: {broker.reason} ({broker.socket})")
+        except Exception:  # noqa: BLE001 — never let broker setup block the hub
+            pass
         print(sync.startup_status())
 
     spawn = make_kin_spawner(repo_root / "kin", role=role)
@@ -78,7 +100,15 @@ def hub(role: str | None = None) -> int:
         doctor()
 
     def new_project() -> "Path | None":
-        name = input("new project name> ").strip()
+        from products.launcher.app import import_questionary
+
+        qmod = import_questionary()
+        if qmod is not None:
+            name = qmod.text("new project name:", qmark="▸").ask()
+            if name is not None:
+                name = name.strip()
+        else:
+            name = input("new project name> ").strip()
         if not name:
             return None
         try:
@@ -87,6 +117,27 @@ def hub(role: str | None = None) -> int:
             print(f"  {exc}")
             return None
 
+    def run_chat() -> None:
+        from kernel.manifest import probe
+        from kernel.metrics import MetricsSink
+        from products.chat.app import chat_run
+
+        chat_run(
+            manifest=probe(),
+            sink=MetricsSink(Path.home() / ".kinox" / "chat-events.jsonl"),
+            cwd=repo_root,
+        )
+
+    # Named-scope fast path: pre-select the scope, spawn a fresh session, then
+    # fall into the hub loop so control returns here when it exits (no execve).
+    if preselect is not None:
+        print(
+            f"==> kinox · enter scope: {preselect} — launch governed kinox chat session"
+        )
+        if not is_tty:
+            return 0  # non-interactive: report the plan and leave; never spawn
+        spawn(preselect)
+
     return run(
         projects_dir=projects_dir,
         spawn=spawn,
@@ -94,6 +145,7 @@ def hub(role: str | None = None) -> int:
         is_tty=is_tty,
         dashboard=open_dashboard,
         doctor=run_doctor,
+        chat=run_chat,
         new_project=new_project,
     )
 
@@ -134,24 +186,31 @@ def doctor() -> int:
     present = {model.name for model in m.local_models}
     findings = diagnose(expected_models=present, present_models=present)
     print(format_doctor_findings(findings))
+
+    # Backbone health: is the broker daemon up? (vision §5.3, governed-TUI spec.)
+    from daemon.launch import status_line
+
+    print(f"  {status_line()}")
     return 0
 
 
-def _enter(cwd: object, *, scope: str | None) -> int:
-    """Launch a governed Claude Code session rooted at *cwd* (via the kin entry).
+def broker_cmd(rest: list[str]) -> int:
+    """`kx broker {status|start|stop}` — drive the broker daemon explicitly."""
+    from daemon.launch import ensure_up, status_line, stop
 
-    Hands off to the ``kin`` script with ``KIN_SCOPE_DIR`` set, so every scope
-    entry (admin, new project, activate) shares ONE launcher. ``scope=None`` is
-    the admin scope (repo root). Replaces this process; does not return.
-    """
-    kin = Path(__file__).resolve().parent / "kin"
-    env = dict(os.environ)
-    if scope is not None:
-        env["KIN_SCOPE_DIR"] = str(cwd)
-    sys.stdout.flush()  # flush prints before execve replaces the process
-    # "claude" mode = launch straight into Claude Code (bypass the hub). A named
-    # scope means you want to be IN it, not back at the menu.
-    os.execve(str(kin), [str(kin), "claude"], env)
+    sub = rest[0] if rest else "status"
+    if sub == "status":
+        print(f"kx {status_line()}")
+        return 0
+    if sub == "start":
+        state = ensure_up()
+        print(f"kx broker: {state.reason} ({state.socket})")
+        return 0 if state.running else 1
+    if sub == "stop":
+        print(f"kx broker: {stop()}")
+        return 0
+    print("usage: kx broker {status|start|stop}")
+    return 2
 
 
 def new(name: str) -> int:
@@ -162,8 +221,8 @@ def new(name: str) -> int:
     repo_root = Path(__file__).resolve().parent
     project = scaffold_project(repo_root / "projects", name)
     print(str(project / "next.md"))
-    # Scaffolded → drop straight into a Claude Code session in the new project.
-    return _enter(project, scope=name)
+    # Scaffolded → enter it through the hub (spawn-and-return), never execve.
+    return hub(preselect=project)
 
 
 def status() -> int:
@@ -182,15 +241,36 @@ def status() -> int:
 def activate(name: str) -> int:
     repo_root = Path(__file__).resolve().parent
     if name in RESERVED:
-        # `kin` is the admin/core scope, not a project — open the admin scope
-        # (repo root) rather than rejecting. `kx new kin` is still jailed.
-        return _enter(repo_root, scope=None)
+        # `kin` is the admin/core scope — open the launcher hub as admin
+        # rather than bypassing it straight to a kinox session.
+        # `kx new kin` is still jailed.
+        return hub(role="admin")
     project = repo_root / "projects" / name
     if not project.is_dir():
         print(f"kx {name!r}: no such project — scaffold it with: kx new {name}")
         return 2
-    # Activate an existing project → Claude Code session in its dir.
-    return _enter(project, scope=name)
+    # Activate an existing project → enter it through the hub (spawn-and-return).
+    return hub(preselect=project)
+
+
+def session_cmd() -> int:
+    """Launch a governed kinox chat session (called by ``kin session``).
+
+    Uses ``KIN_SCOPE_DIR`` to pick the working directory (default: repo root).
+    Hands off to the chat TUI — when you ``/quit``, control returns to the
+    caller (``kin``, which the hub spawned).
+    """
+    from kernel.manifest import probe
+    from kernel.metrics import MetricsSink
+    from products.chat.app import chat_run
+
+    repo_root = Path(__file__).resolve().parent
+    scope = Path(os.environ.get("KIN_SCOPE_DIR", str(repo_root)))
+    return chat_run(
+        manifest=probe(),
+        sink=MetricsSink(Path.home() / ".kinox" / "chat-events.jsonl"),
+        cwd=scope,
+    )
 
 
 def main(argv: list[str]) -> int:
@@ -210,6 +290,10 @@ def main(argv: list[str]) -> int:
             print("usage: kx new <project>")
             return 2
         return new(rest[0])
+    if cmd == "session":
+        return session_cmd()
+    if cmd == "broker":
+        return broker_cmd(rest)
     return activate(cmd)
 
 

@@ -1,4 +1,4 @@
-"""Tests for adapters.claude_code — the UserPromptSubmit hook adapter.
+"""Tests for adapters.claude_code — the agent hook adapter.
 
 TDD Step 1: write these tests first; they must be RED before implementation.
 """

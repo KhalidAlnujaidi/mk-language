@@ -11,7 +11,7 @@ proposing structural changes.
 ## Layout (vision §8.4)
 - `kernel/`   — pure contracts + core logic. Imports nothing from products/adapters.
 - `products/` — built on the kernel. First product: `groom/` (the squire pipeline).
-- `adapters/` — agent-specific wiring. `claude_code.py` is the *only* Claude-specific file.
+- `adapters/` — agent-specific wiring. `claude_code.py` is the agent hook adapter.
 - `daemon/`   — the Model Control Plane broker (start minimal).
 - `alignment/`— this file + CONSTITUTION.md (immutable core).
 - `projects/` — user projects (gitignored).

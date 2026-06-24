@@ -26,6 +26,7 @@ created if absent.
 from __future__ import annotations
 
 import dataclasses
+import json
 import os
 import time
 from collections.abc import Callable
@@ -47,6 +48,8 @@ from daemon.exec import (
     tier_label,
 )
 from daemon.fallback import build_chain
+from daemon.hooks import HookChain
+from daemon.outbox import Outbox
 from daemon.resources import ResourceSnapshot
 from daemon.resources import sample as default_resources
 from daemon.serializer import Serializer
@@ -78,6 +81,9 @@ class BrokerConfig:
     call: Call | None = None
     metrics_path: Path = _DEFAULT_METRICS_PATH
     resources: Callable[[], ResourceSnapshot] = default_resources
+    outbox_path: Path | None = None
+    #: Optional pre-inference hook chain (Brick B — thesis #2).
+    hook_chain: HookChain | None = None
 
 
 # --- OpenAI-shape helpers -----------------------------------------------------
@@ -138,6 +144,8 @@ def create_app(config: BrokerConfig | None = None) -> FastAPI:
     cfg = config or BrokerConfig()
     call: Call = cfg.call or make_dispatch()
     serializer = Serializer()
+    hook_chain = cfg.hook_chain
+    outbox: Outbox | None = Outbox(cfg.outbox_path) if cfg.outbox_path else None
     sink = MetricsSink(cfg.metrics_path)
     # In-memory record of the last tier used (status debug aid; null until first call).
     state: dict[str, str | None] = {"last_tier_used": None}
@@ -153,6 +161,36 @@ def create_app(config: BrokerConfig | None = None) -> FastAPI:
         preferred = requested if isinstance(requested, str) else None
         task_id = f"chat-{int(time.time() * 1000)}"
 
+        # Run the pre-inference hook chain before any model call.
+        # CLOSED hooks block; SOFT hooks inject context (thesis #2).
+        if hook_chain is not None:
+            hook_input: dict[str, object] = {
+                "messages": messages,
+                "model": preferred or "auto",
+            }
+            hook_result = await hook_chain.run(hook_input)
+            if hook_result.decision == "deny":
+                return _error_response(
+                    hook_result.reason or "blocked by hook",
+                    type_="hook_denied",
+                    status=403,
+                )
+
+        # Hard truth #4: record the intended effect BEFORE execution —
+        # triples as crash-replay source, audit trail, and correction signal.
+        if outbox is not None:
+            outbox.append(
+                id=task_id,
+                kind="inference",
+                payload=json.dumps(
+                    {
+                        "model": preferred or "auto",
+                        "message_count": len(messages),
+                        "timestamp": int(time.time()),
+                    }
+                ),
+            )
+
         async with serializer.slot():
             manifest = cfg.probe()
             chain = build_chain(manifest, preferred)
@@ -164,6 +202,8 @@ def create_app(config: BrokerConfig | None = None) -> FastAPI:
                     task_id=task_id,
                 )
             except ChainExhausted as exc:
+                if outbox is not None:
+                    outbox.mark_failed(task_id)
                 sink.record(exc.event)
                 state["last_tier_used"] = exc.event.tier
                 return _error_response(
@@ -172,6 +212,8 @@ def create_app(config: BrokerConfig | None = None) -> FastAPI:
                     status=503,
                 )
 
+            if outbox is not None:
+                outbox.mark_done(task_id)
             sink.record(result.event)
             state["last_tier_used"] = result.event.tier
             model_name = result.tier_used.model_name or "unknown"

@@ -22,7 +22,7 @@ released. The job is to find it and put the pieces together — composition over
 creation, assembled from the ground up — not to invent.
 
 1. **Search first, broadly** — web + package indexes (PyPI, crates.io, npm) +
-   **Claude Code skills/plugins** + **MCP servers** + existing tools. A whole MCP
+   **agent skills/plugins** + **MCP servers** + existing tools. A whole MCP
    server or published skill can do an entire subsystem; prefer reusing one over
    writing code at all.
 2. **Clone and harvest** — make a temporary scratch folder (e.g.
@@ -42,8 +42,8 @@ pure core. Reuse-first still governs *which* outside thing you reach for.
 
 ## 1. What this is
 
-`kinox` is a single system that sits between a human, a coding agent (Claude
-Code first, others later), and the local machine. It does three things:
+`kinox` is a single system that sits between a human, a coding agent, and the
+local machine. It does three things:
 
 1. **Grooms the input** before the expensive agent ever sees it — redact secrets,
    expand shorthand, attach the right context, tag intent. Cheap and local.
@@ -286,8 +286,7 @@ Small enough to finish; big enough to force every kernel contract to be honest.
 - `kernel/metrics.py` + `EventRecord` — append-only, exact local counts,
   `correction_of` slot present from commit one.
 - `products/groom/pipeline.py` — redact → expand → context → tag.
-- `adapters/claude_code.py` — the `UserPromptSubmit` hook; the *only*
-  Claude-specific file.
+- `adapters/claude_code.py` — the `UserPromptSubmit` hook adapter.
 - **Correction detector** — next prompt short + starts with "no/actually/I meant"
   → mark prior `EventRecord` corrected. Heuristic now, model-scored later. This is
   nearly free and it is the compounding moat — it ships in M0, not "someday."
@@ -318,7 +317,7 @@ kinox/
 │   ├── stages/                     # redact · expand · context · fingerprint
 │   ├── tag.py                      # the ONE fuzzy step → router → smallest model
 │   └── pipeline.py
-├── adapters/claude_code.py         # the only Claude-specific wiring
+├── adapters/claude_code.py         # the agent hook adapter
 ├── daemon/                         # MCP broker (start minimal)
 ├── projects/                       # user projects (gitignored)
 ├── docs/  ·  tests/  ·  .github/workflows/
@@ -357,8 +356,8 @@ the executor.
 - **Monorepo vs. separate kernel package.** Start monorepo; the import-isolation
   rule makes later extraction mechanical, so there's no cost to waiting.
 - **How agent-agnostic to commit now.** Emit a neutral `Annotation`, keep all
-  Claude-specifics in the one adapter — but don't write a second adapter until
-  something actually needs Cursor/Codex. Agent-agnostic is a *shape*, not a second
+  agent-specific wiring in the one adapter — but don't write a second adapter
+  until something actually needs it. Agent-agnostic is a *shape*, not a second
   integration.
 
 ---

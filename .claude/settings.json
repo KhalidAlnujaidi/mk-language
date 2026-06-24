@@ -1,0 +1,26 @@
+{
+  "$comment": "Repo-local kinox pipeline (governed-TUI spec, Piece 2). Any Claude Code session launched inside this repo runs the framework's OWN hooks, independent of the user's global ~/.claude/settings.json. The groom UserPromptSubmit hook grooms input (redact -> expand -> context -> tag, fuzzy tag offloaded to the broker); the dev-guard PreToolUse hook is a no-op unless KINOX_ROLE=developer. Both fail soft and never block. Commands resolve under $CLAUDE_PROJECT_DIR so the file is portable and committable.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.venv/bin/python\" \"$CLAUDE_PROJECT_DIR/adapters/claude_code.py\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.venv/bin/python\" \"$CLAUDE_PROJECT_DIR/adapters/guard.py\""
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -54,15 +54,18 @@ def test_selecting_a_scope_spawns_then_returns_to_menu(tmp_path: Path) -> None:
     assert spawned == [projects / "alpha"]  # spawned once, then looped to quit
 
 
-def test_admin_scope_spawns_repo_root(tmp_path: Path) -> None:
+def test_admin_scope_spawns_session_not_chat(tmp_path: Path) -> None:
+    """Selecting 'kin' (admin scope) routes to spawn (kinox session), not chat."""
     projects = _projects(tmp_path)
-    spawned: list[Path] = []
+    calls: list[str] = []
     run(
         projects_dir=projects,
         select=_selector("kin", "quit"),
-        spawn=lambda scope: spawned.append(scope),
+        spawn=lambda scope: calls.append(f"spawn:{scope.name}"),
+        chat=lambda: calls.append("chat"),
     )
-    assert spawned == [tmp_path]  # repo root = parent of projects/
+    # Admin scope_dir is the parent of projects_dir (the repo root — tmp_path here)
+    assert len(calls) == 1 and calls[0].startswith("spawn:")  # admin scope spawned
 
 
 def test_quit_exits_zero_without_spawning(tmp_path: Path) -> None:
@@ -163,13 +166,13 @@ def test_text_role_select() -> None:
 def test_select_role_falls_back_to_text_without_questionary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(app, "_import_questionary", lambda: None)
+    monkeypatch.setattr(app, "import_questionary", lambda: None)
     assert app.select_role(prompt=lambda _: "2") == "developer"
 
 
-def test_make_kin_spawner_runs_kin_claude_with_scope_env() -> None:
-    # The hub launches by SPAWNING `kin claude` (subprocess, so it returns) with
-    # the scope passed via KIN_SCOPE_DIR — not execve.
+def test_make_kin_spawner_runs_kin_session_with_scope_env() -> None:
+    # The hub launches by SPAWNING `kin session` (subprocess, so it returns)
+    # with the scope passed via KIN_SCOPE_DIR — not execve.
     calls: list[tuple[list[str], dict[str, str]]] = []
     spawn = make_kin_spawner(
         Path("/repo/kin"),
@@ -178,8 +181,34 @@ def test_make_kin_spawner_runs_kin_claude_with_scope_env() -> None:
     spawn(Path("/repo/projects/alpha"))
     assert len(calls) == 1
     argv, env = calls[0]
-    assert argv == ["/repo/kin", "claude"]  # claude mode = direct launch, no hub
+    assert argv == ["/repo/kin", "session"]  # session mode = direct launch, no hub
     assert env["KIN_SCOPE_DIR"] == "/repo/projects/alpha"
+
+
+def test_set_terminal_title_emits_osc(capsys: pytest.CaptureFixture[str]) -> None:
+    app.set_terminal_title("kinox hub")
+    assert "\033]0;kinox hub\007" in capsys.readouterr().out
+
+
+def test_bell_emits_bel_and_respects_opt_out(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv("KINOX_NO_BELL", raising=False)
+    app.bell()
+    assert "\a" in capsys.readouterr().out
+    monkeypatch.setenv("KINOX_NO_BELL", "1")
+    app.bell()
+    assert "\a" not in capsys.readouterr().out  # silenced
+
+
+def test_notifications_do_not_leak_into_non_tty_plan(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The non-TTY plan path must stay clean — no title/bell escapes.
+    projects = _projects(tmp_path, "alpha")
+    run(projects_dir=projects, spawn=lambda _: None, is_tty=False)
+    out = capsys.readouterr().out
+    assert "\033]0;" not in out and "\a" not in out
 
 
 def test_non_tty_prints_plan_and_never_selects(
@@ -199,3 +228,17 @@ def test_non_tty_prints_plan_and_never_selects(
     assert rc == 0
     out = capsys.readouterr().out  # type: ignore[attr-defined]
     assert "kin" in out and "alpha" in out  # the menu was printed as a plan
+
+
+def test_chat_dispatches_then_loops(tmp_path: Path) -> None:
+    """Selecting 'chat' calls the chat action, then returns to the menu."""
+    projects = _projects(tmp_path)
+    calls: list[str] = []
+    rc = run(
+        projects_dir=projects,
+        select=_selector("chat", "quit"),
+        spawn=lambda scope: calls.append("spawn"),
+        chat=lambda: calls.append("chat"),
+    )
+    assert rc == 0
+    assert calls == ["chat"]  # chat ran, then looped to quit

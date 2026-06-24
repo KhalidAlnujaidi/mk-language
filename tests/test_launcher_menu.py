@@ -53,7 +53,7 @@ def test_action_rows_always_present(tmp_path: Path) -> None:
     projects = tmp_path / "projects"
     projects.mkdir()
     kinds = _kinds(build_menu(projects))
-    for action in ("new", "dashboard", "doctor", "quit"):
+    for action in ("new", "chat", "dashboard", "doctor", "quit"):
         assert action in kinds
 
 
@@ -61,14 +61,14 @@ def test_empty_projects_dir_still_returns_admin_and_actions(tmp_path: Path) -> N
     projects = tmp_path / "projects"
     projects.mkdir()
     kinds = _kinds(build_menu(projects))
-    assert kinds == ["admin", "new", "dashboard", "doctor", "quit"]
+    assert kinds == ["admin", "new", "chat", "dashboard", "doctor", "quit"]
 
 
 def test_missing_projects_dir_does_not_crash(tmp_path: Path) -> None:
     # projects/ may not exist yet on a fresh checkout — treat as no projects.
     projects = tmp_path / "projects"  # not created
     kinds = _kinds(build_menu(projects))
-    assert kinds == ["admin", "new", "dashboard", "doctor", "quit"]
+    assert kinds == ["admin", "new", "chat", "dashboard", "doctor", "quit"]
 
 
 def test_admin_role_includes_the_admin_scope(tmp_path: Path) -> None:
@@ -87,7 +87,7 @@ def test_developer_role_hides_the_admin_scope(tmp_path: Path) -> None:
     kinds = _kinds(items)
     assert "admin" not in kinds
     assert "project" in kinds  # projects still listed
-    for action in ("new", "dashboard", "doctor", "quit"):
+    for action in ("new", "chat", "dashboard", "doctor", "quit"):
         assert action in kinds
 
 

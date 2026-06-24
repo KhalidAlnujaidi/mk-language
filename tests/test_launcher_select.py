@@ -34,7 +34,7 @@ def test_default_select_falls_back_when_questionary_missing(
 ) -> None:
     items = build_menu(Path("/tmp/x"))
     # Simulate questionary not installed → must use the text fallback.
-    monkeypatch.setattr(app, "_import_questionary", lambda: None)
+    monkeypatch.setattr(app, "import_questionary", lambda: None)
     chosen = app.default_select(items, prompt=lambda _: "1")
     assert chosen is not None
     assert chosen.kind == "admin"
