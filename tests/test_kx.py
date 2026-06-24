@@ -76,9 +76,9 @@ def test_kx_new_scaffolds_next_md(tmp_path: Path) -> None:
     (REPO / "projects" / name).rmdir()  # clean up scaffolded fixture
 
 
-def test_kx_new_then_launches_claude_in_the_project() -> None:
-    # `kx new` scaffolds AND enters a governed Claude Code session in the project
-    # dir (non-TTY here, so we see the launch PLAN rather than a real launch).
+def test_kx_new_then_launches_session_in_the_project() -> None:
+    # `kx new` scaffolds AND enters a governed kinox session in the
+    # project dir (non-TTY here, so we see the launch PLAN rather than a real launch).
     name = "demolaunch"
     project = REPO / "projects" / name
     out = subprocess.run(
@@ -91,7 +91,7 @@ def test_kx_new_then_launches_claude_in_the_project() -> None:
     )
     try:
         assert out.returncode == 0
-        assert "claude --dangerously-skip-permissions" in out.stdout
+        assert "kinox chat session" in out.stdout.lower()
         assert str(project) in out.stdout  # scope is the new project's dir
     finally:
         (project / "next.md").unlink(missing_ok=True)
@@ -99,7 +99,7 @@ def test_kx_new_then_launches_claude_in_the_project() -> None:
             project.rmdir()
 
 
-def test_kx_activate_existing_project_launches_claude() -> None:
+def test_kx_activate_existing_project_launches_session() -> None:
     name = "demoactivate"
     project = REPO / "projects" / name
     subprocess.run(
@@ -119,7 +119,7 @@ def test_kx_activate_existing_project_launches_claude() -> None:
             timeout=30,
         )
         assert out.returncode == 0
-        assert "claude --dangerously-skip-permissions" in out.stdout
+        assert "kinox chat session" in out.stdout.lower()
         assert str(project) in out.stdout
     finally:
         (project / "next.md").unlink(missing_ok=True)

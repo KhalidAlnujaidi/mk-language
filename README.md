@@ -18,7 +18,7 @@ kinox/
 ├── alignment/          # CONSTITUTION.md (the three theses, immutable)
 ├── kernel/             # the constant: contracts, manifest, router, metrics (100% tested)
 ├── products/groom/     # first product: the squire grooming pipeline
-├── adapters/           # claude_code.py — the only Claude-specific wiring
+├── adapters/           # claude_code.py — the agent hook adapter
 ├── daemon/             # the Model Control Plane broker (minimal for now)
 ├── projects/           # user projects (gitignored)
 ├── docs/ · tests/ · .github/workflows/

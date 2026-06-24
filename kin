@@ -2,14 +2,12 @@
 # kin — the admin/core scope of kinox (vision §8.2, the "keyword jail").
 #
 # From anywhere on the machine, `kin` enters the governed admin scope at the
-# kinox repo root (venv active, kx on PATH, KINOX_ADMIN=1) and launches a Claude
-# Code session there:
+# kinox repo root (venv active, kx on PATH, KINOX_ADMIN=1) and launches a
+# kinox session there:
 #
-#     kin            -> claude $KIN_CLAUDE_ARGS   (default: --dangerously-skip-permissions)
+#     kin            -> launch a governed kinox chat session
 #     kin shell      -> a plain admin bash subshell instead (escape hatch)
 #
-# If `claude` is not found it falls back to the admin subshell. Override the
-# launch flags with KIN_CLAUDE_ARGS (e.g. KIN_CLAUDE_ARGS="" for a bare claude).
 # Non-interactive callers (no TTY: pipes / CI / tests) print the plan and exit,
 # never launching or hanging.
 #
@@ -27,8 +25,6 @@ VENV="$REPO_DIR/.venv"
 # `kx new`/`kx <project>` point it at a project dir via KIN_SCOPE_DIR.
 SCOPE_DIR="${KIN_SCOPE_DIR:-$REPO_DIR}"
 MODE="${1:-hub}"                                          # bare kin -> the hub
-# ${VAR-default} (no colon): default only when UNSET, so KIN_CLAUDE_ARGS="" wins.
-KIN_CLAUDE_ARGS="${KIN_CLAUDE_ARGS---dangerously-skip-permissions}"
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
 
@@ -37,7 +33,8 @@ case "$MODE" in
   shell | sh) PLAN="admin shell" ;;
   hub)        PLAN="open the kinox launcher hub (kx)" ;;
   dev)        PLAN="open the kinox launcher hub as developer (kx dev)" ;;
-  *)          PLAN="launch Claude Code (claude ${KIN_CLAUDE_ARGS})" ;;
+  session)    PLAN="launch governed kinox chat session" ;;
+  *)          PLAN="launch governed kinox chat session" ;;
 esac
 
 bold "==> kin · admin scope"
@@ -71,7 +68,7 @@ if [ "$MODE" = "hub" ]; then
   exec "$REPO_DIR/kx"
 fi
 
-# Non-hub modes (claude / shell): no TTY → report the plan and exit; never hang
+# Non-hub modes (session / shell): no TTY → report the plan and exit; never hang
 # or launch an automated caller.
 if [ ! -t 0 ]; then
   echo "    (non-interactive: not entering the admin scope)"
@@ -85,13 +82,13 @@ admin_subshell() {
   cat > "$rc" <<RCEOF
 [ -f "\$HOME/.bashrc" ] && source "\$HOME/.bashrc"   # your normal shell first
 [ -d "$VENV" ] && source "$VENV/bin/activate"        # then the kinox venv (wins)
-export PATH="$REPO_DIR:\$PATH"                        # kx + kin + claude on PATH
+export PATH="$REPO_DIR:\$PATH"                        # kx + kin + session on PATH
 export KINOX_HOME="$REPO_DIR"
 export KINOX_ADMIN=1
 cd "$SCOPE_DIR"
 PS1="(kin·admin) \w \\\$ "
 echo
-echo "Admin scope. Tools: kx | claude | pytest -q | ruff check . | pyright | git"
+echo "Admin scope. Tools: kx | session | pytest -q | ruff check . | pyright | git"
 echo "Type 'exit' to leave."
 RCEOF
   bash --rcfile "$rc" -i || true
@@ -100,13 +97,9 @@ RCEOF
 
 if [ "$MODE" = "shell" ] || [ "$MODE" = "sh" ]; then
   admin_subshell
-elif enter_env && command -v claude >/dev/null 2>&1; then
-  bold "==> launching Claude Code"
-  # shellcheck disable=SC2086  # word-splitting KIN_CLAUDE_ARGS into flags is intended
-  exec claude $KIN_CLAUDE_ARGS                            # replaces this process
-else
-  echo "    (claude not found — dropping into the admin shell instead)" >&2
-  admin_subshell
+elif enter_env; then
+  bold "==> entering kinox session"
+  exec "$REPO_DIR/kx" session
 fi
 
 bold "==> left kin admin scope"

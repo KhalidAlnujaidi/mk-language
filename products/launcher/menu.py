@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Literal
 
 #: The kinds of row the hub can show. ``admin``/``project`` carry a ``scope_dir``
-#: to launch claude in; the rest are actions handled by the loop itself.
-MenuKind = Literal["admin", "project", "new", "dashboard", "doctor", "quit"]
+#: to launch a kinox session in; the rest are actions handled by the loop itself.
+MenuKind = Literal["admin", "project", "new", "chat", "dashboard", "doctor", "quit"]
 
 
 @dataclass(frozen=True)
@@ -66,6 +66,7 @@ def build_menu(
     items.extend(
         [
             MenuItem("new", "+ new project…", "new"),
+            MenuItem("chat", "chat — local chatbot (Gemma)", "chat"),
             MenuItem("dashboard", "dashboard — observability", "dashboard"),
             MenuItem("doctor", "doctor — health check", "doctor"),
             MenuItem("quit", "quit", "quit"),

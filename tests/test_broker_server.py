@@ -20,7 +20,7 @@ from daemon.exec import BackendError, BackendResponse
 from daemon.resources import ResourceSnapshot
 from daemon.server import BrokerConfig, create_app
 from fastapi.testclient import TestClient
-from kernel.contracts import Tier
+from kernel.contracts import FailDirection, Tier
 from kernel.manifest import LocalModel, Manifest
 
 
@@ -198,6 +198,150 @@ def test_status_empty_when_no_events(tmp_path: Path) -> None:
     body: Any = _client(config).get("/broker/status").json()
     assert body["last_tier_used"] is None
     assert body["recent_events"] == []
+
+
+# ---------------------------------------------------------------------------
+# Outbox integration (Brick A — hard truth #4: every intended effect is logged
+# BEFORE execution, so it triples as replay source, audit trail, and
+# correction signal).
+# ---------------------------------------------------------------------------
+
+
+def test_outbox_records_pending_then_done_on_success(tmp_path: Path) -> None:
+    async def call(tier: Tier, messages: list[dict[str, str]]) -> BackendResponse:
+        return BackendResponse(content="hello", tokens_in=3, tokens_out=1)
+
+    outbox_path = tmp_path / "outbox.jsonl"
+    config = BrokerConfig(
+        probe=_manifest,
+        call=call,
+        metrics_path=tmp_path / "e.jsonl",
+        outbox_path=outbox_path,
+    )
+    resp = _client(config).post(
+        "/v1/chat/completions",
+        json={"model": "small", "messages": [{"role": "user", "content": "hi"}]},
+    )
+    assert resp.status_code == 200
+
+    # Outbox must exist and contain exactly two lines: pending + done.
+    assert outbox_path.exists()
+    lines = outbox_path.read_text().strip().splitlines()
+    assert len(lines) == 2  # noqa: PLR2004
+    assert '"status": "pending"' in lines[0]
+    assert '"status": "done"' in lines[1]
+    # Both records carry the same id.
+    import json
+    pending = json.loads(lines[0])
+    done = json.loads(lines[1])
+    assert pending["id"] == done["id"]
+    assert pending["kind"] == "inference"
+
+
+def test_outbox_records_pending_then_failed_on_exhaustion(tmp_path: Path) -> None:
+    async def call(tier: Tier, messages: list[dict[str, str]]) -> BackendResponse:
+        raise BackendError("everything is down", retryable=True)
+
+    outbox_path = tmp_path / "outbox.jsonl"
+    config = BrokerConfig(
+        probe=_manifest,
+        call=call,
+        metrics_path=tmp_path / "e.jsonl",
+        outbox_path=outbox_path,
+    )
+    resp = _client(config).post(
+        "/v1/chat/completions",
+        json={"messages": [{"role": "user", "content": "hi"}]},
+    )
+    assert resp.status_code == 503
+
+    assert outbox_path.exists()
+    lines = outbox_path.read_text().strip().splitlines()
+    assert len(lines) == 2  # noqa: PLR2004
+    assert '"status": "pending"' in lines[0]
+    assert '"status": "failed"' in lines[1]
+
+
+def test_outbox_not_created_when_path_is_none(tmp_path: Path) -> None:
+    """Backward-compatible: no outbox_path → no outbox file, no breakage."""
+    async def call(tier: Tier, messages: list[dict[str, str]]) -> BackendResponse:
+        return BackendResponse(content="x", tokens_in=1, tokens_out=1)
+
+    config = BrokerConfig(
+        probe=_manifest,
+        call=call,
+        metrics_path=tmp_path / "e.jsonl",
+        outbox_path=None,  # explicit None — the default
+    )
+    resp = _client(config).post(
+        "/v1/chat/completions",
+        json={"messages": [{"role": "user", "content": "hi"}]},
+    )
+    assert resp.status_code == 200
+    # No outbox file should appear since we never configured one.
+    outbox_candidates = list(tmp_path.glob("outbox*"))
+    assert outbox_candidates == []
+
+# ---------------------------------------------------------------------------
+# Hook chain integration (Brick B — thesis #2: fail-direction per hook, wired
+# into the broker's pre-inference flow).
+# ---------------------------------------------------------------------------
+
+
+def test_hook_chain_allow_passes_request_through(tmp_path: Path) -> None:
+    from daemon.hooks import HookChain, HookDecl, HookResult
+
+    async def _ok(_input: dict[str, object]) -> HookResult:
+        return HookResult.allow(lines=("injected: hello",))
+
+    chain = HookChain(hooks=[
+        HookDecl("ok", "pre_inference", FailDirection.SOFT, _ok),
+    ])
+
+    async def call(tier: Tier, messages: list[dict[str, str]]) -> BackendResponse:
+        return BackendResponse(content="response", tokens_in=1, tokens_out=1)
+
+    config = BrokerConfig(
+        probe=_manifest, call=call, metrics_path=tmp_path / "e.jsonl",
+        hook_chain=chain,
+    )
+    resp = _client(config).post(
+        "/v1/chat/completions",
+        json={"messages": [{"role": "user", "content": "hi"}]},
+    )
+    assert resp.status_code == 200
+
+
+def test_hook_chain_deny_blocks_request_with_403(tmp_path: Path) -> None:
+    from daemon.hooks import HookChain, HookDecl, HookResult
+
+    async def _block(_input: dict[str, object]) -> HookResult:
+        return HookResult.deny("blocked by guard")
+
+    chain = HookChain(hooks=[
+        HookDecl("guard", "pre_inference", FailDirection.CLOSED, _block),
+    ])
+
+    async def call(tier: Tier, messages: list[dict[str, str]]) -> BackendResponse:
+        raise AssertionError("must not be reached")
+
+    config = BrokerConfig(
+        probe=_manifest, call=call, metrics_path=tmp_path / "e.jsonl",
+        hook_chain=chain,
+    )
+    resp = _client(config).post(
+        "/v1/chat/completions",
+        json={"messages": [{"role": "user", "content": "rm -rf /"}]},
+    )
+    assert resp.status_code == 403
+    body: Any = resp.json()
+    body = resp.json()
+    assert "error" in body
+    assert body["error"]["type"] == "hook_denied"
+    assert "blocked by guard" in body["error"]["message"]
+
+
+# --- status (after hook/outbox tests so broker state is clean) -----------------
 
 
 def test_status_lists_backend_per_local_model(tmp_path: Path) -> None:

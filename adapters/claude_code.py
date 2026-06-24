@@ -1,6 +1,6 @@
-"""adapters/claude_code.py — the only Claude-specific file.
+"""adapters/claude_code.py — the agent hook adapter.
 
-Wires the kinox groom pipeline to the Claude Code ``UserPromptSubmit`` hook.
+Wires the kinox groom pipeline to the agent's ``UserPromptSubmit`` hook.
 
 Thesis #3 (honest append-only correction): when the user's immediate next
 prompt looks like a correction, we mark the most recent ``tag`` event as
@@ -71,7 +71,7 @@ def handle(
     Parameters
     ----------
     hook_input:
-        The raw JSON payload from Claude Code's ``UserPromptSubmit`` hook.
+        The raw JSON payload from the agent's ``UserPromptSubmit`` hook.
         Must contain a ``"prompt"`` key.
     cwd:
         Working directory for the context stage (git/fs probes).
@@ -151,7 +151,7 @@ def handle(
 
 
 def main(stdin_text: str) -> int:
-    """Parse the Claude Code hook JSON from *stdin_text* and run the adapter.
+    """Parse the agent hook JSON from *stdin_text* and run the adapter.
 
     Fail-soft: any exception → print nothing, return 0 (never block the user).
     """
