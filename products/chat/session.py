@@ -48,7 +48,7 @@ class ChatSession:
     sink: MetricsSink
     cwd: Path
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
-    history: list[dict[str, str]] = field(default_factory=list[dict[str, str]])
+    history: list[dict[str, object]] = field(default_factory=list[dict[str, object]])
     #: Broker-backed fuzzy tagger for the groom ``tag`` step. ``None`` (the
     #: default) builds a fresh ``broker_tag()`` lazily when a local model is
     #: available; tests inject a fake to prove the wire without a network call.
@@ -106,7 +106,7 @@ class ChatSession:
             )
             enriched = f"{ctx_block}\n---\n{user_text}"
 
-        messages: list[dict[str, str]] = [
+        messages: list[dict[str, object]] = [
             {"role": "system", "content": self.system_prompt},
             *self.history,
             {"role": "user", "content": enriched},
@@ -130,7 +130,7 @@ class ChatSession:
     # --- internal ----------------------------------------------------------
 
     def _dispatch(
-        self, tier: Tier, messages: list[dict[str, str]], task_id: str
+        self, tier: Tier, messages: list[dict[str, object]], task_id: str
     ) -> str:
         """Synchronous dispatch to the local model.  Fails SOFT (thesis #2):
         any backend/transport/timeout error returns an error string instead of
@@ -151,11 +151,18 @@ class ChatSession:
                     kind="chat",
                 )
             )
-            return result.content
-        except (BackendError, ChainExhausted) as exc:
+        except ChainExhausted as exc:
+            # Log the failure boundary too — no silent gap (vision §4.6).
+            self.sink.record(exc.event)
+            return f"(model unavailable: {exc})"
+        except BackendError as exc:
             return f"(model unavailable: {exc})"
         except Exception as exc:
             return f"(error: {exc})"
+        # Record the chat completion boundary (kind="chat") so every model call
+        # is in the log, not just the groom stages.
+        self.sink.record(result.event)
+        return result.content
 
 
 # --- test-only helpers -------------------------------------------------------
