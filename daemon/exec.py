@@ -22,8 +22,11 @@ from kernel.contracts import EventRecord, Tier
 
 # --- Injected backend boundary -----------------------------------------------
 
-#: Messages are OpenAI-shape chat dicts: ``{"role": ..., "content": ...}``.
-Messages = list[dict[str, str]]
+#: Messages are OpenAI-shape chat dicts. For plain chat the values are strings
+#: (``{"role": ..., "content": ...}``); agent turns add richer values — an
+#: assistant message carries a ``tool_calls`` list, and a ``tool`` message carries
+#: a ``tool_call_id`` — so the value type is ``object``, not ``str``.
+Messages = list[dict[str, object]]
 
 
 @dataclass(frozen=True)
@@ -33,12 +36,20 @@ class BackendResponse:
     ``tokens_exact`` is ``True`` for a local backend (Ollama returns exact
     counts) and ``False`` for a cloud backend (counts are estimates). Token
     counts may be ``None`` when the backend did not report them.
+
+    ``tool_calls`` carries the OpenAI-shape tool-call list when the model asked to
+    call tools (``finish_reason == "tool_calls"``); ``None`` for a plain text
+    completion. The agent loop (``products/agent/loop.py``) reads these; plain
+    chat ignores them, so both fields default to ``None`` — fully backward
+    compatible with the single-shot chat path.
     """
 
     content: str
     tokens_in: int | None = None
     tokens_out: int | None = None
     tokens_exact: bool = True
+    tool_calls: list[dict[str, object]] | None = None
+    finish_reason: str | None = None
 
 
 class BackendError(Exception):
@@ -73,6 +84,10 @@ class ExecResult:
     tier_used: Tier
     event: EventRecord
     vram_delta_gb: float | None = None
+    #: OpenAI-shape tool calls the model requested this turn (``None`` for a plain
+    #: text answer). The agent loop dispatches these and feeds results back.
+    tool_calls: list[dict[str, object]] | None = None
+    finish_reason: str | None = None
 
 
 class ChainExhausted(Exception):
@@ -148,6 +163,8 @@ async def execute(
             tier_used=tier,
             event=event,
             vram_delta_gb=vram_delta,
+            tool_calls=response.tool_calls,
+            finish_reason=response.finish_reason,
         )
 
     # Chain exhausted (or empty): emit a failure record, then raise.

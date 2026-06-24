@@ -216,12 +216,20 @@ def _pt_loop(session: ChatSession, console: object, pt: object) -> int:
 
     history = InMemoryHistory()
 
-    # Key bindings: Esc+Enter or Alt+Enter to submit.
+    # Key bindings: Enter submits (the universal default); Esc+Enter / Alt+Enter
+    # inserts a newline for multi-line input or pasted code. Without the explicit
+    # Enter binding, multiline=True makes plain Enter insert a newline — so
+    # messages never dispatch and the input silently piles up blank lines instead
+    # of reaching the model.
     kb = KeyBindings()
+
+    @kb.add("enter")
+    def _(event: object) -> None:
+        event.current_buffer.validate_and_handle()  # Enter → send
 
     @kb.add("escape", "enter")
     def _(event: object) -> None:
-        event.current_buffer.validate_and_handle()
+        event.current_buffer.insert_text("\n")  # Esc+Enter → newline
 
     @kb.add("s-tab")
     def _(event: object) -> None:
@@ -236,7 +244,10 @@ def _pt_loop(session: ChatSession, console: object, pt: object) -> int:
 
     def bottom_toolbar() -> str:
         n = len(session.history) // 2
-        return f" turns: {n}  |  Esc+Enter to send  |  /help /clear /quit"
+        return (
+            f" turns: {n}  |  Enter to send · Esc+Enter newline  "
+            "|  /help /clear /quit"
+        )
 
     # Use prompt_toolkit.shortcuts.PromptSession for a clean API.
     try:
@@ -293,8 +304,10 @@ def _handle_command(raw: str, session: ChatSession, console: object) -> bool:
             "  [cyan]/help[/cyan]   — this message\n"
             "  [cyan]/clear[/cyan]  — reset conversation history\n"
             "  [cyan]/quit[/cyan]   — exit chat (or Ctrl+D)\n"
-            "  [cyan]/model[/cyan]  — show current model info\n\n"
-            "[dim]Esc+Enter to send multi-line messages[/dim]\n"
+            "  [cyan]/model[/cyan]  — show current model info\n"
+            "  [cyan]/agent[/cyan]  — run a tool-calling agent task "
+            "(e.g. /agent summarize README.md)\n\n"
+            "[dim]Enter sends · Esc+Enter inserts a newline (multi-line)[/dim]\n"
         )
         return True
 
@@ -304,6 +317,15 @@ def _handle_command(raw: str, session: ChatSession, console: object) -> bool:
             console.print(f"[dim]model: {models[0].name} ({models[0].backend})[/dim]")
         else:
             console.print("[dim]no local model available[/dim]")
+        return True
+
+    if cmd in ("a", "agent"):
+        if not arg.strip():
+            console.print(
+                "[dim]usage: /agent <task> — run the tool-calling agent[/dim]"
+            )
+        else:
+            _run_agent_turn(arg.strip(), session, console)
         return True
 
     console.print(f"[dim]unknown command: /{cmd} — try /help[/dim]")
@@ -359,6 +381,78 @@ def _process_turn(raw: str, session: ChatSession, console: object) -> None:
     console.print(f"[bold green]kinox{label}:[/bold green]")
     _render_response(response, console)
     console.print()  # blank line before next prompt
+
+
+def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
+    """Run one tool-calling agent task and render its step trace + answer.
+
+    Builds the standard toolset — read-only filesystem (sandboxed to the chat
+    scope) + the skill bridge over ``.claude/skills`` (the positive feedback
+    loop) — and runs the loop on the first local model. Write/exec tools stay OFF
+    here (fail-CLOSED); they belong behind the pre-tool-use guard slice. Dispatch
+    runs in a worker thread so the terminal can show a spinner.
+    """
+    import asyncio
+    import time
+    import uuid
+    from concurrent.futures import ThreadPoolExecutor
+
+    from kernel.contracts import Tier
+
+    from products.agent import default_registry, run_agent
+    from products.capabilities.registry import CapabilityRegistry, load_skills
+
+    models = session.manifest.local_models
+    if not models:
+        console.print("[dim]no local model available[/dim]")
+        return
+
+    kinox_root = Path(__file__).resolve().parents[2]
+    skills = CapabilityRegistry(load_skills(kinox_root / ".claude" / "skills"))
+    registry = default_registry(session.cwd, skills=skills, allow_bash=False)
+    tier = Tier.model(models[0].name, where="local", backend=models[0].backend)
+
+    console.print(f"\n[bold cyan]agent:[/bold cyan] {task}")
+    console.print(
+        f"[dim]tools: {', '.join(registry.tools)}  ·  skills: {len(skills)}[/dim]"
+    )
+
+    def work() -> object:
+        return asyncio.run(
+            run_agent(
+                task,
+                tier=tier,
+                registry=registry,
+                sink=session.sink,
+                task_id=uuid.uuid4().hex[:12],
+            )
+        )
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(work)
+        start = time.monotonic()
+        with console.status("[dim]agent working…[/dim]", spinner="dots") as status:
+            while not future.done():
+                status.update(
+                    f"[dim]agent working… ({time.monotonic() - start:.1f}s)[/dim]"
+                )
+                time.sleep(0.25)
+        try:
+            result = future.result()
+        except Exception as exc:  # noqa: BLE001 — surface, never crash the TUI
+            console.print(f"[bold red]agent error:[/bold red] {exc}")
+            return
+
+    # Step trace: each tool call / block, then the final answer.
+    for step in result.steps:
+        if step.kind == "tool":
+            console.print(f"  [yellow]→ {step.name}[/yellow] [dim]{step.detail}[/dim]")
+        elif step.kind == "blocked":
+            console.print(f"  [red]⛔ {step.name} blocked: {step.detail}[/red]")
+    label = f" ({result.stopped}, {result.turns} turns)"
+    console.print(f"[bold green]kinox agent{label}:[/bold green]")
+    _render_response(result.final_text, console)
+    console.print()
 
 
 def _render_response(text: str, console: object) -> None:

@@ -61,6 +61,7 @@ async def openai_compatible_call(
     exact: bool = True,
     timeout: float = _DEFAULT_TIMEOUT_S,
     transport: httpx.AsyncBaseTransport | None = None,
+    tools: list[dict[str, object]] | None = None,
 ) -> BackendResponse:
     """Execute one chat completion against an OpenAI-compatible *base_url*.
 
@@ -68,8 +69,19 @@ async def openai_compatible_call(
     executor falls through to the next tier. ``tokens_exact`` is set from *exact*
     (``True`` for local backends; never claim cloud counts are exact). The
     optional *transport* is injected in tests; ``None`` uses the real network.
+
+    When *tools* is supplied it is sent as the OpenAI ``tools`` field; the model
+    may then answer with ``tool_calls`` (``finish_reason == "tool_calls"``), which
+    are parsed back onto the :class:`BackendResponse` for the agent loop. Plain
+    chat passes ``tools=None`` and the payload is byte-identical to before.
     """
-    payload = {"model": tier.model_name, "messages": messages, "stream": False}
+    payload: dict[str, object] = {
+        "model": tier.model_name,
+        "messages": messages,
+        "stream": False,
+    }
+    if tools:
+        payload["tools"] = tools
     try:
         async with httpx.AsyncClient(
             base_url=base_url, timeout=timeout, transport=transport
@@ -90,13 +102,24 @@ async def openai_compatible_call(
     choices: list[object] = list(raw_choices)  # type: ignore[arg-type]  # untyped JSON
     first = as_dict(choices[0])
     message = as_dict(first.get("message"))
-    content = message.get("content", "")
+    # ``content`` is ``None`` (not "") on a pure tool-call turn — coalesce to ""
+    # so we never surface the string "None" to the user.
+    content = message.get("content") or ""
+    raw_tool_calls = message.get("tool_calls")
+    tool_calls = (
+        [as_dict(tc) for tc in raw_tool_calls]
+        if isinstance(raw_tool_calls, list) and raw_tool_calls
+        else None
+    )
+    finish = first.get("finish_reason")
     usage = as_dict(data.get("usage"))
     return BackendResponse(
         content=str(content),
         tokens_in=as_int(usage.get("prompt_tokens")),
         tokens_out=as_int(usage.get("completion_tokens")),
         tokens_exact=exact,
+        tool_calls=tool_calls,
+        finish_reason=str(finish) if finish is not None else None,
     )
 
 
@@ -108,6 +131,7 @@ def make_dispatch(
     *,
     timeout: float = _DEFAULT_TIMEOUT_S,
     transport: httpx.AsyncBaseTransport | None = None,
+    tools: list[dict[str, object]] | None = None,
 ) -> Call:
     """Build a backend-dispatching ``Call`` for the executor.
 
@@ -115,6 +139,10 @@ def make_dispatch(
     ``tier.backend``. A tier whose backend has no adapter (unknown name, or the
     out-of-scope ``anthropic`` cloud backend) raises a retryable ``BackendError``
     so the executor falls through — never a silent misroute (spec §6).
+
+    *tools*, when given, are forwarded on every call so the model can answer with
+    ``tool_calls`` — this is how the agent loop binds its tool schema to the
+    backend without changing the executor's ``Call`` signature.
     """
     table = specs if specs is not None else backend_specs()
 
@@ -131,6 +159,7 @@ def make_dispatch(
             exact=spec.exact,
             timeout=timeout,
             transport=transport,
+            tools=tools,
         )
 
     return dispatch
