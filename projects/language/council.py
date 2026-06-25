@@ -24,6 +24,7 @@ import json
 import os
 import random
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -287,46 +288,77 @@ def run_consensus(
 # incumbent and breaks nothing already green — Axiom 3 (don't break what works),
 # enforced by running code, not opinion. The run terminates at a real milestone.
 
-# The strategic goal made decidable: a complete language runs every one of these.
-# display semantics (Scheme-style): numbers bare, strings WITHOUT quotes, lists as
-# space-separated atoms in parentheses, e.g. (1 4 9).
+# The strategic goal made decidable: a working natural-language -> OS abstraction layer
+# runs every one of these. Each program is a sequence of structured-NL intents; the
+# council's interpreter executes them as real OS operations inside a FRESH sandbox
+# directory and prints the observable result (read/list/count/find). Ground truth is the
+# resulting filesystem state, surfaced as deterministic stdout. The last two test the
+# fail-CLOSED safety rule (AIOS Access-Manager: irreversible ops need explicit confirm).
 CONFORMANCE: tuple[tuple[str, str, str], ...] = (
-    ("arithmetic", "(display (+ 2 (* 3 4)))", "14"),
-    ("store-variable", "(define x 10) (display x)", "10"),
-    ("recall-variable", "(define x 10) (display (+ x 5))", "15"),
-    ("print-string", '(display "hello")', "hello"),
-    ("conditional",
-     '(define x 10) (display (if (< x 100) "small" "big"))', "small"),
-    ("function",
-     "(define (square n) (* n n)) (display (square 7))", "49"),
-    ("closure",
-     "(define (adder n) (lambda (m) (+ n m))) "
-     "(define add5 (adder 5)) (display (add5 3))", "8"),
-    ("recursion",
-     "(define (fact n) (if (< n 2) 1 (* n (fact (- n 1))))) (display (fact 5))",
-     "120"),
-    ("local-binding", "(display (let ((a 2) (b 3)) (+ a b)))", "5"),
-    ("higher-order-list",
-     "(define (square n) (* n n)) (display (map square (list 1 2 3)))",
-     "(1 4 9)"),
-    ("string-append", '(display (string-append "a" "b"))', "ab"),
+    ("create-and-read",
+     'create file notes.txt with content "hello"\nread file notes.txt', "hello"),
+    ("list-dir",
+     'create file alpha.txt with content "x"\nlist files', "alpha.txt"),
+    ("append",
+     'create file p.txt with content "one"\nappend "two" to p.txt\nread file p.txt',
+     "one two"),
+    ("count-lines",
+     'create file n.txt with content "a"\nappend "b" to n.txt\n'
+     'append "c" to n.txt\ncount lines in n.txt', "3"),
+    ("copy",
+     'create file s.txt with content "data"\ncopy s.txt to d.txt\nread file d.txt',
+     "data"),
+    ("mkdir-move",
+     'create file m.txt with content "z"\nmake directory logs\n'
+     'move m.txt to logs\nlist files in logs', "m.txt"),
+    ("search-content",
+     'create file h.txt with content "hello"\ncreate file g.txt with content "bye"\n'
+     'find files containing "hello"', "h.txt"),
+    ("sequence",
+     'create file s1.txt with content "1"\ncreate file s2.txt with content "2"\n'
+     'list files', "s1.txt s2.txt"),
+    ("decision",
+     'if missing.txt exists then read file missing.txt otherwise '
+     'create file missing.txt with content "made"\nread file missing.txt', "made"),
+    ("safety-refuse-irreversible",
+     'create file b.txt with content "x"\ndelete b.txt', "REFUSED"),
+    ("safety-confirm-irreversible",
+     'create file c.txt with content "x"\ndelete c.txt confirm\nlist files', "(empty)"),
 )
 
 INTERP_CONTRACT = """\
-Write a COMPLETE, self-contained Python 3 program that interprets OUR language.
+Write a COMPLETE, self-contained Python 3 program — the interpreter for our
+natural-language -> OS abstraction layer.
 
 HARD CONTRACT (your code is rejected if you break this):
 - Define a function named EXACTLY `run` at the TOP LEVEL of the file (module scope —
-  NOT inside a class, NOT inside `if __name__ == "__main__"`). Signature: `run(source)`,
-  taking the whole program text as one string.
-- `run` must PRINT (to stdout) exactly what the program's `(display ...)` calls produce.
-  Returning that text from `run` is also accepted. Do NOT print anything else.
-- display semantics: numbers print bare (14); strings print WITHOUT quotes (hello);
-  a list prints space-separated inside parentheses, e.g. (1 4 9).
+  NOT inside a class, NOT inside `if __name__ == "__main__"`). Signature: `run(source)`.
+- `source` is an intent program: ONE intent per line, in the structured-NL schema below.
+- Execute each intent as a real OS operation IN THE CURRENT WORKING DIRECTORY using only
+  RELATIVE paths (the harness runs you inside a fresh, empty sandbox dir). NEVER use
+  absolute paths, NEVER shell out (no os.system / subprocess), no network, and touch
+  NOTHING outside the working directory.
+- PRINT (stdout) the observable result of read / list / count / find intents, in order,
+  one per line. Pure side-effect intents (create / append / copy / move / make directory)
+  print nothing.
+- SAFETY, fail-CLOSED (the AIOS Access-Manager rule): an irreversible intent (delete,
+  overwrite) WITHOUT the word `confirm` must be REFUSED — print `REFUSED` and do not do it.
 
-Support at least: integers, strings, booleans; (define name expr); (define (f a..) body);
-lambda; if; let; the operators + - * < ; and the builtins display, list, map, string-append.
-No input(), no network, no file or os access. Pure and deterministic.
+Intent vocabulary you must support (exact phrasings the conformance suite uses):
+  create file NAME with content "TEXT"
+  read file NAME                      -> print the file's text
+  append "TEXT" to NAME               -> add TEXT as a new line
+  count lines in NAME                 -> print the integer line count
+  copy NAME to NAME2
+  make directory NAME
+  move NAME to DEST
+  list files            (or)  list files in DIR
+      -> print names sorted, space-separated; print "(empty)" if none
+  find files containing "TEXT"
+      -> print matching filenames sorted, space-separated; "(none)" if none
+  delete NAME            (or)  delete NAME confirm
+      -> without `confirm`: print REFUSED and keep the file; with `confirm`: remove it
+  if NAME exists then INTENT otherwise INTENT   -> run exactly one branch
 
 Output ONE ```python code block — the full runnable file defining top-level `run(source)` —
 and NOTHING else (no usage example, no second block)."""
@@ -375,11 +407,16 @@ def score_interpreter(
     details: dict[str, str] = {}
     if not src.strip():
         return passing, {name: "no code" for name, _, _ in suite}
-    fd, interp_path = tempfile.mkstemp(suffix=".py", dir=str(HERE))
+    # The interpreter file lives OUTSIDE every test's working dir (system temp), so it
+    # never shows up in a `list files` result and the sandbox dirs hold only what the
+    # program creates. Each test gets a fresh, empty working dir that is wiped after —
+    # OS side-effects are contained, and tests can't leak into each other.
+    fd, interp_path = tempfile.mkstemp(suffix="_interp.py")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(src)
         for name, program, expected in suite:
+            work = tempfile.mkdtemp(prefix="oslang_")
             try:
                 proc = subprocess.run(
                     [sys.executable, str(SANDBOX), interp_path],
@@ -387,7 +424,7 @@ def score_interpreter(
                     capture_output=True,
                     text=True,
                     timeout=20,
-                    cwd=str(HERE),
+                    cwd=work,
                 )
                 out = _normalize(proc.stdout)
                 ok = proc.returncode == 0 and out == _normalize(expected)
@@ -402,6 +439,8 @@ def score_interpreter(
                 details[name] = "timeout"
             except Exception as exc:  # pragma: no cover - defensive
                 details[name] = f"runner-error: {exc!r}"[:160]
+            finally:
+                shutil.rmtree(work, ignore_errors=True)
     finally:
         with contextlib.suppress(OSError):
             os.unlink(interp_path)
@@ -451,11 +490,14 @@ def gather_interpreters(
     else:
         cur = "No interpreter exists yet — write the first one."
     system = (
-        "You are one of five models implementing the reference interpreter for the "
-        "programming language your council designed. Decide by these axioms:\n" + AXIOMS
+        "You are one of five models building the reference interpreter for a "
+        "natural-language -> OS abstraction layer (an AI-agent OS interface). You are "
+        "ASSEMBLING from a proven corpus (AIOS + CoRE), not inventing from zero. Decide "
+        "by these axioms:\n" + AXIOMS
     )
     user = (
-        f"OUR LANGUAGE SPEC (your council designed this):\n{spec[-SPEC_CTX_CAP:]}\n\n"
+        f"SCOPE & CORPUS — the cheat code you build from (REUSE these structures):\n"
+        f"{spec[-SPEC_CTX_CAP:]}\n\n"
         f"{mem}"
         f"CONFORMANCE SUITE — your interpreter must reproduce each expected output:\n"
         f"{suite_txt}\n\n{cur}\n\n{INTERP_CONTRACT}"
@@ -596,6 +638,7 @@ class State:
     incumbent_src: str = ""
     incumbent_passing: list[str] = field(default_factory=list[str])
     stall_count: int = 0  # build rounds since the last capability gain (plateau gauge)
+    goal: str = ""  # which build target the incumbent is for; a change triggers a reset
 
     @classmethod
     def load(cls, path: Path) -> State:
@@ -616,6 +659,7 @@ class State:
             incumbent_src=raw.get("incumbent_src", ""),
             incumbent_passing=list(raw.get("incumbent_passing", [])),
             stall_count=raw.get("stall_count", 0),
+            goal=raw.get("goal", ""),
         )
 
     def save(self, path: Path) -> None:
@@ -632,6 +676,7 @@ class State:
                     "incumbent_src": self.incumbent_src,
                     "incumbent_passing": self.incumbent_passing,
                     "stall_count": self.stall_count,
+                    "goal": self.goal,
                 },
                 indent=2,
             ),

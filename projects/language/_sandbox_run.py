@@ -49,6 +49,7 @@ try:  # POSIX resource caps — defence for an unattended loop running model-wri
 
     resource.setrlimit(resource.RLIMIT_CPU, (10, 12))
     resource.setrlimit(resource.RLIMIT_AS, (1 << 30, 1 << 30))  # 1 GiB address space
+    resource.setrlimit(resource.RLIMIT_FSIZE, (1 << 24, 1 << 24))  # 16 MiB max file write
 except Exception:  # pragma: no cover - non-POSIX or unavailable
     pass
 

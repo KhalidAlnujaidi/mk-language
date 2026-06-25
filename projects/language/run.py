@@ -58,6 +58,20 @@ SPEC = HERE / "SPEC.md"
 TRANSCRIPT = HERE / "TRANSCRIPT.md"
 ROUNDS = HERE / "rounds"
 PROGRESS = HERE / "PROGRESS.md"
+CHEATCODE = HERE / "cheatcode_aios_nl_os.md"
+
+# The current build target. When state.goal differs (e.g. resuming a run that was
+# building the old Scheme language), the build phase resets the incumbent and memory
+# and starts this goal fresh — the in-place reframe, without losing the prior record.
+GOAL = "nl-os-abstraction-layer-v1"
+
+
+def scope_text() -> str:
+    """The corpus seed (cheat code) fed to the council as what to build FROM."""
+    try:
+        return CHEATCODE.read_text(encoding="utf-8")
+    except OSError:
+        return ""
 
 _PROGRESS_HEADER = """\
 # Council build log — anonymized progress reference
@@ -138,19 +152,19 @@ def write_final(state: State) -> None:
     program gallery (each conformance program with its real, executed output)."""
     write_capabilities(state)
     lines = [
-        "# The Council Language — COMPLETE",
+        "# The Council NL→OS abstraction layer — COMPLETE",
         "",
-        "Every capability below executed to its expected output under the interpreter "
-        "the five models wrote by anonymous consensus (`interpreter.py`).",
+        "Every intent program below executed to its expected OS outcome under the "
+        "interpreter the five models wrote by anonymous consensus (`interpreter.py`).",
         "",
         "## Verified program gallery",
         "",
     ]
     for name, program, expected in CONFORMANCE:
-        lines += [f"### {name}", "```scheme", program, "```",
+        lines += [f"### {name}", "```text", program, "```",
                   f"→ `{expected}`", ""]
     (HERE / "COMPLETE.md").write_text("\n".join(lines), encoding="utf-8")
-    dump("LANGUAGE COMPLETE",
+    dump("LAYER COMPLETE",
          f"all {len(CONFORMANCE)} capabilities pass at round {state.round}")
 
 
@@ -199,6 +213,20 @@ def main() -> None:
                 state.phase = "build"  # design done → build a real interpreter
 
         elif state.phase == "build":
+            # In-place reframe: if the incumbent was built for a different goal, retire it
+            # and start the new goal from zero — but keep the old record (archive its
+            # progress log + interpreter) so nothing is lost.
+            if state.goal != GOAL:
+                dump("GOAL SWITCH", f"{state.goal or '(scheme)'} -> {GOAL}")
+                for old in ("PROGRESS.md", "interpreter.py", "CAPABILITIES.md"):
+                    p = HERE / old
+                    if p.exists():
+                        p.replace(HERE / f"{p.stem}.prev{p.suffix}")
+                state.incumbent_src = ""
+                state.incumbent_passing = []
+                state.stall_count = 0
+                state.goal = GOAL
+
             prev_pass = list(state.incumbent_passing)
             reference = PROGRESS.read_text(encoding="utf-8") if PROGRESS.exists() else ""
             # Plateau → fresh start: many rounds with no gain means the current
@@ -207,7 +235,7 @@ def main() -> None:
             # what worked" loop.
             fresh = state.stall_count >= PLATEAU_PATIENCE
             log, new_src, new_pass = run_build_round(
-                state.round, state.spec_text(), state.incumbent_src,
+                state.round, scope_text(), state.incumbent_src,
                 state.incumbent_passing, CONFORMANCE, seed, reference, fresh,
             )
             state.incumbent_src = new_src
@@ -238,7 +266,7 @@ def main() -> None:
                 state.phase = "done"
                 append_progress(
                     f"- Round {log.index}: **COMPLETE — {len(new_pass)}/"
-                    f"{len(CONFORMANCE)}.** The council built a working language."
+                    f"{len(CONFORMANCE)}.** The council built a working NL→OS layer."
                 )
                 # Finish this round's checkpoint below, then exit the loop.
 
