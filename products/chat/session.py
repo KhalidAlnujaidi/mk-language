@@ -84,16 +84,26 @@ class ChatSession:
             model_tag=model_tag,
         )
 
-        # Step 2: Use the first available local model (Ollama manages memory).
-        if not models:
+        # Step 2: Build the reasoning chain. kinox's brain is cloud-first
+        # (``glm-5.2``) with the first local model as the fail-soft fallback
+        # (thesis #1 + spec §6). With no local model the cloud brain answers on
+        # its own; with the cloud brain disabled (``KINOX_BRAIN=local``) it is
+        # local-only. Only an empty chain (no cloud, no local) is a hard stop.
+        from daemon.brain import brain_chain
+
+        local_tier = (
+            Tier.model(models[0].name, where="local", backend=models[0].backend)
+            if models
+            else None
+        )
+        chain = brain_chain(local_tier)
+        if not chain:
             return (
-                "(no local model available — run `ollama serve` and pull a model)",
+                "(no model available — set ZAI_API_KEY for the cloud brain, "
+                "or run a local model with `ollama serve`)",
                 annotation.lines,
                 None,
             )
-        tier = Tier.model(
-            models[0].name, where="local", backend=models[0].backend
-        )
 
         # Step 3: Build the messages payload, with groom context pre-injected.
         # Context lines (redacted secrets, expanded paths, git/fs state, tags)
@@ -112,8 +122,8 @@ class ChatSession:
             {"role": "user", "content": enriched},
         ]
 
-        # Step 4: Dispatch to the model via the broker executor.
-        response_text = self._dispatch(tier, messages, task_id)
+        # Step 4: Dispatch over the fallback chain via the broker executor.
+        response_text, tier_used = self._dispatch(chain, messages, task_id)
 
         # Step 5: Update history, capped at _MAX_HISTORY_PAIRS pairs.
         self.history.append({"role": "user", "content": user_text})
@@ -121,7 +131,7 @@ class ChatSession:
         while len(self.history) > _MAX_HISTORY_PAIRS * 2:
             self.history.pop(0)  # drop oldest pair
 
-        return response_text, annotation.lines, tier
+        return response_text, annotation.lines, tier_used
 
     def clear(self) -> None:
         """Reset conversation history (keep system prompt and wiring)."""
@@ -130,11 +140,13 @@ class ChatSession:
     # --- internal ----------------------------------------------------------
 
     def _dispatch(
-        self, tier: Tier, messages: list[dict[str, object]], task_id: str
-    ) -> str:
-        """Synchronous dispatch to the local model.  Fails SOFT (thesis #2):
-        any backend/transport/timeout error returns an error string instead of
-        raising — the TUI never crashes on a model failure.
+        self, chain: list[Tier], messages: list[dict[str, object]], task_id: str
+    ) -> tuple[str, Tier | None]:
+        """Synchronous dispatch over *chain* (brain → local fallback).  Fails SOFT
+        (thesis #2): any backend/transport/timeout error returns an error string
+        instead of raising — the TUI never crashes on a model failure. Returns
+        ``(text, tier_used)`` so the caller reports the tier that actually
+        answered, not just the one it intended (honest observability, §4.6).
         """
         import asyncio
 
@@ -144,7 +156,7 @@ class ChatSession:
         try:
             result = asyncio.run(
                 execute(
-                    [tier],
+                    chain,
                     messages,
                     call=make_dispatch(),
                     task_id=task_id,
@@ -152,17 +164,18 @@ class ChatSession:
                 )
             )
         except ChainExhausted as exc:
-            # Log the failure boundary too — no silent gap (vision §4.6).
+            # Log the failure boundary too — no silent gap (vision §4.6). Report
+            # the intended primary tier (chain[0]) so the TUI shows what was tried.
             self.sink.record(exc.event)
-            return f"(model unavailable: {exc})"
+            return f"(model unavailable: {exc})", chain[0]
         except BackendError as exc:
-            return f"(model unavailable: {exc})"
+            return f"(model unavailable: {exc})", chain[0]
         except Exception as exc:
-            return f"(error: {exc})"
+            return f"(error: {exc})", chain[0]
         # Record the chat completion boundary (kind="chat") so every model call
         # is in the log, not just the groom stages.
         self.sink.record(result.event)
-        return result.content
+        return result.content, result.tier_used
 
 
 # --- test-only helpers -------------------------------------------------------

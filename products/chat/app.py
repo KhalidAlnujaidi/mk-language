@@ -6,14 +6,12 @@ available with a plain ``input()`` fallback.  The loop handles ``/`` commands
 (help, clear, quit, model) and delegates message processing to
 :class:`~products.chat.session.ChatSession`.
 
-Before entering the TUI, a **pre-flight check** verifies:
-  1. At least one local model is registered (``ollama list``)
-  2. That model fits in available VRAM
-  3. Ollama's API endpoint is reachable (``/v1/models``)
-
-If any check fails, a diagnostic is printed and control returns to the hub
-immediately — we never enter the chat loop assuming a model is there.
-All routing is **local-only**; cloud is never used as a fallback.
+kinox's brain is cloud-first (``glm-5.2`` on z.ai) with the first local model as
+the fail-soft fallback (see ``daemon.brain``). Before entering the TUI, a
+**pre-flight check** confirms a usable model exists — the cloud brain, a local
+model, or both — and hard-fails only when neither is available; control then
+returns to the hub immediately rather than entering the loop assuming a model is
+there.
 
 Cold-start discipline: all heavy imports (rich, prompt_toolkit) live inside
 function bodies so the module is importable at hub-launch time without cost.
@@ -22,6 +20,7 @@ The plain-text fallback path is unit-testable by passing ``is_tty=False``.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from pathlib import Path
 
@@ -63,41 +62,87 @@ def _ollama_reachable(manifest: Manifest, *, timeout_s: float = 2.0) -> bool:
         return False
 
 
-def _preflight(manifest: Manifest) -> str | None:
-    """Check that a local model is available AND reachable.  Local only.
+def _brain_key_present(backend: str | None) -> bool:
+    """``True`` if *backend* needs no key, or its key env var is set.
 
-    Returns ``None`` when everything is ready, or a diagnostic error string
-    suitable for display.  No VRAM estimation — Ollama manages its own memory
-    (partial GPU offloading, CPU fallback).  We just verify a model is there
-    and the endpoint answers.
+    Looks the backend up in the broker's spec table so the check stays general
+    (no hard-coded ``ZAI_API_KEY``) — a cloud backend with an unset key is
+    reported honestly so the banner can say "→ fallback"."""
+    from daemon.backends import default_specs
+
+    if backend is None:
+        return True
+    spec = default_specs().get(backend)
+    if spec is None or spec.auth_env is None:
+        return True
+    return bool(os.environ.get(spec.auth_env))
+
+
+def _preflight(manifest: Manifest) -> str | None:
+    """Verify a model is available before entering the chat loop.
+
+    kinox's brain is cloud-first (``glm-5.2``); a local model is the fail-soft
+    fallback. So this hard-fails ONLY when **neither** a cloud brain nor a local
+    model is usable. With the cloud brain active it proceeds even with no local
+    model (the brain answers on its own); a local-only setup keeps the original
+    "model present + Ollama reachable" checks.
     """
-    # 1. Any local models at all? (ollama list must succeed)
-    if not manifest.local_models:
+    from daemon.brain import brain_tier
+
+    Console = _import_rich_console()
+    console = Console()
+    brain = brain_tier()  # cloud glm-5.2 by default; None when KINOX_BRAIN=local
+    has_local = bool(manifest.local_models)
+
+    # No local model at all — only the cloud brain can save us.
+    if not has_local:
+        if brain is not None:
+            key_ok = _brain_key_present(brain.backend)
+            note = "" if key_ok else " (no key → set ZAI_API_KEY)"
+            console.print(
+                f"[dim]preflight: brain {brain.model_name} "
+                f"({brain.backend} · cloud){note} — no local fallback[/dim]"
+            )
+            return None
         return (
-            "No local models found.\n\n"
-            "Run these commands in another terminal:\n"
+            "No model available.\n\n"
+            "Set a cloud brain:  export ZAI_API_KEY=...   (glm-5.2)\n"
+            "or run a local model in another terminal:\n"
             "  ollama serve\n"
             "  ollama pull hf.co/yuxinlu1/gemma-4-12B-coder-"
             "fable5-composer2.5-v1-GGUF:Q4_K_M\n\n"
             "Then try again."
         )
 
-    # 2. Is Ollama's API actually reachable right now?
+    # A local model is registered — verify Ollama is actually reachable.
     if not _ollama_reachable(manifest):
+        if brain is not None:
+            local_name = manifest.local_models[0].name
+            console.print(
+                f"[dim]preflight: brain {brain.model_name} ({brain.backend} · cloud) "
+                f"ready — local fallback {local_name} is offline[/dim]"
+            )
+            return None
         return (
             "Ollama is registered but its API endpoint is not responding.\n\n"
             "Try:  ollama serve\n"
             "Then verify:  curl http://localhost:11434/v1/models"
         )
 
-    # All checks passed — report what we found.
-    Console = _import_rich_console()
-    console = Console()
-    model = manifest.local_models[0]
-    console.print(
-        f"[dim]preflight: {model.name} ({model.backend}) "
-        f"on localhost:11434 — ready[/dim]"
-    )
+    # Everything is ready — report the brain and its local fallback.
+    local = manifest.local_models[0]
+    if brain is not None and brain.where == "cloud":
+        key_ok = _brain_key_present(brain.backend)
+        note = "" if key_ok else " (no key → fallback)"
+        console.print(
+            f"[dim]preflight: brain {brain.model_name} ({brain.backend} · cloud){note} "
+            f"· fallback {local.name} ({local.backend}) — ready[/dim]"
+        )
+    else:
+        console.print(
+            f"[dim]preflight: {local.name} ({local.backend}) "
+            f"on localhost:11434 — ready[/dim]"
+        )
     return None
 
 
@@ -161,17 +206,35 @@ def chat_run(
 
 
 def _welcome(session: ChatSession) -> None:
-    """Print the chat welcome banner — simple, clear, kinox-branded."""
+    """Print the chat welcome banner — simple, clear, kinox-branded.
+
+    Shows the active **brain** (cloud ``glm-5.2`` by default) with the local
+    model as the fail-soft fallback, so the banner reflects what actually
+    reasons — not just the local preflight model."""
+    from daemon.brain import brain_tier
+
     Console, Panel = _import_rich()
 
     models = session.manifest.local_models
-    model_name = models[0].name if models else "none"
+    local_name = models[0].name if models else None
+    brain = brain_tier()
     scope = session.cwd.name if session.cwd.name else str(session.cwd)
+
+    if brain is not None and brain.where == "cloud":
+        key_ok = _brain_key_present(brain.backend)
+        key = "" if key_ok else " [yellow](no key → fallback)[/yellow]"
+        model_block = f"brain: {brain.model_name} ({brain.backend} · cloud){key}"
+        if local_name:
+            model_block += f"\nfallback: {local_name}"
+    elif brain is not None:
+        model_block = f"model: {brain.model_name}"
+    else:
+        model_block = f"model: {local_name or 'none'}"
 
     Console().print(
         Panel.fit(
             f"[bold cyan]kinox[/bold cyan] · {scope}\n"
-            f"model: {model_name}\n\n"
+            f"{model_block}\n\n"
             f"[dim]/help  /clear  /quit[/dim]",
             border_style="cyan",
         )
@@ -345,8 +408,11 @@ def _process_turn(raw: str, session: ChatSession, console: object) -> None:
     import time
     from concurrent.futures import ThreadPoolExecutor
 
-    # Show the user's message
-    console.print(f"\n[bold cyan]you:[/bold cyan] {raw}")
+    # NB: don't re-echo the user's message — both prompt_toolkit and the plain
+    # input() fallback already leave the typed "you> …" line on screen, so a
+    # second "you: …" print just duplicates it. A blank line keeps the turns
+    # visually separated.
+    console.print()
 
     # Process through the session in a background thread.
     with ThreadPoolExecutor(max_workers=1) as executor:
@@ -397,20 +463,30 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
     import uuid
     from concurrent.futures import ThreadPoolExecutor
 
+    from daemon.brain import brain_tier
     from kernel.contracts import Tier
 
     from products.agent import default_registry, run_agent
     from products.capabilities.registry import CapabilityRegistry, load_skills
 
-    models = session.manifest.local_models
-    if not models:
-        console.print("[dim]no local model available[/dim]")
-        return
-
     kinox_root = Path(__file__).resolve().parents[2]
     skills = CapabilityRegistry(load_skills(kinox_root / ".claude" / "skills"))
     registry = default_registry(session.cwd, skills=skills, allow_bash=False)
-    tier = Tier.model(models[0].name, where="local", backend=models[0].backend)
+    # kinox's agent brain is cloud-first (``glm-5.2``); the first local model is
+    # the fail-soft fallback. With no local model the cloud brain runs alone; only
+    # when neither exists (cloud disabled AND no local model) do we bail.
+    models = session.manifest.local_models
+    local_tier = (
+        Tier.model(models[0].name, where="local", backend=models[0].backend)
+        if models
+        else None
+    )
+    tier = brain_tier(fallback=local_tier)
+    if tier is None:
+        console.print(
+            "[dim]no model available (set ZAI_API_KEY or run a local model)[/dim]"
+        )
+        return
 
     console.print(f"\n[bold cyan]agent:[/bold cyan] {task}")
     console.print(
@@ -425,6 +501,7 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
                 registry=registry,
                 sink=session.sink,
                 task_id=uuid.uuid4().hex[:12],
+                fallback=local_tier,
             )
         )
 
