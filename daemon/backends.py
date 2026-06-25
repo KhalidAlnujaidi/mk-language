@@ -41,8 +41,16 @@ _DEFAULT_TIMEOUT_S = 120.0
 # billed against a coding-plan subscription — NOT the standard ``/api/paas/v4``
 # API, which needs a separate credit balance (returns 1113 otherwise). Override
 # with ``KINOX_ZAI_URL`` to use the standard API if you hold raw API credits.
+# ``openrouter`` is the multi-provider aggregator (any text→text model id, e.g.
+# ``openai/gpt-4o-mini`` or ``anthropic/claude-3.5-sonnet``) — same OpenAI shape,
+# keyed by ``OPENROUTER_API_KEY``.
 _CLOUD_BACKEND_DEFAULTS: dict[str, tuple[str, str, str]] = {
     "zai": ("KINOX_ZAI_URL", "https://api.z.ai/api/coding/paas/v4", "ZAI_API_KEY"),
+    "openrouter": (
+        "KINOX_OPENROUTER_URL",
+        "https://openrouter.ai/api/v1",
+        "OPENROUTER_API_KEY",
+    ),
 }
 
 

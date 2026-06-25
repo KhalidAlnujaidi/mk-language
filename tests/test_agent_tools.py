@@ -12,8 +12,39 @@ from products.agent.tools import (
     default_registry,
     filesystem_tools,
     skill_tools,
+    write_tools,
 )
 from products.capabilities.registry import CapabilityRegistry, load_skills
+
+
+def test_write_file_creates_and_overwrites(tmp_path: Path) -> None:
+    (write_file,) = write_tools(tmp_path)
+    out = write_file.handler({"path": "sub/new.txt", "content": "hello"})
+    assert "wrote 5 bytes" in out
+    assert (tmp_path / "sub" / "new.txt").read_text() == "hello"
+    # overwrite
+    write_file.handler({"path": "sub/new.txt", "content": "bye"})
+    assert (tmp_path / "sub" / "new.txt").read_text() == "bye"
+
+
+def test_write_file_refuses_escape_fail_closed(tmp_path: Path) -> None:
+    (write_file,) = write_tools(tmp_path)
+    out = write_file.handler({"path": "../escape.txt", "content": "x"})
+    assert "escapes the allowed root" in out
+    assert not (tmp_path.parent / "escape.txt").exists()
+
+
+def test_default_registry_write_and_bash_off_by_default(tmp_path: Path) -> None:
+    reg = default_registry(tmp_path)
+    assert "write_file" not in reg.tools
+    assert "run_bash" not in reg.tools
+
+
+def test_default_registry_unrestricted_has_write_and_bash(tmp_path: Path) -> None:
+    reg = default_registry(tmp_path, allow_bash=True, allow_write=True)
+    assert "write_file" in reg.tools
+    assert "run_bash" in reg.tools
+    assert "read_file" in reg.tools
 
 
 def _echo_tool() -> Tool:

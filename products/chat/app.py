@@ -234,8 +234,9 @@ def _welcome(session: ChatSession) -> None:
     Console().print(
         Panel.fit(
             f"[bold cyan]kinox[/bold cyan] · {scope}\n"
-            f"{model_block}\n\n"
-            f"[dim]/help  /clear  /quit[/dim]",
+            f"{model_block}\n"
+            f"[dim]agent mode · read · write · bash · skills[/dim]\n\n"
+            f"[dim]/help  /model  /chat  /quit[/dim]",
             border_style="cyan",
         )
     )
@@ -267,7 +268,7 @@ def _text_loop(session: ChatSession, console: object) -> int:
             continue
         if _handle_command(raw, session, console):
             continue
-        _process_turn(raw, session, console)
+        _run_agent_turn(raw, session, console)  # kx is agent mode by default
     return 0
 
 
@@ -337,7 +338,7 @@ def _pt_loop(session: ChatSession, console: object, pt: object) -> int:
             continue
         if _handle_command(raw, session, console):
             continue
-        _process_turn(raw, session, console)
+        _run_agent_turn(raw, session, console)  # kx is agent mode by default
     return 0
 
 
@@ -367,32 +368,134 @@ def _handle_command(raw: str, session: ChatSession, console: object) -> bool:
             "  [cyan]/help[/cyan]   — this message\n"
             "  [cyan]/clear[/cyan]  — reset conversation history\n"
             "  [cyan]/quit[/cyan]   — exit chat (or Ctrl+D)\n"
-            "  [cyan]/model[/cyan]  — show current model info\n"
-            "  [cyan]/agent[/cyan]  — run a tool-calling agent task "
-            "(e.g. /agent summarize README.md)\n\n"
+            "  [cyan]/model[/cyan]  — show/switch the brain (z.ai, OpenRouter, local)\n"
+            "  [cyan]/models[/cyan] — list OpenRouter text models\n"
+            "  [cyan]/chat[/cyan]   — one plain reply, no tools (escape agent mode)\n"
+            "  [cyan]/agent[/cyan]  — explicit agent task (turns are agent mode)\n\n"
+            "[dim]Every message runs the agent: read · write_file · run_bash · "
+            "skills, in this scope.[/dim]\n"
             "[dim]Enter sends · Esc+Enter inserts a newline (multi-line)[/dim]\n"
         )
         return True
 
     if cmd in ("m", "model"):
-        models = session.manifest.local_models
-        if models:
-            console.print(f"[dim]model: {models[0].name} ({models[0].backend})[/dim]")
-        else:
-            console.print("[dim]no local model available[/dim]")
+        _cmd_model(arg.strip(), session, console)
+        return True
+
+    if cmd == "models":
+        _cmd_models(console)
         return True
 
     if cmd in ("a", "agent"):
+        # Every turn is already an agent turn; /agent stays as an explicit alias.
         if not arg.strip():
             console.print(
-                "[dim]usage: /agent <task> — run the tool-calling agent[/dim]"
+                "[dim]usage: /agent <task> (every turn is agent mode already)[/dim]"
             )
         else:
             _run_agent_turn(arg.strip(), session, console)
         return True
 
+    if cmd == "chat":
+        # Escape hatch: one plain, tool-less reply (cheap conversation).
+        if not arg.strip():
+            console.print("[dim]usage: /chat <message> — a plain reply, no tools[/dim]")
+        else:
+            _process_turn(arg.strip(), session, console)
+        return True
+
     console.print(f"[dim]unknown command: /{cmd} — try /help[/dim]")
     return True
+
+
+# --- brain selection ---------------------------------------------------------
+
+
+def _cmd_model(arg: str, session: ChatSession, console: object) -> None:
+    """``/model`` — show the active brain + menu, or switch to a chosen brain.
+
+    No arg lists the current brain and the presets. ``/model <n>`` picks a preset,
+    ``/model openrouter <id>`` uses any OpenRouter model, ``/model local`` disables
+    the cloud brain. The switch is live (next turn) and persisted to ~/.kinox/env.
+    """
+    from daemon.brain import BRAIN_PRESETS, describe_brain, set_brain
+
+    local = session.manifest.local_models
+    local_name = local[0].name if local else "none"
+
+    if not arg:
+        console.print(
+            f"[bold]brain:[/bold] {describe_brain()}  ·  fallback: {local_name}"
+        )
+        for i, preset in enumerate(BRAIN_PRESETS, 1):
+            console.print(f"  [cyan]{i}[/cyan]  {preset.label}")
+        console.print(
+            "  [cyan]or[/cyan]  openrouter <model-id>   "
+            "(see [cyan]/models[/cyan] for the live list)"
+        )
+        console.print(
+            "[dim]switch: /model <n> · /model openrouter <id> · /model local[/dim]"
+        )
+        return
+
+    parts = arg.split()
+    head = parts[0].lower()
+
+    if head == "openrouter":
+        if len(parts) < 2:
+            console.print(
+                "[dim]usage: /model openrouter <model-id>  "
+                "(e.g. openai/gpt-4o-mini)[/dim]"
+            )
+            return
+        label = set_brain(parts[1], "openrouter", "cloud")
+        console.print(f"[green]brain → {label}[/green]  [dim](persisted)[/dim]")
+        if not _brain_key_present("openrouter"):
+            console.print(
+                "[yellow]note: OPENROUTER_API_KEY not set — add it to "
+                "~/.kinox/env (else it falls back to local)[/yellow]"
+            )
+        return
+
+    if head in ("local", "off", "none"):
+        label = set_brain(None)
+        console.print(f"[green]brain → {label}[/green]  [dim](persisted)[/dim]")
+        return
+
+    if head.isdigit():
+        idx = int(head) - 1
+        if not (0 <= idx < len(BRAIN_PRESETS)):
+            console.print(f"[dim]no preset {head} — /model to list[/dim]")
+            return
+        preset = BRAIN_PRESETS[idx]
+        label = set_brain(preset.model, preset.backend, preset.where)
+        console.print(f"[green]brain → {label}[/green]  [dim](persisted)[/dim]")
+        if preset.backend and not _brain_key_present(preset.backend):
+            console.print(
+                f"[yellow]note: key for {preset.backend} not set — "
+                "falls back to local until it is[/yellow]"
+            )
+        return
+
+    console.print("[dim]usage: /model [<n> | openrouter <id> | local][/dim]")
+
+
+def _cmd_models(console: object) -> None:
+    """``/models`` — list OpenRouter text→text model ids (live)."""
+    from daemon.brain import openrouter_text_models
+
+    console.print("[dim]fetching OpenRouter text models…[/dim]")
+    ids = openrouter_text_models(limit=60)
+    if not ids:
+        console.print(
+            "[yellow]couldn't fetch the list (offline?) — browse "
+            "https://openrouter.ai/models and pick any id[/yellow]"
+        )
+        return
+    console.print(f"[bold]OpenRouter text→text models[/bold] (showing {len(ids)}):")
+    for mid in ids:
+        console.print(f"  [cyan]{mid}[/cyan]")
+    console.print("[dim]use one: /model openrouter <id>[/dim]")
 
 
 # --- turn processing ---------------------------------------------------------
@@ -452,11 +555,12 @@ def _process_turn(raw: str, session: ChatSession, console: object) -> None:
 def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
     """Run one tool-calling agent task and render its step trace + answer.
 
-    Builds the standard toolset — read-only filesystem (sandboxed to the chat
-    scope) + the skill bridge over ``.claude/skills`` (the positive feedback
-    loop) — and runs the loop on the first local model. Write/exec tools stay OFF
-    here (fail-CLOSED); they belong behind the pre-tool-use guard slice. Dispatch
-    runs in a worker thread so the terminal can show a spinner.
+    This is the **default** turn for a ``kx`` session: the full, unrestricted
+    toolset — read + ``write_file`` + ``run_bash`` + the skill bridge over
+    ``.claude/skills`` (275 skills) — sandboxed to the session scope, with NO
+    pre-tool guard. The session is fully trusted (it is the operator's own admin
+    shell), so write/exec are ON. Dispatch runs in a worker thread for the
+    spinner.
     """
     import asyncio
     import time
@@ -471,7 +575,10 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
 
     kinox_root = Path(__file__).resolve().parents[2]
     skills = CapabilityRegistry(load_skills(kinox_root / ".claude" / "skills"))
-    registry = default_registry(session.cwd, skills=skills, allow_bash=False)
+    # Unrestricted: write + bash ON, no guard — a fully-trusted operator agent.
+    registry = default_registry(
+        session.cwd, skills=skills, allow_bash=True, allow_write=True
+    )
     # kinox's agent brain is cloud-first (``glm-5.2``); the first local model is
     # the fail-soft fallback. With no local model the cloud brain runs alone; only
     # when neither exists (cloud disabled AND no local model) do we bail.
@@ -502,6 +609,7 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
                 sink=session.sink,
                 task_id=uuid.uuid4().hex[:12],
                 fallback=local_tier,
+                max_turns=30,  # real dev tasks need room to read → act → verify
             )
         )
 

@@ -178,6 +178,55 @@ def filesystem_tools(root: Path) -> list[Tool]:
     ]
 
 
+def write_tools(root: Path) -> list[Tool]:
+    """Write/overwrite filesystem tools sandboxed to *root* — the agent's hands
+    for files. Together with ``run_bash`` they make an unrestricted in-scope
+    coding agent; the ``_within`` guard still fails CLOSED outside the scope, so
+    "unrestricted" means full power *within the working root*, escapable only via
+    the (deliberately equally-powerful) shell."""
+
+    def write_file(args: dict[str, object]) -> str:
+        rel = str(args.get("path", ""))
+        p = _within(root, rel)
+        if p is None:
+            return "(error: path escapes the allowed root)"
+        content = args.get("content")
+        if not isinstance(content, str):
+            return "(error: 'content' must be a string)"
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, encoding="utf-8")
+        except OSError as exc:
+            return f"(error: {exc})"
+        return f"wrote {len(content)} bytes to {rel}"
+
+    return [
+        Tool(
+            name="write_file",
+            description=(
+                "Create or overwrite a UTF-8 text file under the working root "
+                "with the given content (parent dirs are created). Use this to "
+                "edit files — read_file first, then write the full new contents."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path relative to the working root.",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Full new file contents.",
+                    },
+                },
+                "required": ["path", "content"],
+            },
+            handler=write_file,
+        ),
+    ]
+
+
 def bash_tool(root: Path, *, timeout_s: float = 30.0) -> Tool:
     """A guarded shell tool — the agent's hands. HIGH RISK.
 
@@ -306,12 +355,19 @@ def default_registry(
     *,
     skills: CapabilityRegistry | None = None,
     allow_bash: bool = False,
+    allow_write: bool = False,
 ) -> ToolRegistry:
-    """Assemble the standard agent toolset: filesystem + skill bridge, plus the
-    guarded ``run_bash`` only when *allow_bash* is set (fail-CLOSED default)."""
+    """Assemble the agent toolset: read-only filesystem + skill bridge, plus the
+    high-risk ``write_file`` (when *allow_write*) and ``run_bash`` (when
+    *allow_bash*). Both write/exec tools are OFF by default (fail-CLOSED, thesis
+    #2); a fully-trusted interactive session opts into both for an unrestricted
+    in-scope coding agent."""
     reg = ToolRegistry()
     for t in filesystem_tools(root):
         reg.register(t)
+    if allow_write:
+        for t in write_tools(root):
+            reg.register(t)
     if skills is not None:
         for t in skill_tools(skills):
             reg.register(t)

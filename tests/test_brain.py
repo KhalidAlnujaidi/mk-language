@@ -11,8 +11,17 @@ here sets the env it needs explicitly, overriding that default.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
-from daemon.brain import DEFAULT_BRAIN_MODEL, brain_chain, brain_tier
+from daemon.brain import (
+    BRAIN_PRESETS,
+    DEFAULT_BRAIN_MODEL,
+    brain_chain,
+    brain_tier,
+    describe_brain,
+    set_brain,
+)
 from kernel.contracts import Tier
 
 _LOCAL = Tier.model("qwen2.5:3b", where="local", backend="ollama")
@@ -78,3 +87,61 @@ def test_chain_dedups_when_brain_equals_fallback(
     monkeypatch.setenv("KINOX_BRAIN_BACKEND", "ollama")
     monkeypatch.setenv("KINOX_BRAIN_WHERE", "local")
     assert brain_chain(_LOCAL) == [_LOCAL]
+
+
+# --- selection: presets, description, persisted switching ---------------------
+
+
+def test_presets_include_local_and_glm() -> None:
+    labels = [p.label for p in BRAIN_PRESETS]
+    assert any("local" in label for label in labels)
+    assert any("glm-5.2" in label for label in labels)
+    # the local preset has model=None (disables the cloud brain)
+    assert BRAIN_PRESETS[0].model is None
+
+
+def test_describe_brain_cloud_and_local(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("KINOX_BRAIN", raising=False)
+    assert describe_brain() == "glm-5.2 (zai · cloud)"
+    monkeypatch.setenv("KINOX_BRAIN", "local")
+    assert describe_brain() == "local"
+
+
+def test_set_brain_applies_live_and_persists(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    env_file = tmp_path / "env"
+    monkeypatch.delenv("KINOX_BRAIN", raising=False)
+    label = set_brain(
+        "anthropic/claude-3.5-sonnet", "openrouter", "cloud", env_file=env_file
+    )
+    # live: os.environ updated so the next turn uses it
+    assert label == "anthropic/claude-3.5-sonnet (openrouter · cloud)"
+    assert brain_tier() == Tier.model(
+        "anthropic/claude-3.5-sonnet", where="cloud", backend="openrouter"
+    )
+    # persisted: the env file carries the choice across restarts
+    body = env_file.read_text()
+    assert "KINOX_BRAIN=anthropic/claude-3.5-sonnet" in body
+    assert "KINOX_BRAIN_BACKEND=openrouter" in body
+
+
+def test_set_brain_local_disables_cloud(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    env_file = tmp_path / "env"
+    set_brain(None, env_file=env_file)
+    assert describe_brain() == "local"
+    assert "KINOX_BRAIN=local" in env_file.read_text()
+
+
+def test_upsert_preserves_other_keys(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    env_file = tmp_path / "env"
+    env_file.write_text("# secrets\nZAI_API_KEY=keep-me\nKINOX_BRAIN=glm-5.2\n")
+    set_brain(None, env_file=env_file)
+    body = env_file.read_text()
+    assert "ZAI_API_KEY=keep-me" in body  # unrelated secret untouched
+    assert "KINOX_BRAIN=local" in body  # brain key replaced, not duplicated
+    assert body.count("KINOX_BRAIN=") == 1

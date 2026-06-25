@@ -207,10 +207,18 @@ def test_cloud_spec_url_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cloud_backend_specs()["zai"].base_url == "http://proxy.test/v1"
 
 
+def test_cloud_specs_has_openrouter() -> None:
+    spec = cloud_backend_specs()["openrouter"]
+    assert spec.base_url == "https://openrouter.ai/api/v1"
+    assert spec.exact is False
+    assert spec.auth_env == "OPENROUTER_API_KEY"
+
+
 def test_default_specs_merges_local_and_cloud() -> None:
     specs = default_specs()
-    assert {"ollama", "vllm", "llamacpp", "zai"} <= set(specs)
+    assert {"ollama", "vllm", "llamacpp", "zai", "openrouter"} <= set(specs)
     assert specs["zai"].auth_env == "ZAI_API_KEY"
+    assert specs["openrouter"].auth_env == "OPENROUTER_API_KEY"
 
 
 def test_generic_client_sends_bearer_when_token_given() -> None:
