@@ -24,6 +24,7 @@ from council import (
     AXIOMS,
     CONFORMANCE,
     MAX_ROUNDS,
+    PLATEAU_PATIENCE,
     ROSTER,
     STAGES,
     RoundLog,
@@ -56,6 +57,28 @@ STOP = HERE / "STOP"
 SPEC = HERE / "SPEC.md"
 TRANSCRIPT = HERE / "TRANSCRIPT.md"
 ROUNDS = HERE / "rounds"
+PROGRESS = HERE / "PROGRESS.md"
+
+_PROGRESS_HEADER = """\
+# Council build log — anonymized progress reference
+
+The council's shared institutional memory. It records, ANONYMOUSLY (no model identities),
+every capability milestone reached and every plateau — so progress is never lost. This
+file is fed back into every build prompt: the council builds on what it has proven, and
+when it plateaus it restarts from the agreed foundation toward the goal it already showed
+was reachable. Identities live only in dump.log (our private audit), never here.
+
+"""
+
+
+def append_progress(entry: str) -> None:
+    """Append an anonymous milestone/plateau line to the shared reference (the file the
+    council reads as institutional memory). Append-only, like the dump — never rewrites
+    history, so a stop loses nothing."""
+    if not PROGRESS.exists():
+        PROGRESS.write_text(_PROGRESS_HEADER, encoding="utf-8")
+    with PROGRESS.open("a", encoding="utf-8") as fh:
+        fh.write(entry.rstrip() + "\n")
 
 
 def write_spec(state: State) -> None:
@@ -176,17 +199,47 @@ def main() -> None:
                 state.phase = "build"  # design done → build a real interpreter
 
         elif state.phase == "build":
+            prev_pass = list(state.incumbent_passing)
+            reference = PROGRESS.read_text(encoding="utf-8") if PROGRESS.exists() else ""
+            # Plateau → fresh start: many rounds with no gain means the current
+            # foundation is a dead end. Restart from the proven floor toward the agreed
+            # goal, carrying the anonymized memory — exactly the user's "begin again from
+            # what worked" loop.
+            fresh = state.stall_count >= PLATEAU_PATIENCE
             log, new_src, new_pass = run_build_round(
                 state.round, state.spec_text(), state.incumbent_src,
-                state.incumbent_passing, CONFORMANCE, seed,
+                state.incumbent_passing, CONFORMANCE, seed, reference, fresh,
             )
             state.incumbent_src = new_src
             state.incumbent_passing = new_pass
             if new_src:
                 (HERE / "interpreter.py").write_text(new_src, encoding="utf-8")
             write_capabilities(state)
+
+            gained = sorted(set(new_pass) - set(prev_pass))
+            if gained:  # a real capability milestone — record it, reset the plateau gauge
+                append_progress(
+                    f"- Round {log.index}: reached **{len(new_pass)}/{len(CONFORMANCE)}**. "
+                    f"Newly working: {', '.join(gained)}."
+                )
+                state.stall_count = 0
+            elif fresh:  # plateau breaker fired — document the agreed goal, reset gauge
+                nxt = next((n for n, _, _ in CONFORMANCE if n not in new_pass), "—")
+                append_progress(
+                    f"- Round {log.index}: PLATEAU at {len(new_pass)}/{len(CONFORMANCE)} "
+                    f"after {state.stall_count} rounds with no gain. Agreed foundation "
+                    f"passes: {new_pass or '[]'}. Fresh-start goal: `{nxt}`."
+                )
+                state.stall_count = 0
+            else:  # no gain this round — inch toward the plateau threshold
+                state.stall_count += 1
+
             if len(new_pass) >= len(CONFORMANCE):
                 state.phase = "done"
+                append_progress(
+                    f"- Round {log.index}: **COMPLETE — {len(new_pass)}/"
+                    f"{len(CONFORMANCE)}.** The council built a working language."
+                )
                 # Finish this round's checkpoint below, then exit the loop.
 
         else:  # phase == "done" (or no work left)

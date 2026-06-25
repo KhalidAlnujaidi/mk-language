@@ -89,6 +89,7 @@ def render() -> str:
     except json.JSONDecodeError:
         pass
     interp = _read(HERE / "interpreter.py")
+    progress = _read(HERE / "PROGRESS.md")
 
     parts = [
         "<!doctype html><html><head><meta charset='utf-8'>",
@@ -148,6 +149,10 @@ def render() -> str:
             parts.append("<h3>the interpreter the council wrote "
                          "<small>· interpreter.py</small></h3>")
             parts.append(f"<pre class='lang'>{_esc(interp[:5000])}</pre>")
+        if progress:
+            parts.append("<h3>anonymized progress reference "
+                         "<small>· PROGRESS.md (institutional memory)</small></h3>")
+            parts.append(f"<pre>{_esc(progress[-3000:])}</pre>")
 
     # --- 🧬 The Language so far — concrete artifacts, not prose ---------------
     secs = _sections(state)

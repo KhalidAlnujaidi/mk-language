@@ -161,3 +161,51 @@ def test_empty_source_scores_zero() -> None:
 def test_extract_code_prefers_python_block() -> None:
     reply = "Here you go:\n```python\ndef run(s):\n    print(s)\n```\nDone."
     assert extract_code(reply) == "def run(s):\n    print(s)"
+
+
+def test_extract_code_picks_the_block_with_an_entry_point() -> None:
+    # A reply with a usage-example block first and the real interpreter second:
+    # extract_code must return the one that defines an entry point.
+    reply = (
+        "Example:\n```python\nprint('demo')\n```\n"
+        "Interpreter:\n```python\nimport sys\n"
+        "def run(src):\n    sys.stdout.write('ok')\n```"
+    )
+    assert "def run(src)" in extract_code(reply)
+    assert "print('demo')" not in extract_code(reply)
+
+
+def _adoption_harness(monkeypatch, proposal_code: str, fresh: bool):
+    """Drive run_build_round offline: stub the model call + scorer so only the
+    adoption decision is exercised. Incumbent + any 'NEW' proposal each pass 3 caps."""
+    import council
+
+    names = [n for n, _, _ in council.CONFORMANCE]
+    monkeypatch.setattr(council, "gather_interpreters",
+                        lambda *a, **k: [("model-x", proposal_code)])
+
+    def fake_score(src, suite):
+        return (names[:3], {}) if ("OLD" in src or "NEW" in src) else ([], {})
+
+    monkeypatch.setattr(council, "score_interpreter", fake_score)
+    return council.run_build_round(
+        1, "spec", "OLDCODE", names[:3], council.CONFORMANCE, 1, "", fresh
+    )
+
+
+def test_fresh_start_accepts_equal_rederivation(monkeypatch) -> None:
+    log, src, _ = _adoption_harness(monkeypatch, "NEWCODE", fresh=True)
+    assert src == "NEWCODE"  # sideways move onto a new foundation escapes the plateau
+    assert "re-seeded" in log.note
+
+
+def test_normal_round_rejects_equal_score(monkeypatch) -> None:
+    log, src, _ = _adoption_harness(monkeypatch, "NEWCODE", fresh=False)
+    assert src == "OLDCODE"  # never adopt a non-improvement in a normal round
+    assert "status quo held" in log.note
+
+
+def test_fresh_start_keeps_identical_foundation(monkeypatch) -> None:
+    log, src, _ = _adoption_harness(monkeypatch, "OLDCODE", fresh=True)
+    assert src == "OLDCODE"  # equal score AND identical code → no pointless switch
+    assert "same foundation" in log.note

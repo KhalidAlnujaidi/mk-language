@@ -65,6 +65,7 @@ TIMEOUT_S = 240.0
 KEEP_ALIVE = "8m"
 SPEC_CTX_CAP = 7000  # chars of spec fed back into prompts
 MAX_ROUNDS = 400     # overnight safety backstop
+PLATEAU_PATIENCE = 6  # build rounds with no capability gain → trigger a fresh start
 
 AXIOMS = """\
 1. MACHINE-INTERPRETABILITY FIRST. Prefer forms a machine parses and reasons about
@@ -409,22 +410,43 @@ def score_interpreter(
 
 def gather_interpreters(
     spec: str, incumbent_src: str, inc_details: dict[str, str],
-    suite: tuple[tuple[str, str, str], ...]
+    suite: tuple[tuple[str, str, str], ...], reference: str = "",
+    fresh_start: bool = False
 ) -> list[tuple[str, str]]:
-    """Each model proposes a full interpreter (high temp). The prompt shows the current
-    best and exactly which capabilities it fails — failures are free quality labels
-    (project thesis #3) telling the council what to fix next."""
+    """Each model proposes a full interpreter (high temp). The prompt carries the
+    council's ANONYMOUS institutional memory (`reference` — every milestone reached,
+    no identities) so progress is never lost, plus either the current best to extend
+    (normal mode) or a license to re-derive from scratch toward the agreed goal
+    (fresh_start, fired on a plateau to escape a dead-end local optimum)."""
     suite_txt = "\n".join(
         f"; {n}\n{prog}\n; expected: {exp}" for n, prog, exp in suite
     )
-    if incumbent_src:
-        n_pass = sum(1 for v in inc_details.values() if v == "PASS")
+    proven = [n for n, _, _ in suite if inc_details.get(n) == "PASS"]
+    next_failing = next((n for n, _, _ in suite if n not in proven), "")
+    mem = (
+        f"INSTITUTIONAL MEMORY — what the council has already proven works "
+        f"(anonymous, no identities):\n{reference[-3000:]}\n\n" if reference else ""
+    )
+    if fresh_start and incumbent_src:
+        cur = (
+            f"THE COUNCIL HAS PLATEAUED at {len(proven)}/{len(suite)} — many rounds with "
+            "no gain. By consensus these capabilities are PROVEN reachable; treat them as "
+            "the agreed goal and the motivator, NOT a template. START FRESH: re-derive a "
+            "clean interpreter FROM SCRATCH that still passes every proven capability AND "
+            f"breaks the plateau by also passing `{next_failing}`. Rethink the whole "
+            "structure — do not merely tweak the old code.\n"
+            f"PROVEN capabilities you must keep passing: {proven}\n"
+            f"Plateau-breaking target: {next_failing}"
+        )
+    elif incumbent_src:
+        n_pass = len(proven)
         results = "\n".join(f"- {k}: {v[:160]}" for k, v in inc_details.items())
         cur = (
             f"CURRENT BEST INTERPRETER (passes {n_pass}/{len(suite)}):\n"
             f"```python\n{incumbent_src}\n```\n"
             f"Per-capability result:\n{results}\n\n"
-            "Improve it: pass MORE capabilities without breaking any already-passing one."
+            f"Improve it: pass MORE capabilities (aim next at `{next_failing}`) without "
+            "breaking any already-passing one."
         )
     else:
         cur = "No interpreter exists yet — write the first one."
@@ -434,6 +456,7 @@ def gather_interpreters(
     )
     user = (
         f"OUR LANGUAGE SPEC (your council designed this):\n{spec[-SPEC_CTX_CAP:]}\n\n"
+        f"{mem}"
         f"CONFORMANCE SUITE — your interpreter must reproduce each expected output:\n"
         f"{suite_txt}\n\n{cur}\n\n{INTERP_CONTRACT}"
     )
@@ -481,14 +504,24 @@ def _vote_best_interpreter(
 
 def run_build_round(
     index: int, spec: str, incumbent_src: str, incumbent_passing: list[str],
-    suite: tuple[tuple[str, str, str], ...], seed: int
+    suite: tuple[tuple[str, str, str], ...], seed: int, reference: str = "",
+    fresh_start: bool = False
 ) -> tuple[RoundLog, str, list[str]]:
-    """One variation+selection cycle. Returns (log, new_incumbent_src, new_passing)."""
-    log = RoundLog(index=index, title="build:interpreter")
+    """One variation+selection cycle. Returns (log, new_incumbent_src, new_passing).
+
+    Normal rounds adopt a proposal only if it passes STRICTLY MORE capabilities than
+    the incumbent (the monotonic don't-break-what-works ratchet). A plateau-breaking
+    `fresh_start` round additionally accepts an EQUAL-scoring re-derivation — a
+    deliberate sideways move onto a different foundation, so a dead-end local optimum
+    can be escaped without ever dropping below what the council already proved."""
+    title = "build:fresh-start" if fresh_start else "build:interpreter"
+    log = RoundLog(index=index, title=title)
     inc_details: dict[str, str] = {}
     if incumbent_src:
         _, inc_details = score_interpreter(incumbent_src, suite)
-    props = gather_interpreters(spec, incumbent_src, inc_details, suite)
+    props = gather_interpreters(
+        spec, incumbent_src, inc_details, suite, reference, fresh_start
+    )
 
     scored: list[dict[str, object]] = []
     for author, code in props:
@@ -497,7 +530,7 @@ def run_build_round(
             {"author": author, "code": code, "passing": passing, "n": len(passing)}
         )
         dump(
-            f"BUILD eval model={author} round={index}",
+            f"BUILD eval model={author} round={index} mode={title}",
             f"score={len(passing)}/{len(suite)} passing={passing}\n"
             + "\n".join(f"{k}: {v[:200]}" for k, v in details.items()),
         )
@@ -515,18 +548,26 @@ def run_build_round(
         return log, incumbent_src, incumbent_passing
 
     best_n = max(int(s["n"]) for s in scored)
-    if best_n > inc_n:
+    # Adoption bar: strictly better normally; >= on a fresh-start (sideways escape).
+    adopt = best_n > inc_n or (fresh_start and best_n == inc_n and best_n > 0)
+    if adopt:
         top = [s for s in scored if int(s["n"]) == best_n]
         win = top[0] if len(top) == 1 else _vote_best_interpreter(top, seed)
+        win_src = str(win["code"])
+        # On a sideways move, only switch foundations if the code actually differs.
+        if best_n == inc_n and win_src.strip() == incumbent_src.strip():
+            log.note = f"fresh start returned the same foundation at {inc_n}/{len(suite)}"
+            return log, incumbent_src, incumbent_passing
         log.winner_author = str(win["author"])
-        log.winner_text = str(win["code"])
-        log.note = f"adopted: {inc_n} -> {best_n}/{len(suite)}"
+        log.winner_text = win_src
+        verb = "re-seeded at" if best_n == inc_n else f"adopted: {inc_n} ->"
+        log.note = f"{verb} {best_n}/{len(suite)}"
         dump(
-            f"BUILD ADOPT round={index}",
+            f"BUILD ADOPT round={index} mode={title}",
             f"new incumbent {win['author']} score {best_n}/{len(suite)} "
             f"passing={win['passing']}",
         )
-        return log, str(win["code"]), list(win["passing"])  # type: ignore[arg-type]
+        return log, win_src, list(win["passing"])  # type: ignore[arg-type]
 
     log.note = f"status quo held at {inc_n}/{len(suite)} (no proposal beat it)"
     return log, incumbent_src, incumbent_passing
@@ -554,6 +595,7 @@ class State:
     # winning interpreter source IS the checkpoint — resumable like everything else.
     incumbent_src: str = ""
     incumbent_passing: list[str] = field(default_factory=list[str])
+    stall_count: int = 0  # build rounds since the last capability gain (plateau gauge)
 
     @classmethod
     def load(cls, path: Path) -> State:
@@ -573,6 +615,7 @@ class State:
             sections=secs,
             incumbent_src=raw.get("incumbent_src", ""),
             incumbent_passing=list(raw.get("incumbent_passing", [])),
+            stall_count=raw.get("stall_count", 0),
         )
 
     def save(self, path: Path) -> None:
@@ -588,6 +631,7 @@ class State:
                     "sections": [asdict(s) for s in self.sections],
                     "incumbent_src": self.incumbent_src,
                     "incumbent_passing": self.incumbent_passing,
+                    "stall_count": self.stall_count,
                 },
                 indent=2,
             ),
