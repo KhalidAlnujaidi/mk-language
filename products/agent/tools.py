@@ -24,10 +24,14 @@ import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from kernel.jsonutil import as_dict
 
 from products.capabilities.registry import MCP_SERVER, CapabilityRegistry
+
+if TYPE_CHECKING:
+    from daemon.mcp import MCPServer
 
 #: A tool handler maps validated arguments to a string observation.
 Handler = Callable[[dict[str, object]], str]
@@ -356,16 +360,72 @@ def skill_tools(registry: CapabilityRegistry) -> list[Tool]:
     ]
 
 
+#: Started MCP servers, cached per config path so the agent loop does not respawn
+#: them every turn. Populated lazily by :func:`mcp_tools`.
+_MCP_CACHE: dict[str, list[MCPServer]] = {}
+
+
+def _wrap_mcp_tool(server: object, spec: dict[str, object]) -> Tool:
+    """Wrap one remote MCP tool *spec* as a kinox :class:`Tool` that dispatches to
+    *server*. Named ``mcp__<server>__<tool>`` so it is unambiguous in the trace."""
+    from daemon.mcp import MCPServer
+
+    srv = server if isinstance(server, MCPServer) else None
+    tool_name = str(spec.get("name", ""))
+    schema: dict[str, object] = as_dict(spec.get("inputSchema"))
+    if not schema:
+        schema = {"type": "object", "properties": {}}
+
+    def handler(args: dict[str, object]) -> str:
+        if srv is None:
+            return "(error: mcp server unavailable)"
+        return srv.call(tool_name, args)
+
+    label = srv.name if srv is not None else "mcp"
+    return Tool(
+        name=f"mcp__{label}__{tool_name}",
+        description=str(spec.get("description", ""))[:500],
+        parameters=schema,
+        handler=handler,
+    )
+
+
+def mcp_tools(config_path: Path, *, max_servers: int = 8) -> list[Tool]:
+    """Start the launchable MCP servers in *config_path* (once, cached) and return
+    their remote tools as kinox Tools. Fail-soft: unlaunchable/dead servers
+    contribute nothing, so the agent simply gets whatever is actually configured."""
+    from daemon.mcp import load_server_specs
+
+    key = str(config_path)
+    servers = _MCP_CACHE.get(key)
+    if servers is None:
+        started: list[MCPServer] = []
+        for spec in load_server_specs(config_path):
+            if spec.launchable() and spec.start():
+                started.append(spec)
+            if len(started) >= max_servers:
+                break
+        _MCP_CACHE[key] = started
+        servers = started
+    tools: list[Tool] = []
+    for srv in servers:
+        for remote in srv.tools:
+            tools.append(_wrap_mcp_tool(srv, remote))
+    return tools
+
+
 def default_registry(
     root: Path,
     *,
     skills: CapabilityRegistry | None = None,
     allow_bash: bool = False,
     allow_write: bool = False,
+    mcp_config: Path | None = None,
 ) -> ToolRegistry:
     """Assemble the agent toolset: read-only filesystem + skill bridge, plus the
     high-risk ``write_file`` (when *allow_write*) and ``run_bash`` (when
-    *allow_bash*). Both write/exec tools are OFF by default (fail-CLOSED, thesis
+    *allow_bash*), plus live MCP server tools (when *mcp_config* points at an
+    ``mcpServers`` config). Write/exec are OFF by default (fail-CLOSED, thesis
     #2); a fully-trusted interactive session opts into both for an unrestricted
     in-scope coding agent."""
     reg = ToolRegistry()
@@ -379,4 +439,7 @@ def default_registry(
             reg.register(t)
     if allow_bash:
         reg.register(bash_tool(root))
+    if mcp_config is not None:
+        for t in mcp_tools(mcp_config):
+            reg.register(t)
     return reg

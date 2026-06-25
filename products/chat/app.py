@@ -32,6 +32,10 @@ from products.chat.session import ChatSession
 #: How many turns of command history prompt_toolkit remembers.
 _HISTORY_SIZE = 200
 
+#: MCP config paths for which we've already shown the "connecting…" notice (it
+#: only matters on the first agent turn — servers are cached after that).
+_mcp_started: set[str] = set()
+
 
 class _QuitChat(Exception):
     """Raised by /quit to unwind the loop cleanly back to the hub."""
@@ -578,8 +582,20 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
     # descriptors — all discoverable via find_skill/load_skill.
     skills = CapabilityRegistry.from_claude_dir(kinox_root / ".claude")
     # Unrestricted: write + bash ON, no guard — a fully-trusted operator agent.
+    # MCP servers in .claude/mcp-servers.json are started and exposed as live
+    # tools (fail-soft). Gated by KINOX_MCP (default on) because the first turn
+    # pays the server cold-start; set KINOX_MCP=0 to skip. Cached after start.
+    mcp_on = os.environ.get("KINOX_MCP", "1").lower() not in ("0", "off", "false", "no")
+    mcp_config = kinox_root / ".claude" / "mcp-servers.json" if mcp_on else None
+    if mcp_config is not None and str(mcp_config) not in _mcp_started:
+        console.print("[dim]connecting MCP servers (set KINOX_MCP=0 to skip)…[/dim]")
+        _mcp_started.add(str(mcp_config))
     registry = default_registry(
-        session.cwd, skills=skills, allow_bash=True, allow_write=True
+        session.cwd,
+        skills=skills,
+        allow_bash=True,
+        allow_write=True,
+        mcp_config=mcp_config,
     )
     # kinox's agent brain is cloud-first (``glm-5.2``); the first local model is
     # the fail-soft fallback. With no local model the cloud brain runs alone; only
