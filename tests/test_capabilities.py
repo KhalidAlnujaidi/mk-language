@@ -11,10 +11,12 @@ from pathlib import Path
 import pytest
 from products.capabilities import (
     AGENT,
+    COMMAND,
     MCP_SERVER,
     SKILL,
     CapabilityRegistry,
     load_agents,
+    load_commands,
     load_mcp,
     load_skills,
 )
@@ -25,6 +27,41 @@ REPO = Path(__file__).resolve().parent.parent
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+# --- commands ---------------------------------------------------------------
+
+
+def test_load_commands_parses_description_and_stem_name(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "commands" / "code-review.md",
+        "---\ndescription: Review the diff\nargument-hint: [pr]\n---\n# Code Review\n",
+    )
+    caps = load_commands(tmp_path / "commands")
+    assert len(caps) == 1
+    assert caps[0].kind == COMMAND
+    assert caps[0].name == "code-review"  # from the filename stem
+    assert caps[0].description == "Review the diff"
+    assert caps[0].extra["argument-hint"] == "[pr]"
+
+
+def test_load_commands_absent_dir_is_empty(tmp_path: Path) -> None:
+    assert load_commands(tmp_path / "nope") == ()
+
+
+def test_from_claude_dir_aggregates_all_kinds(tmp_path: Path) -> None:
+    claude = tmp_path / ".claude"
+    _write(claude / "skills" / "s1" / "SKILL.md", "---\nname: s1\ndesc: d\n---\n")
+    _write(claude / "commands" / "c1.md", "---\ndescription: cmd\n---\n")
+    _write(claude / "agents" / "a1.md", "---\nname: a1\ndescription: ag\n---\n")
+    _write(
+        claude / "mcp-servers.json",
+        '{"mcpServers": {"m1": {"command": "x", "description": "srv"}}}',
+    )
+    reg = CapabilityRegistry.from_claude_dir(claude)
+    kinds = {c.kind for c in reg.capabilities}
+    assert kinds == {SKILL, COMMAND, AGENT, MCP_SERVER}
+    assert len(reg) == 4
 
 
 # --- skills -----------------------------------------------------------------

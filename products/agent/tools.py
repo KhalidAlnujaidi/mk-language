@@ -27,7 +27,7 @@ from pathlib import Path
 
 from kernel.jsonutil import as_dict
 
-from products.capabilities.registry import SKILL, CapabilityRegistry
+from products.capabilities.registry import MCP_SERVER, CapabilityRegistry
 
 #: A tool handler maps validated arguments to a string observation.
 Handler = Callable[[dict[str, object]], str]
@@ -275,15 +275,15 @@ def bash_tool(root: Path, *, timeout_s: float = 30.0) -> Tool:
 
 
 def skill_tools(registry: CapabilityRegistry) -> list[Tool]:
-    """The skill bridge — the positive feedback loop (vision §0, Rule Zero).
+    """The capability bridge — the positive feedback loop (vision §0, Rule Zero).
 
-    ``find_skill`` searches the kinox skill corpus by substring over name +
-    description (thesis #1: ground-truth text match, no model); ``load_skill``
-    returns a skill's full instructions so the agent can follow them. Every skill
-    added under ``.claude/skills/`` is automatically discoverable — capability
-    grows with the corpus, not with code.
+    ``find_skill`` searches the WHOLE harvested corpus — skills, commands, and
+    agent playbooks — by substring over name + description (thesis #1: ground-truth
+    text match, no model); ``load_skill`` returns a capability's full instructions
+    so the agent can follow them. Everything under ``.claude/`` is automatically
+    discoverable — capability grows with the corpus, not with code.
     """
-    skills = registry.by_kind(SKILL)
+    caps = registry.capabilities
 
     def find_skill(args: dict[str, object]) -> str:
         query = str(args.get("query", "")).lower().strip()
@@ -291,20 +291,25 @@ def skill_tools(registry: CapabilityRegistry) -> list[Tool]:
             return "(error: empty query)"
         hits = [
             c
-            for c in skills
+            for c in caps
             if query in c.name.lower() or query in c.description.lower()
         ]
         if not hits:
-            return f"(no skill matches {query!r} among {len(skills)} skills)"
-        lines = [f"- {c.name}: {c.description[:160]}" for c in hits[:15]]
-        more = f"\n…and {len(hits) - 15} more" if len(hits) > 15 else ""
+            return f"(no capability matches {query!r} among {len(caps)} entries)"
+        lines = [f"- [{c.kind}] {c.name}: {c.description[:140]}" for c in hits[:20]]
+        more = f"\n…and {len(hits) - 20} more" if len(hits) > 20 else ""
         return f"{len(hits)} match(es):\n" + "\n".join(lines) + more
 
     def load_skill(args: dict[str, object]) -> str:
         name = str(args.get("name", "")).strip()
         cap = registry.get(name)
-        if cap is None or cap.kind != SKILL:
-            return f"(error: no skill named {name!r} — use find_skill first)"
+        if cap is None:
+            return f"(error: no capability named {name!r} — use find_skill first)"
+        if cap.kind == MCP_SERVER:
+            return (
+                f"(mcp server {name!r}: {cap.description}. Configured in "
+                ".claude/mcp-servers.json — not a file to read.)"
+            )
         text = Path(cap.source).read_text(encoding="utf-8", errors="replace")
         return text if len(text) <= 12000 else text[:12000] + "\n…(truncated)"
 
@@ -312,17 +317,18 @@ def skill_tools(registry: CapabilityRegistry) -> list[Tool]:
         Tool(
             name="find_skill",
             description=(
-                "Search the kinox skill corpus for skills whose name or "
-                "description matches a query. Use this BEFORE attempting an "
-                "unfamiliar task — a skill may already encode how to do it."
+                "Search the kinox capability corpus (skills, commands, and agent "
+                "playbooks) by keyword. Use this BEFORE attempting an unfamiliar "
+                "task — a skill/command/agent may already encode how to do it. "
+                "Results are tagged [skill] / [command] / [agent]."
             ),
             parameters={
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Keywords to match against skill names "
-                        "and descriptions.",
+                        "description": "Keywords to match against names and "
+                        "descriptions across the corpus.",
                     }
                 },
                 "required": ["query"],
@@ -332,15 +338,15 @@ def skill_tools(registry: CapabilityRegistry) -> list[Tool]:
         Tool(
             name="load_skill",
             description=(
-                "Load a skill's full instructions by exact name (from "
-                "find_skill) and follow them."
+                "Load a capability's full instructions by exact name (from "
+                "find_skill) — a skill, command, or agent playbook — and follow them."
             ),
             parameters={
                 "type": "object",
                 "properties": {
                     "name": {
                         "type": "string",
-                        "description": "Exact skill name from find_skill.",
+                        "description": "Exact capability name from find_skill.",
                     }
                 },
                 "required": ["name"],

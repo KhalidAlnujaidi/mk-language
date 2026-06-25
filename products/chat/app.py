@@ -571,10 +571,12 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
     from kernel.contracts import Tier
 
     from products.agent import default_registry, run_agent
-    from products.capabilities.registry import CapabilityRegistry, load_skills
+    from products.capabilities.registry import CapabilityRegistry
 
     kinox_root = Path(__file__).resolve().parents[2]
-    skills = CapabilityRegistry(load_skills(kinox_root / ".claude" / "skills"))
+    # The FULL harvested corpus: skills + commands + agent playbooks + MCP
+    # descriptors — all discoverable via find_skill/load_skill.
+    skills = CapabilityRegistry.from_claude_dir(kinox_root / ".claude")
     # Unrestricted: write + bash ON, no guard — a fully-trusted operator agent.
     registry = default_registry(
         session.cwd, skills=skills, allow_bash=True, allow_write=True

@@ -109,14 +109,33 @@ def test_skill_bridge_reads_corpus(tmp_path: Path) -> None:
     assert "safety-guard" in found
 
     miss = tools["find_skill"].handler({"query": "nonexistent-xyz"})
-    assert "no skill matches" in miss
+    assert "no capability matches" in miss
 
     loaded = tools["load_skill"].handler({"name": "safety-guard"})
     assert "Do not rm -rf" in loaded
-    assert "no skill named" in tools["load_skill"].handler({"name": "ghost"})
+    assert "no capability named" in tools["load_skill"].handler({"name": "ghost"})
 
 
 def test_default_registry_gates_bash(tmp_path: Path) -> None:
     # Bash is OFF by default (fail-CLOSED); only present when explicitly allowed.
     assert "run_bash" not in default_registry(tmp_path).tools
     assert "run_bash" in default_registry(tmp_path, allow_bash=True).tools
+
+
+def test_find_skill_searches_all_kinds(tmp_path: Path) -> None:
+    """find_skill spans skills + commands + agents, tagged by kind."""
+    from products.agent.tools import skill_tools
+    from products.capabilities import Capability, CapabilityRegistry
+
+    reg = CapabilityRegistry(
+        (
+            Capability("redact-secrets", "skill", "scrub secrets", "s.md"),
+            Capability("code-review", "command", "review the diff", "c.md"),
+            Capability("code-reviewer", "agent", "review specialist", "a.md"),
+        )
+    )
+    find, _load = skill_tools(reg)
+    out = find.handler({"query": "review"})
+    assert "[command] code-review" in out
+    assert "[agent] code-reviewer" in out
+    assert "redact" not in out  # non-matching skill excluded
