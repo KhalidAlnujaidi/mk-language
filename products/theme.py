@@ -73,6 +73,34 @@ BRAIN = "🧠"
 CLOUD = "☁"
 
 
+#: Bite-sized usage hints rotated through the toolbar / welcome / dashboard.
+#: Keep each short enough to live on one toolbar line (~60 cols).
+TIPS = [
+    "/model switches the brain mid-session",
+    "Esc+Enter inserts a newline · Enter sends",
+    "/chat resets the conversation context",
+    "KINOX_VERBOSE=1 shows the full tool trace",
+    "kx doctor runs a health check",
+    "kx status opens the observability dashboard",
+    "/help lists every command",
+    "Shift-Tab inserts a tab in the prompt",
+    "KINOX_ASCII=1 forces a glyph-free render",
+    "KINOX_MCP=0 skips the MCP server cold-start",
+]
+
+
+def tip(n: int = 0) -> str:
+    """The ``n``-th hint (wraps around), prefixed with 💡 unless ASCII-only.
+
+    Callers pass a rotating index — turn count, pid, or event total — so the
+    hint changes over time without any stored state.
+    """
+    if not TIPS:
+        return ""
+    bulb = "" if ascii_only() else "💡 "
+    return f"{bulb}{TIPS[n % len(TIPS)]}"
+
+
 def ascii_only() -> bool:
     """True when the user asked for a glyph-free render (dumb terminals/pipes)."""
     return os.environ.get("KINOX_ASCII", "").lower() in ("1", "on", "true", "yes")

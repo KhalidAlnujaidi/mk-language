@@ -244,6 +244,7 @@ def _welcome(session: ChatSession) -> None:
             f"[bold cyan]scope[/bold cyan]  {scope}\n"
             f"{model_block}\n"
             f"[dim]agent mode · read · write · bash · skills[/dim]\n\n"
+            f"[dim]{theme.tip(os.getpid())}[/dim]\n"
             f"[dim]/help  /model  /chat  /quit[/dim]",
             border_style=theme.BORDER,
             box=theme.box(),
@@ -340,9 +341,11 @@ def _pt_loop(session: ChatSession, console: object, pt: object) -> int:
         m, s = divmod(secs, 60)
         elapsed = f"{m}m{s:02d}s" if m else f"{s}s"
         cloud = f" {theme.CLOUD}" if is_cloud and not theme.ascii_only() else ""
+        # Rotate a fresh hint each turn so the keybindings/commands teach
+        # themselves over a session instead of a fixed (ignorable) banner.
         return (
             f" {scope_name} · {model_label}{cloud} · {n} turns · {elapsed}"
-            "    Enter send · Esc+Enter newline · /help /clear /quit"
+            f"    {theme.tip(n)}"
         )
 
     # Use prompt_toolkit.shortcuts.PromptSession for a clean API.

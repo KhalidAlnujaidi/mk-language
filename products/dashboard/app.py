@@ -41,7 +41,8 @@ def render(summary: Summary) -> Table:
     caption = (
         f"{summary.total_events} events · "
         f"{summary.correction_count} corrections "
-        f"({summary.correction_rate:.0%})"
+        f"({summary.correction_rate:.0%})\n"
+        f"[dim]{theme.tip(summary.total_events)}[/dim]"
     )
     table = Table(
         title="[bold cyan]kinox[/bold cyan] observability",
