@@ -6,6 +6,7 @@ a bridge into the skill corpus. Pure logic — the TUI in ``products/chat`` call
 it; the model call is injectable for offline tests.
 """
 
+from products.agent.environment import build_preamble
 from products.agent.loop import (
     AGENT_SYSTEM_PROMPT,
     AgentResult,
@@ -16,6 +17,7 @@ from products.agent.tools import (
     Tool,
     ToolRegistry,
     default_registry,
+    project_root_guard,
 )
 
 __all__ = [
@@ -24,6 +26,8 @@ __all__ = [
     "AgentStep",
     "Tool",
     "ToolRegistry",
+    "build_preamble",
     "default_registry",
+    "project_root_guard",
     "run_agent",
 ]

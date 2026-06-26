@@ -20,6 +20,8 @@ the guard fails CLOSED on a path that escapes the root).
 from __future__ import annotations
 
 import json
+import re
+import shlex
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -116,6 +118,82 @@ def _within(root: Path, target: str) -> Path | None:
         return p
     except (ValueError, OSError):
         return None
+
+
+#: Tokens whose mere presence can reach outside the project root (home / env-home
+#: expansion resolves to an arbitrary location the lexical check below cannot see).
+_HOME_EXPANSION = re.compile(r"(^|[\s=:(\"'])~|\$\{?HOME\b")
+
+
+def _candidate_paths(token: str) -> list[str]:
+    """Path-like strings inside one shell token (the token itself, and the value
+    after an ``=`` for ``--flag=/path`` forms). Non-path tokens yield nothing."""
+    parts = [token]
+    if "=" in token:
+        parts.append(token.split("=", 1)[1])
+    return [
+        p
+        for p in parts
+        if p == ".."
+        or p.startswith(("/", "./", "../"))
+        or "/" in p
+    ]
+
+
+def _bash_escape_reason(command: str, root: Path) -> str | None:
+    """Why *command* would touch the filesystem outside *root* — or ``None``.
+
+    A best-effort LEXICAL jail (thesis #2, fail-CLOSED): it refuses home/env-home
+    expansion, absolute paths outside the root, and parent-traversal that escapes.
+    It is NOT a kernel sandbox — it cannot see through ``$(...)`` substitution,
+    here-docs, or env indirection. True containment needs OS user-namespaces
+    (unavailable here: AppArmor restricts unprivileged userns), so this lexical
+    guard is the governing layer, and it errs toward refusing.
+    """
+    if _HOME_EXPANSION.search(command):
+        return "home-directory expansion (~ or $HOME) can reach outside the root"
+    try:
+        tokens = shlex.split(command, comments=False, posix=True)
+    except ValueError:
+        # Unbalanced quotes → cannot verify path safety → refuse (fail-CLOSED).
+        return "command could not be parsed for path safety"
+    for tok in tokens:
+        for cand in _candidate_paths(tok):
+            if _within(root, cand) is None:
+                return f"path {cand!r} escapes the project root"
+    return None
+
+
+def project_root_guard(root: Path) -> Callable[[str, str], str | None]:
+    """A pre-dispatch :data:`~products.agent.loop.Guard` that jails every tool to
+    *root* — the governance the loop applies before a handler runs.
+
+    Filesystem tools already self-jail via :func:`_within`; this adds the same
+    boundary at the loop level (so an escape shows as a ``blocked`` trace event,
+    auditable) and is the ONLY containment for ``run_bash``. Fails CLOSED on a
+    detected escape; passes (returns ``None``) otherwise. Wiring this guard makes
+    "the session resides only within its repository" the default for every
+    project — framework, evolve, and admin sessions alike.
+    """
+    root_p = Path(root)
+
+    def guard(name: str, args_json: str) -> str | None:
+        try:
+            args = json.loads(args_json) if args_json else {}
+        except json.JSONDecodeError:
+            return None  # malformed args degrade to a fail-soft dispatch error
+        if not isinstance(args, dict):
+            return None
+        if name == "run_bash":
+            return _bash_escape_reason(str(args.get("command", "")), root_p)
+        if name in ("read_file", "list_dir", "write_file"):
+            default = "." if name == "list_dir" else ""
+            path = str(args.get("path", default))
+            if _within(root_p, path) is None:
+                return f"path {path!r} escapes the project root"
+        return None
+
+    return guard
 
 
 def filesystem_tools(root: Path) -> list[Tool]:
@@ -243,6 +321,14 @@ def bash_tool(root: Path, *, timeout_s: float = 30.0) -> Tool:
         command = str(args.get("command", "")).strip()
         if not command:
             return "(error: empty command)"
+        # Self-jail (defense-in-depth): even with no loop-level guard wired, the
+        # shell cannot read or write outside its root. Fails CLOSED (thesis #2).
+        escape = _bash_escape_reason(command, root)
+        if escape is not None:
+            return (
+                f"(blocked: {escape} — run_bash is jailed to the project root; "
+                "operate only within it)"
+            )
         try:
             proc = subprocess.run(  # noqa: S602 — guarded agent tool, sandboxed to root
                 command,
@@ -262,7 +348,9 @@ def bash_tool(root: Path, *, timeout_s: float = 30.0) -> Tool:
         name="run_bash",
         description=(
             "Run a shell command in the working root and return its exit code "
-            "and combined stdout/stderr."
+            "and combined stdout/stderr. The shell is jailed to the project root: "
+            "commands that reference paths outside it (absolute paths, ~, ..) are "
+            "refused. Use paths relative to the root."
         ),
         parameters={
             "type": "object",
@@ -278,28 +366,58 @@ def bash_tool(root: Path, *, timeout_s: float = 30.0) -> Tool:
     )
 
 
+# Word-overlap scoring for skill search — mirrors ``products/beacon/bible.py``'s
+# deterministic retrieval (stdlib only, no model, no embeddings). Replicated here
+# rather than imported to keep the dependency direction clean (beacon → agent, not
+# the reverse). This is the deterministic recall layer for skill choice.
+_SKILL_WORD = re.compile(r"[a-z0-9]+")
+_SKILL_STOP = frozenset(
+    # A flat stopword string reads clearer than a 40-item list literal here.
+    "the a an and or of to in for on is are be with that this it as by from at "  # noqa: SIM905
+    "which we you they i how what when where why can will into over under not no "
+    "your their our its use using used".split()
+)
+
+
+def _skill_tokens(text: str) -> set[str]:
+    return {
+        w
+        for w in _SKILL_WORD.findall(text.lower())
+        if w not in _SKILL_STOP and len(w) > 2
+    }
+
+
 def skill_tools(registry: CapabilityRegistry) -> list[Tool]:
     """The capability bridge — the positive feedback loop (vision §0, Rule Zero).
 
     ``find_skill`` searches the WHOLE harvested corpus — skills, commands, and
-    agent playbooks — by substring over name + description (thesis #1: ground-truth
-    text match, no model); ``load_skill`` returns a capability's full instructions
-    so the agent can follow them. Everything under ``.claude/`` is automatically
-    discoverable — capability grows with the corpus, not with code.
+    agent playbooks — ranking by word overlap over name + description (thesis #1:
+    deterministic text match, no model), with an exact phrase counting as a strong
+    signal. Ranked recall surfaces the on-topic capability even when no contiguous
+    substring matches, so the agent loads the right skill instead of over-loading
+    junk (less context rot). ``load_skill`` returns a capability's full
+    instructions so the agent can follow them. Everything under ``.claude/`` is
+    automatically discoverable — capability grows with the corpus, not with code.
     """
     caps = registry.capabilities
 
     def find_skill(args: dict[str, object]) -> str:
-        query = str(args.get("query", "")).lower().strip()
-        if not query:
+        raw = str(args.get("query", "")).strip()
+        if not raw:
             return "(error: empty query)"
-        hits = [
-            c
-            for c in caps
-            if query in c.name.lower() or query in c.description.lower()
-        ]
-        if not hits:
-            return f"(no capability matches {query!r} among {len(caps)} entries)"
+        query = raw.lower()
+        q_tokens = _skill_tokens(query)
+        scored: list[tuple[int, object]] = []
+        for c in caps:
+            score = len(q_tokens & _skill_tokens(f"{c.name} {c.description}"))
+            if query in c.name.lower() or query in c.description.lower():
+                score += 5  # exact phrase ranks above scattered token overlap
+            if score > 0:
+                scored.append((score, c))
+        if not scored:
+            return f"(no capability matches {raw!r} among {len(caps)} entries)"
+        scored.sort(key=lambda sc: (-sc[0], sc[1].name))  # type: ignore[attr-defined]
+        hits = [c for _, c in scored]
         lines = [f"- [{c.kind}] {c.name}: {c.description[:140]}" for c in hits[:20]]
         more = f"\n…and {len(hits) - 20} more" if len(hits) > 20 else ""
         return f"{len(hits)} match(es):\n" + "\n".join(lines) + more
@@ -322,9 +440,11 @@ def skill_tools(registry: CapabilityRegistry) -> list[Tool]:
             name="find_skill",
             description=(
                 "Search the kinox capability corpus (skills, commands, and agent "
-                "playbooks) by keyword. Use this BEFORE attempting an unfamiliar "
-                "task — a skill/command/agent may already encode how to do it. "
-                "Results are tagged [skill] / [command] / [agent]."
+                "playbooks), ranked by relevance to your keywords. Use this BEFORE "
+                "attempting an unfamiliar task — a skill/command/agent may already "
+                "encode how to do it. Describe the task in a few words; the most "
+                "relevant results come first. Results are tagged [skill] / "
+                "[command] / [agent]."
             ),
             parameters={
                 "type": "object",

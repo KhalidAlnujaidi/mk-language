@@ -587,15 +587,34 @@ def _process_turn(raw: str, session: ChatSession, console: object) -> None:
     console.print()  # blank line before next prompt
 
 
+
+
+def _session_preamble(kinox_root: Path) -> str:
+    """Compile the kinox environment + axioms into an agent preamble.
+
+    Every agent turn is pre-injected with the project's immutable core
+    (CONSTITUTION), the agent-harness map (BRAIN), alignment context, the
+    vision, and the README — so the model knows what kinox is, how it is
+    structured, and what rules govern it from turn one. Cached per root.
+    Fails soft: returns '' if no environment files are found.
+    """
+    try:
+        from products.agent.environment import build_preamble
+
+        return build_preamble(kinox_root)
+    except Exception:
+        return ""
+
+
 def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
     """Run one tool-calling agent task and render its step trace + answer.
 
-    This is the **default** turn for a ``kx`` session: the full, unrestricted
-    toolset — read + ``write_file`` + ``run_bash`` + the skill bridge over
-    ``.claude/skills`` (275 skills) — sandboxed to the session scope, with NO
-    pre-tool guard. The session is fully trusted (it is the operator's own admin
-    shell), so write/exec are ON. Dispatch runs in a worker thread for the
-    spinner.
+    This is the **default** turn for a ``kx`` session: the full toolset — read +
+    ``write_file`` + ``run_bash`` + the skill bridge over ``.claude/skills`` —
+    write/exec ON because the session is the operator's own shell, but jailed to
+    the session scope by ``project_root_guard`` so even an admin session resides
+    only within its repository (run_bash escapes the root → blocked, fail-CLOSED).
+    Dispatch runs in a worker thread for the spinner.
     """
     import asyncio
     import time
@@ -606,7 +625,7 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
     from daemon.brain import brain_tier
     from kernel.contracts import Tier
 
-    from products.agent import default_registry, run_agent
+    from products.agent import default_registry, project_root_guard, run_agent
     from products.capabilities.registry import CapabilityRegistry
 
     kinox_root = Path(__file__).resolve().parents[2]
@@ -668,8 +687,10 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
                 registry=registry,
                 sink=session.sink,
                 task_id=uuid.uuid4().hex[:12],
+                preamble=_session_preamble(kinox_root),
+                guard=project_root_guard(session.cwd),
                 fallback=local_tier,
-                max_turns=30,  # real dev tasks need room to read → act → verify
+                max_turns=int(os.environ.get("KINOX_MAX_TURNS", "30")),
                 on_step=steps_q.append,
             )
         )

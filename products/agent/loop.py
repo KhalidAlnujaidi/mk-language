@@ -20,6 +20,7 @@ offline with a scripted backend — the same boundary-injection discipline as
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -40,13 +41,41 @@ CallFactory = Callable[[list[dict[str, object]]], Call]
 Guard = Callable[[str, str], "str | None"]
 
 AGENT_SYSTEM_PROMPT = (
-    "You are kinox, a governed local-first coding agent. You accomplish the "
-    "user's task by calling tools, observing results, and continuing until the "
-    "task is done. Prefer find_skill BEFORE unfamiliar work — the skill corpus "
-    "often already encodes how to do it. When the task is complete, reply with a "
-    "short plain-text summary and NO further tool calls. Be concise and honest; "
-    "if you cannot do something, say so."
+    "You are kinox, a governed local-first coding agent. You operate ONLY within "
+    "the current project's directory — you have no awareness of, and no business "
+    "with, anything outside it. Accomplish the user's task by calling tools, "
+    "observing results, and continuing until the task is done. Prefer find_skill "
+    "BEFORE unfamiliar work — the skill corpus often already encodes how to do it. "
+    "Read with intent, not breadth: open only files relevant to the task, never "
+    "re-read a file you have already seen, and stop exploring the moment you have "
+    "enough to act. When the task is complete, reply with a short plain-text "
+    "summary and NO further tool calls. Be concise and honest; if you cannot do "
+    "something, say so."
 )
+
+#: Idempotent read tools: calling them again with the same arguments yields the
+#: same content, so a repeat is pure context rot — we serve a short pointer
+#: instead of re-injecting the payload. (Deterministic ground truth, not a model
+#: judging relevance — consistent with kinox's axioms.)
+_IDEMPOTENT_READS = frozenset({"read_file", "list_dir", "find_skill", "load_skill"})
+
+
+def _read_key(name: str, args_json: str) -> str | None:
+    """A stable identity for an idempotent read call, or ``None`` if *name* is not
+    an idempotent read (so its result must never be deduplicated)."""
+    if name not in _IDEMPOTENT_READS:
+        return None
+    try:
+        args = json.loads(args_json) if args_json else {}
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(args, dict):
+        return None
+    if name in ("read_file", "list_dir"):
+        return f"{name}:{str(args.get('path', '')).strip()}"
+    if name == "find_skill":
+        return f"find_skill:{str(args.get('query', '')).strip().lower()}"
+    return f"load_skill:{str(args.get('name', '')).strip()}"
 
 
 @dataclass(frozen=True)
@@ -88,7 +117,9 @@ async def run_agent(
     sink: MetricsSink,
     task_id: str,
     system_prompt: str = AGENT_SYSTEM_PROMPT,
+    preamble: str = "",
     max_turns: int = 8,
+    context_soft_chars: int = 40_000,
     guard: Guard | None = None,
     call_factory: CallFactory | None = None,
     on_step: Callable[[AgentStep], None] | None = None,
@@ -102,6 +133,18 @@ async def run_agent(
     returns no tool calls (``complete``) or *max_turns* is reached
     (``max_turns`` — fail-CLOSED so a runaway cannot spin forever).
 
+    Context is governed deterministically to fight rot (no model judging
+    relevance): an idempotent read repeated with the same arguments returns a
+    short pointer instead of re-injecting its payload, and once accumulated tool
+    output passes *context_soft_chars* the model is nudged ONCE to converge
+    (soft — never a hard tool-call cap).
+
+    *preamble* is project environment + axioms text (from
+    :func:`products.agent.environment.build_preamble`) that is prepended to
+    *system_prompt* so every session starts with full awareness of what kinox
+    is, how it is structured, and what rules govern it. When *preamble* is empty
+    (default), only *system_prompt* is used.
+
     *fallback*, when given and distinct from *tier*, is the second tier in the
     per-turn fallback chain: if the primary brain (e.g. a cloud model) errors on a
     turn, the executor falls through to it (fail SOFT, spec §6) so a cloud outage
@@ -110,11 +153,21 @@ async def run_agent(
     factory = call_factory or _default_call_factory()
     chain = [tier] if fallback is None or fallback == tier else [tier, fallback]
     schema = registry.schemas()
+    compiled_prompt = (
+        f"{preamble}\n\n---\n\n{system_prompt}" if preamble else system_prompt
+    )
     messages: Messages = [
-        {"role": "system", "content": system_prompt},
+        {"role": "system", "content": compiled_prompt},
         {"role": "user", "content": task},
     ]
     result = AgentResult(final_text="")
+
+    # Context governance (fights rot, not breadth): remember idempotent reads so a
+    # repeat costs a pointer instead of the payload, and track how much tool output
+    # has accumulated so we can nudge the model to converge once — soft, not a cap.
+    seen_reads: dict[str, int] = {}
+    ctx_chars = 0
+    nudged = False
 
     for turn in range(max_turns):
         result.turns = turn + 1
@@ -173,9 +226,22 @@ async def run_agent(
                 step = AgentStep("blocked", name, denial)
                 kind = f"agent_tool_blocked:{name}"
             else:
-                observation = registry.dispatch(name, args_json)
-                step = AgentStep("tool", name, args_json)
-                kind = f"agent_tool:{name}"
+                read_key = _read_key(name, args_json)
+                if read_key is not None and read_key in seen_reads:
+                    # Already retrieved this run → don't re-inject the payload.
+                    observation = (
+                        f"(already retrieved by an earlier {name} call this run — "
+                        "result unchanged, omitted to preserve context)"
+                    )
+                    step = AgentStep("tool", name, args_json)
+                    kind = f"agent_tool_cached:{name}"
+                else:
+                    observation = registry.dispatch(name, args_json)
+                    if read_key is not None:
+                        seen_reads[read_key] = turn
+                    step = AgentStep("tool", name, args_json)
+                    kind = f"agent_tool:{name}"
+            ctx_chars += len(str(observation))
             # Every agent action is a boundary record — the auditable action log
             # (vision §4.6). Tool dispatch is deterministic, so tier reflects that.
             sink.record(
@@ -194,7 +260,25 @@ async def run_agent(
                 {
                     "role": "tool",
                     "tool_call_id": str(tc.get("id", "")),
-                    "content": observation,
+                    "content": str(observation),
+                }
+            )
+
+        # Once the gathered context grows large, nudge the model to converge —
+        # exactly once, so it costs ~one line and never nags. This governs context
+        # rot (too much accumulated, signal lost) without a hard tool-call cap.
+        if not nudged and ctx_chars >= context_soft_chars:
+            nudged = True
+            messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        f"[context budget] You have gathered ~{ctx_chars} "
+                        f"characters of tool output over {turn + 1} turns — "
+                        "substantial. Stop gathering and act on what you have, or "
+                        "give your final answer, unless a specific identified gap "
+                        "remains. Do not re-read files you have already seen."
+                    ),
                 }
             )
 

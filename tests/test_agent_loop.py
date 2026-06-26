@@ -16,7 +16,7 @@ from daemon.exec import BackendError, BackendResponse, Call, Messages
 from kernel.contracts import Tier
 from kernel.metrics import MetricsSink
 from products.agent.loop import run_agent
-from products.agent.tools import Tool, ToolRegistry
+from products.agent.tools import Tool, ToolRegistry, default_registry
 
 TIER = Tier.model("gemma-agentic:32k", where="local", backend="ollama")
 
@@ -180,6 +180,96 @@ def test_loop_records_every_turn_and_tool_to_log(tmp_path: Path) -> None:
     kinds = [e.kind for e in sink.read_all()]
     assert kinds.count("agent") == 2  # two model turns
     assert "agent_tool:echo" in kinds  # the tool dispatch
+
+
+def test_repeated_idempotent_read_is_deduplicated(tmp_path: Path) -> None:
+    """A second read_file for the same path returns a pointer, not the payload —
+    deterministic anti-rot (the file content is injected once, not twice)."""
+    (tmp_path / "a.txt").write_text("PAYLOAD-CONTENT", encoding="utf-8")
+    reg = default_registry(tmp_path)  # read_file + list_dir
+    read = _tool_call("c1", "read_file", '{"path": "a.txt"}')
+    factory = _scripted_factory(
+        [
+            BackendResponse(content="", tool_calls=[read], finish_reason="tool_calls"),
+            BackendResponse(content="", tool_calls=[read], finish_reason="tool_calls"),
+            BackendResponse(content="done", finish_reason="stop"),
+        ]
+    )
+    sink = MetricsSink(tmp_path / "events.jsonl")
+    result = _run(
+        run_agent(
+            "read it twice",
+            tier=TIER,
+            registry=reg,
+            sink=sink,
+            task_id="t",
+            call_factory=factory,  # type: ignore[arg-type]
+        )
+    )
+    assert result.stopped == "complete"
+    kinds = [e.kind for e in sink.read_all()]
+    assert kinds.count("agent_tool:read_file") == 1  # served once
+    assert kinds.count("agent_tool_cached:read_file") == 1  # second was deduped
+
+
+def _recording_factory(turns: list[BackendResponse], seen: list[Messages]) -> object:
+    """Like ``_scripted_factory`` but records the messages handed to each turn so a
+    test can assert what the loop injected into context."""
+    box = {"i": 0}
+
+    def factory(_schema: list[dict[str, object]]) -> Call:
+        async def call(_tier: Tier, messages: Messages) -> BackendResponse:
+            seen.append([dict(m) for m in messages])
+            i = box["i"]
+            box["i"] = i + 1
+            return turns[min(i, len(turns) - 1)]
+
+        return call
+
+    return factory
+
+
+def test_context_budget_nudges_once(tmp_path: Path) -> None:
+    """Once accumulated tool output passes the soft limit, the loop injects one
+    convergence nudge (and only one) — soft governance, not a hard cap."""
+    reg = ToolRegistry()
+    reg.register(
+        Tool(
+            "big",
+            "returns a lot",
+            {"type": "object", "properties": {}},
+            lambda _a: "x" * 500,
+        )
+    )
+    big = _tool_call("c", "big", "{}")
+    seen: list[Messages] = []
+    factory = _recording_factory(
+        [
+            BackendResponse(content="", tool_calls=[big], finish_reason="tool_calls"),
+            BackendResponse(content="", tool_calls=[big], finish_reason="tool_calls"),
+            BackendResponse(content="done", finish_reason="stop"),
+        ],
+        seen,
+    )
+    _run(
+        run_agent(
+            "gather a lot",
+            tier=TIER,
+            registry=reg,
+            sink=_sink(),
+            task_id="t",
+            context_soft_chars=100,
+            call_factory=factory,  # type: ignore[arg-type]
+        )
+    )
+    # The final turn's message list must contain exactly one budget nudge.
+    final_messages = seen[-1]
+    nudges = [
+        m
+        for m in final_messages
+        if m.get("role") == "system" and "[context budget]" in str(m.get("content"))
+    ]
+    assert len(nudges) == 1
 
 
 def test_backend_failure_is_soft_error() -> None:

@@ -9,8 +9,10 @@ from pathlib import Path
 from products.agent.tools import (
     Tool,
     ToolRegistry,
+    bash_tool,
     default_registry,
     filesystem_tools,
+    project_root_guard,
     skill_tools,
     write_tools,
 )
@@ -120,6 +122,72 @@ def test_default_registry_gates_bash(tmp_path: Path) -> None:
     # Bash is OFF by default (fail-CLOSED); only present when explicitly allowed.
     assert "run_bash" not in default_registry(tmp_path).tools
     assert "run_bash" in default_registry(tmp_path, allow_bash=True).tools
+
+
+def test_bash_tool_jailed_to_root(tmp_path: Path) -> None:
+    """run_bash refuses to touch anything outside its root, fail-CLOSED — even
+    though it is otherwise an arbitrary shell. This is the only containment for
+    the shell (the file tools self-jail via _within)."""
+    tool = bash_tool(tmp_path)
+
+    # In-root commands still work.
+    ok = tool.handler({"command": "echo hello"})
+    assert "exit=0" in ok and "hello" in ok
+
+    # Absolute path outside the root → blocked.
+    assert "blocked" in tool.handler({"command": "cat /etc/passwd"})
+    # Home-directory expansion → blocked (this is the "reading the Desktop" leak).
+    assert "blocked" in tool.handler({"command": "ls ~/Desktop"})
+    assert "blocked" in tool.handler({"command": "cat $HOME/.bashrc"})
+    # Parent traversal escaping the root → blocked.
+    assert "blocked" in tool.handler({"command": "cat ../../etc/hostname"})
+    # Reading the filesystem root → blocked.
+    assert "blocked" in tool.handler({"command": "ls /"})
+
+
+def test_project_root_guard_fails_closed(tmp_path: Path) -> None:
+    guard = project_root_guard(tmp_path)
+
+    # Allowed: in-root work returns None (no denial).
+    assert guard("run_bash", '{"command": "echo hi"}') is None
+    assert guard("read_file", '{"path": "a.txt"}') is None
+    assert guard("list_dir", "{}") is None  # defaults to "."
+
+    # Denied: each escape vector returns a denial string.
+    assert guard("run_bash", '{"command": "cat /etc/passwd"}') is not None
+    assert guard("read_file", '{"path": "../../etc/passwd"}') is not None
+    assert guard("write_file", '{"path": "../escape.txt"}') is not None
+
+    # Non-path tools are never blocked by the jail.
+    assert guard("find_skill", '{"query": "anything"}') is None
+    # Malformed args degrade to fail-soft (dispatch surfaces the error), not block.
+    assert guard("read_file", "{not json") is None
+
+
+def test_find_skill_ranks_by_overlap_no_substring_needed(tmp_path: Path) -> None:
+    """Ranked recall surfaces the on-topic skill even with no contiguous substring,
+    and orders the more-relevant skill first — the deterministic skill-choice layer."""
+    from products.capabilities import Capability, CapabilityRegistry
+
+    reg = CapabilityRegistry(
+        (
+            Capability(
+                "benchmark-optimization-loop",
+                "skill",
+                "Make code faster by running many variants and benchmarking latency.",
+                "b.md",
+            ),
+            Capability(
+                "redact-secrets", "skill", "Scrub secrets from logs.", "r.md"
+            ),
+        )
+    )
+    find, _load = skill_tools(reg)
+    # "speed up tests latency" shares no substring with the title, but overlaps
+    # tokens (latency) — substring search would miss it; ranked recall finds it.
+    out = find.handler({"query": "speed up latency benchmarking"})
+    assert "benchmark-optimization-loop" in out
+    assert "redact-secrets" not in out  # zero overlap → excluded
 
 
 def test_find_skill_searches_all_kinds(tmp_path: Path) -> None:
