@@ -28,6 +28,7 @@ from typing import Any, cast
 #: The kinds of capability the registry knows about. Open by convention —
 #: callers may register other kinds; nothing here hardcodes a closed set.
 SKILL = "skill"
+COMMAND = "command"
 AGENT = "agent"
 MCP_SERVER = "mcp_server"
 
@@ -92,6 +93,29 @@ def load_skills(skills_dir: Path) -> tuple[Capability, ...]:
                 kind=SKILL,
                 description=fm.get("description", ""),
                 source=str(skill_md),
+            )
+        )
+    return tuple(caps)
+
+
+def load_commands(commands_dir: Path) -> tuple[Capability, ...]:
+    """Register every ``*.md`` under *commands_dir* as a command capability.
+
+    Commands are slash-command playbooks; the name is the filename stem (their
+    frontmatter carries ``description`` + ``argument-hint``, not ``name``)."""
+    if not commands_dir.is_dir():
+        return ()
+    caps: list[Capability] = []
+    for md in sorted(commands_dir.glob("*.md")):
+        fm = _frontmatter(_safe_read(md))
+        extra = {"argument-hint": fm["argument-hint"]} if "argument-hint" in fm else {}
+        caps.append(
+            Capability(
+                name=fm.get("name") or md.stem,
+                kind=COMMAND,
+                description=fm.get("description", ""),
+                source=str(md),
+                extra=extra,
             )
         )
     return tuple(caps)
@@ -163,13 +187,28 @@ class CapabilityRegistry:
 
     @classmethod
     def from_ecc(cls, ecc_dir: Path) -> CapabilityRegistry:
-        """Build a registry from an ECC bundle (skills + agents + MCP). Fail-soft:
-        absent sub-paths simply contribute nothing."""
+        """Build a registry from an ECC bundle (skills + commands + agents + MCP).
+        Fail-soft: absent sub-paths simply contribute nothing."""
         return cls(
             (
                 *load_skills(ecc_dir / "skills"),
+                *load_commands(ecc_dir / "commands"),
                 *load_agents(ecc_dir / "agents"),
                 *load_mcp(ecc_dir / "mcp-configs" / "mcp-servers.json"),
+            )
+        )
+
+    @classmethod
+    def from_claude_dir(cls, claude_dir: Path) -> CapabilityRegistry:
+        """Build a registry from a harvested ``.claude/`` directory — the full
+        committed corpus the agent discovers: skills + commands + agents + MCP
+        servers. Fail-soft: any absent sub-path contributes nothing."""
+        return cls(
+            (
+                *load_skills(claude_dir / "skills"),
+                *load_commands(claude_dir / "commands"),
+                *load_agents(claude_dir / "agents"),
+                *load_mcp(claude_dir / "mcp-servers.json"),
             )
         )
 

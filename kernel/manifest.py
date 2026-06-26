@@ -243,7 +243,12 @@ def _probe_openai_models(
 def _probe_cloud() -> bool:
     """``True`` iff at least one recognised API-key env var is set and non-empty."""
     try:
-        for var in ("ANTHROPIC_API_KEY", "CLAUDE_API_KEY"):
+        for var in (
+            "ANTHROPIC_API_KEY",
+            "CLAUDE_API_KEY",
+            "ZAI_API_KEY",
+            "OPENROUTER_API_KEY",
+        ):
             if os.environ.get(var):
                 return True
         return False

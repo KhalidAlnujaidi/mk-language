@@ -49,12 +49,13 @@ def test_ollama_reachable_handles_connection_error() -> None:
         assert _ollama_reachable(_manifest()) is False
 
 
-def test_preflight_no_local_models() -> None:
-    """Returns diagnostic when no models are registered."""
+def test_preflight_no_models_at_all() -> None:
+    """Returns a diagnostic when neither a cloud brain (disabled under the
+    hermetic conftest) nor a local model is available."""
     m = _manifest(local_models=())
     error = _preflight(m)
     assert error is not None
-    assert "No local models found" in error
+    assert "No model available" in error
 
 
 def test_preflight_does_not_block_on_vram() -> None:

@@ -92,6 +92,7 @@ async def run_agent(
     guard: Guard | None = None,
     call_factory: CallFactory | None = None,
     on_step: Callable[[AgentStep], None] | None = None,
+    fallback: Tier | None = None,
 ) -> AgentResult:
     """Run the tool-calling loop for *task* and return an :class:`AgentResult`.
 
@@ -100,8 +101,14 @@ async def run_agent(
     as ``role: tool`` messages before looping. The loop ends when the model
     returns no tool calls (``complete``) or *max_turns* is reached
     (``max_turns`` — fail-CLOSED so a runaway cannot spin forever).
+
+    *fallback*, when given and distinct from *tier*, is the second tier in the
+    per-turn fallback chain: if the primary brain (e.g. a cloud model) errors on a
+    turn, the executor falls through to it (fail SOFT, spec §6) so a cloud outage
+    degrades to the local model rather than aborting the run.
     """
     factory = call_factory or _default_call_factory()
+    chain = [tier] if fallback is None or fallback == tier else [tier, fallback]
     schema = registry.schemas()
     messages: Messages = [
         {"role": "system", "content": system_prompt},
@@ -113,7 +120,7 @@ async def run_agent(
         result.turns = turn + 1
         try:
             exec_result = await execute(
-                [tier],
+                chain,
                 messages,
                 call=factory(schema),
                 task_id=f"{task_id}-t{turn}",

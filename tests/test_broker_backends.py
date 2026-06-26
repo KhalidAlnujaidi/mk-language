@@ -22,6 +22,8 @@ import pytest
 from daemon.backends import (
     BackendSpec,
     backend_specs,
+    cloud_backend_specs,
+    default_specs,
     make_dispatch,
     openai_compatible_call,
 )
@@ -178,8 +180,86 @@ def test_dispatch_unknown_backend_fails_soft() -> None:
 
 
 def test_dispatch_cloud_anthropic_fails_soft() -> None:
-    # Cloud is a different protocol — explicitly out of scope this increment.
-    dispatch = make_dispatch()  # default table: local backends only
+    # Anthropic speaks a different protocol and has no spec — still fails soft.
+    dispatch = make_dispatch()  # default table: local + OpenAI-compatible cloud
     tier = Tier.model("claude-haiku-4-5", where="cloud", backend="anthropic")
     with pytest.raises(BackendError):
         _run(dispatch(tier, []))
+
+
+# --- The cloud (OpenAI-compatible) backends -----------------------------------
+
+
+def _zai_tier() -> Tier:
+    return Tier.model("glm-5.2", where="cloud", backend="zai")
+
+
+def test_cloud_specs_has_zai_inexact_with_auth_env() -> None:
+    spec = cloud_backend_specs()["zai"]
+    # The GLM Coding Plan endpoint (not the standard /api/paas/v4 API).
+    assert spec.base_url == "https://api.z.ai/api/coding/paas/v4"
+    assert spec.exact is False  # cloud counts are estimates, never claimed exact
+    assert spec.auth_env == "ZAI_API_KEY"
+
+
+def test_cloud_spec_url_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("KINOX_ZAI_URL", "http://proxy.test/v1")
+    assert cloud_backend_specs()["zai"].base_url == "http://proxy.test/v1"
+
+
+def test_cloud_specs_has_openrouter() -> None:
+    spec = cloud_backend_specs()["openrouter"]
+    assert spec.base_url == "https://openrouter.ai/api/v1"
+    assert spec.exact is False
+    assert spec.auth_env == "OPENROUTER_API_KEY"
+
+
+def test_default_specs_merges_local_and_cloud() -> None:
+    specs = default_specs()
+    assert {"ollama", "vllm", "llamacpp", "zai", "openrouter"} <= set(specs)
+    assert specs["zai"].auth_env == "ZAI_API_KEY"
+    assert specs["openrouter"].auth_env == "OPENROUTER_API_KEY"
+
+
+def test_generic_client_sends_bearer_when_token_given() -> None:
+    captured: list[httpx.Request] = []
+    transport = httpx.MockTransport(_ok_handler(captured))
+    _run(
+        openai_compatible_call(
+            "http://x/v1", _zai_tier(), [], transport=transport, auth_token="sk-abc"
+        )
+    )
+    assert captured[0].headers["Authorization"] == "Bearer sk-abc"
+
+
+def test_generic_client_omits_auth_when_no_token() -> None:
+    captured: list[httpx.Request] = []
+    transport = httpx.MockTransport(_ok_handler(captured))
+    _run(
+        openai_compatible_call("http://x/v1", _tier("ollama"), [], transport=transport)
+    )
+    assert "Authorization" not in captured[0].headers
+
+
+def test_dispatch_zai_routes_and_authenticates(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ZAI_API_KEY", "sk-live")
+    captured: list[httpx.Request] = []
+    transport = httpx.MockTransport(_ok_handler(captured))
+    dispatch = make_dispatch(transport=transport)  # default table includes zai
+    resp = _run(dispatch(_zai_tier(), []))
+    expected = "https://api.z.ai/api/coding/paas/v4/chat/completions"
+    assert str(captured[0].url) == expected
+    assert captured[0].headers["Authorization"] == "Bearer sk-live"
+    assert resp.tokens_exact is False  # cloud counts stay labelled inexact
+
+
+def test_dispatch_zai_without_key_sends_no_auth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ZAI_API_KEY", raising=False)
+    captured: list[httpx.Request] = []
+    transport = httpx.MockTransport(_ok_handler(captured))
+    dispatch = make_dispatch(transport=transport)
+    _run(dispatch(_zai_tier(), []))
+    # No key → no header (the real backend would 401 → executor falls through).
+    assert "Authorization" not in captured[0].headers

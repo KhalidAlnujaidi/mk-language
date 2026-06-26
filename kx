@@ -30,6 +30,32 @@ from pathlib import Path
 RESERVED = {"kin"}
 
 
+def _load_env() -> None:
+    """Load secrets from ``~/.kinox/env`` into the process environment.
+
+    kinox reads keys from ``os.environ`` (e.g. ``ZAI_API_KEY`` for the cloud
+    brain). This file lives under ``$HOME`` — outside the repo, never committed —
+    so the brain works no matter which shell launched ``kx``. Format is plain
+    ``KEY=value`` lines (``#`` comments and blanks ignored); existing env vars
+    win, so an explicit ``export`` in the shell still overrides the file.
+    Stdlib-only and silent on absence — kx cold-start discipline.
+    """
+    env_file = Path.home() / ".kinox" / "env"
+    try:
+        text = env_file.read_text(encoding="utf-8")
+    except OSError:
+        return
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
 def _ensure_venv() -> None:
     """Re-exec under the repo's venv interpreter so outer-layer deps import.
 
@@ -298,5 +324,6 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
+    _load_env()  # secrets from ~/.kinox/env (e.g. ZAI_API_KEY) → os.environ
     _ensure_venv()  # ensure outer-layer deps (rich/questionary) are importable
     raise SystemExit(main(sys.argv[1:]))

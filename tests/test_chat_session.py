@@ -9,11 +9,12 @@ from kernel.metrics import MetricsSink
 from products.chat.session import ChatSession, session_for_test
 
 
-def test_send_returns_fallback_when_no_local_models() -> None:
-    """When no local models are available, send() returns a clear fallback."""
+def test_send_returns_fallback_when_no_models_at_all() -> None:
+    """With the cloud brain disabled (hermetic conftest) AND no local model, the
+    chain is empty and send() returns a clear no-model message."""
     session = session_for_test(local_models=())
     response, _notes, tier = session.send("hello")
-    assert "no local model available" in response
+    assert "no model available" in response
     assert tier is None
 
 

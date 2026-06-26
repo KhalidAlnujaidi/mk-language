@@ -12,8 +12,39 @@ from products.agent.tools import (
     default_registry,
     filesystem_tools,
     skill_tools,
+    write_tools,
 )
 from products.capabilities.registry import CapabilityRegistry, load_skills
+
+
+def test_write_file_creates_and_overwrites(tmp_path: Path) -> None:
+    (write_file,) = write_tools(tmp_path)
+    out = write_file.handler({"path": "sub/new.txt", "content": "hello"})
+    assert "wrote 5 bytes" in out
+    assert (tmp_path / "sub" / "new.txt").read_text() == "hello"
+    # overwrite
+    write_file.handler({"path": "sub/new.txt", "content": "bye"})
+    assert (tmp_path / "sub" / "new.txt").read_text() == "bye"
+
+
+def test_write_file_refuses_escape_fail_closed(tmp_path: Path) -> None:
+    (write_file,) = write_tools(tmp_path)
+    out = write_file.handler({"path": "../escape.txt", "content": "x"})
+    assert "escapes the allowed root" in out
+    assert not (tmp_path.parent / "escape.txt").exists()
+
+
+def test_default_registry_write_and_bash_off_by_default(tmp_path: Path) -> None:
+    reg = default_registry(tmp_path)
+    assert "write_file" not in reg.tools
+    assert "run_bash" not in reg.tools
+
+
+def test_default_registry_unrestricted_has_write_and_bash(tmp_path: Path) -> None:
+    reg = default_registry(tmp_path, allow_bash=True, allow_write=True)
+    assert "write_file" in reg.tools
+    assert "run_bash" in reg.tools
+    assert "read_file" in reg.tools
 
 
 def _echo_tool() -> Tool:
@@ -78,14 +109,33 @@ def test_skill_bridge_reads_corpus(tmp_path: Path) -> None:
     assert "safety-guard" in found
 
     miss = tools["find_skill"].handler({"query": "nonexistent-xyz"})
-    assert "no skill matches" in miss
+    assert "no capability matches" in miss
 
     loaded = tools["load_skill"].handler({"name": "safety-guard"})
     assert "Do not rm -rf" in loaded
-    assert "no skill named" in tools["load_skill"].handler({"name": "ghost"})
+    assert "no capability named" in tools["load_skill"].handler({"name": "ghost"})
 
 
 def test_default_registry_gates_bash(tmp_path: Path) -> None:
     # Bash is OFF by default (fail-CLOSED); only present when explicitly allowed.
     assert "run_bash" not in default_registry(tmp_path).tools
     assert "run_bash" in default_registry(tmp_path, allow_bash=True).tools
+
+
+def test_find_skill_searches_all_kinds(tmp_path: Path) -> None:
+    """find_skill spans skills + commands + agents, tagged by kind."""
+    from products.agent.tools import skill_tools
+    from products.capabilities import Capability, CapabilityRegistry
+
+    reg = CapabilityRegistry(
+        (
+            Capability("redact-secrets", "skill", "scrub secrets", "s.md"),
+            Capability("code-review", "command", "review the diff", "c.md"),
+            Capability("code-reviewer", "agent", "review specialist", "a.md"),
+        )
+    )
+    find, _load = skill_tools(reg)
+    out = find.handler({"query": "review"})
+    assert "[command] code-review" in out
+    assert "[agent] code-reviewer" in out
+    assert "redact" not in out  # non-matching skill excluded

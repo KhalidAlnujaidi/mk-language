@@ -24,10 +24,14 @@ import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from kernel.jsonutil import as_dict
 
-from products.capabilities.registry import SKILL, CapabilityRegistry
+from products.capabilities.registry import MCP_SERVER, CapabilityRegistry
+
+if TYPE_CHECKING:
+    from daemon.mcp import MCPServer
 
 #: A tool handler maps validated arguments to a string observation.
 Handler = Callable[[dict[str, object]], str]
@@ -178,6 +182,55 @@ def filesystem_tools(root: Path) -> list[Tool]:
     ]
 
 
+def write_tools(root: Path) -> list[Tool]:
+    """Write/overwrite filesystem tools sandboxed to *root* — the agent's hands
+    for files. Together with ``run_bash`` they make an unrestricted in-scope
+    coding agent; the ``_within`` guard still fails CLOSED outside the scope, so
+    "unrestricted" means full power *within the working root*, escapable only via
+    the (deliberately equally-powerful) shell."""
+
+    def write_file(args: dict[str, object]) -> str:
+        rel = str(args.get("path", ""))
+        p = _within(root, rel)
+        if p is None:
+            return "(error: path escapes the allowed root)"
+        content = args.get("content")
+        if not isinstance(content, str):
+            return "(error: 'content' must be a string)"
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, encoding="utf-8")
+        except OSError as exc:
+            return f"(error: {exc})"
+        return f"wrote {len(content)} bytes to {rel}"
+
+    return [
+        Tool(
+            name="write_file",
+            description=(
+                "Create or overwrite a UTF-8 text file under the working root "
+                "with the given content (parent dirs are created). Use this to "
+                "edit files — read_file first, then write the full new contents."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path relative to the working root.",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Full new file contents.",
+                    },
+                },
+                "required": ["path", "content"],
+            },
+            handler=write_file,
+        ),
+    ]
+
+
 def bash_tool(root: Path, *, timeout_s: float = 30.0) -> Tool:
     """A guarded shell tool — the agent's hands. HIGH RISK.
 
@@ -226,15 +279,15 @@ def bash_tool(root: Path, *, timeout_s: float = 30.0) -> Tool:
 
 
 def skill_tools(registry: CapabilityRegistry) -> list[Tool]:
-    """The skill bridge — the positive feedback loop (vision §0, Rule Zero).
+    """The capability bridge — the positive feedback loop (vision §0, Rule Zero).
 
-    ``find_skill`` searches the kinox skill corpus by substring over name +
-    description (thesis #1: ground-truth text match, no model); ``load_skill``
-    returns a skill's full instructions so the agent can follow them. Every skill
-    added under ``.claude/skills/`` is automatically discoverable — capability
-    grows with the corpus, not with code.
+    ``find_skill`` searches the WHOLE harvested corpus — skills, commands, and
+    agent playbooks — by substring over name + description (thesis #1: ground-truth
+    text match, no model); ``load_skill`` returns a capability's full instructions
+    so the agent can follow them. Everything under ``.claude/`` is automatically
+    discoverable — capability grows with the corpus, not with code.
     """
-    skills = registry.by_kind(SKILL)
+    caps = registry.capabilities
 
     def find_skill(args: dict[str, object]) -> str:
         query = str(args.get("query", "")).lower().strip()
@@ -242,20 +295,25 @@ def skill_tools(registry: CapabilityRegistry) -> list[Tool]:
             return "(error: empty query)"
         hits = [
             c
-            for c in skills
+            for c in caps
             if query in c.name.lower() or query in c.description.lower()
         ]
         if not hits:
-            return f"(no skill matches {query!r} among {len(skills)} skills)"
-        lines = [f"- {c.name}: {c.description[:160]}" for c in hits[:15]]
-        more = f"\n…and {len(hits) - 15} more" if len(hits) > 15 else ""
+            return f"(no capability matches {query!r} among {len(caps)} entries)"
+        lines = [f"- [{c.kind}] {c.name}: {c.description[:140]}" for c in hits[:20]]
+        more = f"\n…and {len(hits) - 20} more" if len(hits) > 20 else ""
         return f"{len(hits)} match(es):\n" + "\n".join(lines) + more
 
     def load_skill(args: dict[str, object]) -> str:
         name = str(args.get("name", "")).strip()
         cap = registry.get(name)
-        if cap is None or cap.kind != SKILL:
-            return f"(error: no skill named {name!r} — use find_skill first)"
+        if cap is None:
+            return f"(error: no capability named {name!r} — use find_skill first)"
+        if cap.kind == MCP_SERVER:
+            return (
+                f"(mcp server {name!r}: {cap.description}. Configured in "
+                ".claude/mcp-servers.json — not a file to read.)"
+            )
         text = Path(cap.source).read_text(encoding="utf-8", errors="replace")
         return text if len(text) <= 12000 else text[:12000] + "\n…(truncated)"
 
@@ -263,17 +321,18 @@ def skill_tools(registry: CapabilityRegistry) -> list[Tool]:
         Tool(
             name="find_skill",
             description=(
-                "Search the kinox skill corpus for skills whose name or "
-                "description matches a query. Use this BEFORE attempting an "
-                "unfamiliar task — a skill may already encode how to do it."
+                "Search the kinox capability corpus (skills, commands, and agent "
+                "playbooks) by keyword. Use this BEFORE attempting an unfamiliar "
+                "task — a skill/command/agent may already encode how to do it. "
+                "Results are tagged [skill] / [command] / [agent]."
             ),
             parameters={
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Keywords to match against skill names "
-                        "and descriptions.",
+                        "description": "Keywords to match against names and "
+                        "descriptions across the corpus.",
                     }
                 },
                 "required": ["query"],
@@ -283,15 +342,15 @@ def skill_tools(registry: CapabilityRegistry) -> list[Tool]:
         Tool(
             name="load_skill",
             description=(
-                "Load a skill's full instructions by exact name (from "
-                "find_skill) and follow them."
+                "Load a capability's full instructions by exact name (from "
+                "find_skill) — a skill, command, or agent playbook — and follow them."
             ),
             parameters={
                 "type": "object",
                 "properties": {
                     "name": {
                         "type": "string",
-                        "description": "Exact skill name from find_skill.",
+                        "description": "Exact capability name from find_skill.",
                     }
                 },
                 "required": ["name"],
@@ -301,20 +360,86 @@ def skill_tools(registry: CapabilityRegistry) -> list[Tool]:
     ]
 
 
+#: Started MCP servers, cached per config path so the agent loop does not respawn
+#: them every turn. Populated lazily by :func:`mcp_tools`.
+_MCP_CACHE: dict[str, list[MCPServer]] = {}
+
+
+def _wrap_mcp_tool(server: object, spec: dict[str, object]) -> Tool:
+    """Wrap one remote MCP tool *spec* as a kinox :class:`Tool` that dispatches to
+    *server*. Named ``mcp__<server>__<tool>`` so it is unambiguous in the trace."""
+    from daemon.mcp import MCPServer
+
+    srv = server if isinstance(server, MCPServer) else None
+    tool_name = str(spec.get("name", ""))
+    schema: dict[str, object] = as_dict(spec.get("inputSchema"))
+    if not schema:
+        schema = {"type": "object", "properties": {}}
+
+    def handler(args: dict[str, object]) -> str:
+        if srv is None:
+            return "(error: mcp server unavailable)"
+        return srv.call(tool_name, args)
+
+    label = srv.name if srv is not None else "mcp"
+    return Tool(
+        name=f"mcp__{label}__{tool_name}",
+        description=str(spec.get("description", ""))[:500],
+        parameters=schema,
+        handler=handler,
+    )
+
+
+def mcp_tools(config_path: Path, *, max_servers: int = 8) -> list[Tool]:
+    """Start the launchable MCP servers in *config_path* (once, cached) and return
+    their remote tools as kinox Tools. Fail-soft: unlaunchable/dead servers
+    contribute nothing, so the agent simply gets whatever is actually configured."""
+    from daemon.mcp import load_server_specs
+
+    key = str(config_path)
+    servers = _MCP_CACHE.get(key)
+    if servers is None:
+        started: list[MCPServer] = []
+        for spec in load_server_specs(config_path):
+            if spec.launchable() and spec.start():
+                started.append(spec)
+            if len(started) >= max_servers:
+                break
+        _MCP_CACHE[key] = started
+        servers = started
+    tools: list[Tool] = []
+    for srv in servers:
+        for remote in srv.tools:
+            tools.append(_wrap_mcp_tool(srv, remote))
+    return tools
+
+
 def default_registry(
     root: Path,
     *,
     skills: CapabilityRegistry | None = None,
     allow_bash: bool = False,
+    allow_write: bool = False,
+    mcp_config: Path | None = None,
 ) -> ToolRegistry:
-    """Assemble the standard agent toolset: filesystem + skill bridge, plus the
-    guarded ``run_bash`` only when *allow_bash* is set (fail-CLOSED default)."""
+    """Assemble the agent toolset: read-only filesystem + skill bridge, plus the
+    high-risk ``write_file`` (when *allow_write*) and ``run_bash`` (when
+    *allow_bash*), plus live MCP server tools (when *mcp_config* points at an
+    ``mcpServers`` config). Write/exec are OFF by default (fail-CLOSED, thesis
+    #2); a fully-trusted interactive session opts into both for an unrestricted
+    in-scope coding agent."""
     reg = ToolRegistry()
     for t in filesystem_tools(root):
         reg.register(t)
+    if allow_write:
+        for t in write_tools(root):
+            reg.register(t)
     if skills is not None:
         for t in skill_tools(skills):
             reg.register(t)
     if allow_bash:
         reg.register(bash_tool(root))
+    if mcp_config is not None:
+        for t in mcp_tools(mcp_config):
+            reg.register(t)
     return reg
