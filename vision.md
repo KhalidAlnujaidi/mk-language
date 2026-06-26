@@ -213,6 +213,25 @@ FUZZY          (intent, expansion, summary)    → small local model, capped tok
 REASONING      (codegen, review, planning)     → broker picks a reasoning-tier model
 ```
 
+### 5.5 The brain tier (cloud-first, fail-soft) — framework-wide
+
+The **brain** (the `REASONING` tier above) is **cloud-first, local last**: the
+hard, fuzzy reasoning is where the best model earns its cost (thesis #1), while
+grooming, tagging, and deterministic checks stay local. One chokepoint
+(`daemon/brain.py:brain_chain`) resolves it for **every** `kx` scope — route/hub,
+admin (`kx kin`), project, developer — so this is a framework property, not a
+per-session setting. The chain **fails soft** (thesis #2), degrading tier by tier
+rather than going offline:
+
+```
+PRIMARY    glm-5.2 on z.ai (subscription)         the frontier brain
+SECONDARY  OpenRouter (provider-diverse cloud)    fallback + experimentation; active when keyed
+FALLBACK   smallest fitting local model           last resort — no network, no keys
+```
+
+Only an empty chain is a hard stop. The rule is binding in
+`alignment/CONSTITUTION.md` · "The brain rule"; the operational map is `BRAIN.md`.
+
 ---
 
 ## 6. Self-healing and self-evolving (governed)

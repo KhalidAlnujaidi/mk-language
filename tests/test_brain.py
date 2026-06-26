@@ -57,13 +57,78 @@ def test_backend_and_where_overridable(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_chain_is_cloud_then_local_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    # No OpenRouter key → the secondary tier is omitted, so the chain stays the
+    # 2-tier default and existing behaviour is unchanged.
     monkeypatch.delenv("KINOX_BRAIN", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     assert brain_chain(_LOCAL) == [_CLOUD, _LOCAL]
 
 
 def test_chain_cloud_only_when_no_local(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("KINOX_BRAIN", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     assert brain_chain(None) == [_CLOUD]
+
+
+# --- the secondary (OpenRouter) tier and the 3-tier chain (the brain rule) -----
+
+_OPENROUTER = Tier.model("z-ai/glm-4.6", where="cloud", backend="openrouter")
+
+
+def test_secondary_off_without_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No OPENROUTER_API_KEY → no secondary tier (don't carry a tier that 401s)."""
+    from daemon.brain import secondary_tier
+
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    assert secondary_tier() is None
+
+
+def test_secondary_on_when_keyed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """OPENROUTER_API_KEY set → the default GLM-on-OpenRouter secondary tier."""
+    from daemon.brain import secondary_tier
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.delenv("KINOX_BRAIN_SECONDARY", raising=False)
+    assert secondary_tier() == _OPENROUTER
+
+
+def test_secondary_model_overridable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """OpenRouter is the experimentation surface — the model is env-overridable."""
+    from daemon.brain import secondary_tier
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.setenv("KINOX_BRAIN_SECONDARY", "anthropic/claude-3.5-sonnet")
+    assert secondary_tier() == Tier.model(
+        "anthropic/claude-3.5-sonnet", where="cloud", backend="openrouter"
+    )
+
+
+def test_secondary_disabled_value_drops_tier(monkeypatch: pytest.MonkeyPatch) -> None:
+    from daemon.brain import secondary_tier
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.setenv("KINOX_BRAIN_SECONDARY", "off")
+    assert secondary_tier() is None
+
+
+def test_chain_three_tier_when_openrouter_keyed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The brain rule: z.ai primary → OpenRouter secondary → local fallback."""
+    monkeypatch.delenv("KINOX_BRAIN", raising=False)
+    monkeypatch.delenv("KINOX_BRAIN_SECONDARY", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    assert brain_chain(_LOCAL) == [_CLOUD, _OPENROUTER, _LOCAL]
+
+
+def test_chain_no_secondary_when_brain_is_local(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """KINOX_BRAIN=local → local-only, even with OpenRouter keyed (no cloud hop
+    sneaks in behind a deliberately offline brain)."""
+    monkeypatch.setenv("KINOX_BRAIN", "local")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    assert brain_chain(_LOCAL) == [_LOCAL]
 
 
 def test_chain_local_only_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
