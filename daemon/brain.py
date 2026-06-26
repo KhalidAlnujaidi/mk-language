@@ -1,20 +1,35 @@
 """The brain tier — which model does kinox's high-value reasoning.
 
-kinox's brain is **cloud by default, local as the fallback** — always. A frontier
-model (``glm-5.2`` on the z.ai cloud backend, out of the box) does the high-value
-reasoning (vision §3 thesis #1: the expensive model is called for exactly the
-hard part); the local model is the fail-soft fallback so a cloud outage or a
-missing key degrades to local rather than taking the workspace offline (the
-broker fails SOFT, spec §6). Cheap groundwork (grooming, tagging, deterministic
-checks) stays local regardless — only the *reasoning* tier is the brain.
+kinox's brain is **cloud-first, local last** — always, and this is a *framework*
+rule (`alignment/CONSTITUTION.md` · "The brain rule"): a frontier model does the
+high-value reasoning (vision §3 thesis #1: the expensive model is called for
+exactly the hard part), while cheap groundwork — grooming, tagging, deterministic
+checks — stays local regardless. Only the *reasoning* tier is the brain.
+
+The chain resolves here in one chokepoint, so **every** ``kx`` scope (the
+route/hub, ``kx kin`` admin, ``kx <project>``, ``kx dev``) inherits the same three
+tiers, and it **fails SOFT** (spec §6) — an outage, missing key, or error at any
+tier degrades to the next, never offline:
+
+1. **Primary** — the frontier subscription brain, ``glm-5.2`` on the cloud ``zai``
+   backend (out of the box).
+2. **Secondary** — OpenRouter (provider-diverse cloud; also the experimentation
+   surface for other models). Included **only when** ``OPENROUTER_API_KEY`` is set,
+   so an unkeyed install simply omits it rather than carrying a tier that 401s.
+3. **Fallback** — the smallest fitting local model. The last resort that keeps the
+   workspace usable with no network and no keys.
 
 Overrides (env):
-- ``KINOX_BRAIN`` — the brain model name. Defaults to :data:`DEFAULT_BRAIN_MODEL`.
-  Set it to ``local`` / ``off`` / ``none`` (or empty) to disable the cloud brain
-  and use only the local fallback — the hermetic-test and offline path.
-- ``KINOX_BRAIN_BACKEND`` / ``KINOX_BRAIN_WHERE`` — where the brain is served
-  (default the cloud ``zai`` backend). The bearer key lives in the backend's own
-  env var (``ZAI_API_KEY`` for ``zai``), never here and never in a tracked file.
+- ``KINOX_BRAIN`` — the primary brain model name. Defaults to
+  :data:`DEFAULT_BRAIN_MODEL`. Set it to ``local`` / ``off`` / ``none`` (or empty)
+  to disable the cloud brain and use only the local fallback — the hermetic-test
+  and offline path (no cloud secondary is added in this mode either).
+- ``KINOX_BRAIN_BACKEND`` / ``KINOX_BRAIN_WHERE`` — where the primary brain is
+  served (default the cloud ``zai`` backend). The bearer key lives in the
+  backend's own env var (``ZAI_API_KEY`` for ``zai``), never here, never tracked.
+- ``KINOX_BRAIN_SECONDARY`` / ``KINOX_BRAIN_SECONDARY_BACKEND`` — the secondary
+  tier's model and backend (default :data:`DEFAULT_SECONDARY_MODEL` on
+  ``openrouter``). Set the model to a disabling value to drop the secondary tier.
 """
 
 from __future__ import annotations
@@ -31,6 +46,12 @@ from kernel.contracts import Location, Tier
 DEFAULT_BRAIN_MODEL = "glm-5.2"
 DEFAULT_BRAIN_BACKEND = "zai"
 DEFAULT_BRAIN_WHERE: Location = "cloud"
+
+#: The secondary (middle) tier — OpenRouter, a provider-diverse cloud fallback that
+#: doubles as the experimentation surface for other models. GLM by default so the
+#: fallback mirrors the primary brand; override via ``KINOX_BRAIN_SECONDARY``.
+DEFAULT_SECONDARY_MODEL = "z-ai/glm-4.6"
+DEFAULT_SECONDARY_BACKEND = "openrouter"
 
 #: ``KINOX_BRAIN`` values (case-insensitive) that mean "no cloud brain — local only".
 _DISABLE = frozenset({"", "local", "off", "none"})
@@ -56,13 +77,46 @@ def brain_tier(fallback: Tier | None = None) -> Tier | None:
     return Tier.model(name, where=where, backend=backend)
 
 
-def brain_chain(fallback: Tier | None) -> list[Tier]:
-    """The reasoning fallback chain: the cloud brain first, then *fallback* (local).
+def secondary_tier() -> Tier | None:
+    """The secondary (middle) reasoning tier — OpenRouter, between the primary
+    cloud brain and the local fallback.
 
-    - Default: ``[cloud_brain, local]`` — cloud reasons, local catches a cloud
-      outage (fail SOFT, spec §6).
-    - Cloud disabled (``KINOX_BRAIN=local``): ``[local]``.
-    - No local model: ``[cloud_brain]`` — the cloud brain answers on its own.
+    Returns the tier **only when its bearer key is configured** (e.g.
+    ``OPENROUTER_API_KEY`` for the ``openrouter`` backend); with no key it returns
+    ``None`` so the chain omits it rather than carrying a tier guaranteed to 401
+    (fail SOFT — no dead hop). The model/backend come from
+    ``KINOX_BRAIN_SECONDARY`` / ``KINOX_BRAIN_SECONDARY_BACKEND`` (default
+    :data:`DEFAULT_SECONDARY_MODEL` on ``openrouter``); a disabling model value
+    drops the tier entirely."""
+    name = os.environ.get("KINOX_BRAIN_SECONDARY", DEFAULT_SECONDARY_MODEL)
+    if name.strip().lower() in _DISABLE:
+        return None
+    backend = os.environ.get("KINOX_BRAIN_SECONDARY_BACKEND", DEFAULT_SECONDARY_BACKEND)
+    # The backend→key-env mapping lives in ``daemon.backends`` (single source of
+    # truth, Rule Zero); imported lazily — it is already loaded by the dispatch
+    # path by the time a chain is built, so this adds nothing at import time.
+    from daemon.backends import cloud_backend_specs
+
+    spec = cloud_backend_specs().get(backend)
+    if spec is None or spec.auth_env is None or not os.environ.get(spec.auth_env):
+        return None
+    where_env = os.environ.get("KINOX_BRAIN_SECONDARY_WHERE", "cloud")
+    where: Location = where_env if where_env in ("local", "cloud") else "cloud"
+    return Tier.model(name, where=where, backend=backend)
+
+
+def brain_chain(fallback: Tier | None) -> list[Tier]:
+    """The reasoning fallback chain — cloud-first, local last (the brain rule).
+
+    Order is ``[primary cloud, secondary cloud, local]``, each tier included only
+    when it exists, and the chain **fails SOFT** down the list (spec §6):
+
+    - Default (no OpenRouter key): ``[cloud_brain, local]`` — unchanged.
+    - OpenRouter keyed: ``[cloud_brain, openrouter, local]`` — the secondary
+      catches a primary outage before falling to local.
+    - Cloud disabled (``KINOX_BRAIN=local``): ``[local]`` — no cloud secondary is
+      added when the primary brain is local-only.
+    - No local model: drops the trailing tier (e.g. ``[cloud_brain, openrouter]``).
     - Neither available: ``[]`` (the caller surfaces a no-model message).
 
     Never lists the same tier twice (the executor would otherwise retry an
@@ -71,7 +125,13 @@ def brain_chain(fallback: Tier | None) -> list[Tier]:
     chain: list[Tier] = []
     if brain is not None:
         chain.append(brain)
-    if fallback is not None and fallback != brain:
+        # The cloud secondary only makes sense behind a *cloud* primary; when the
+        # brain is local-only (``KINOX_BRAIN=local``) we stay offline-honest.
+        if brain.where == "cloud":
+            secondary = secondary_tier()
+            if secondary is not None and secondary not in chain:
+                chain.append(secondary)
+    if fallback is not None and fallback not in chain:
         chain.append(fallback)
     return chain
 

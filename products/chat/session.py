@@ -84,11 +84,12 @@ class ChatSession:
             model_tag=model_tag,
         )
 
-        # Step 2: Build the reasoning chain. kinox's brain is cloud-first
-        # (``glm-5.2``) with the first local model as the fail-soft fallback
-        # (thesis #1 + spec §6). With no local model the cloud brain answers on
-        # its own; with the cloud brain disabled (``KINOX_BRAIN=local``) it is
-        # local-only. Only an empty chain (no cloud, no local) is a hard stop.
+        # Step 2: Build the reasoning chain (the brain rule, CONSTITUTION). kinox's
+        # brain is cloud-first: ``glm-5.2`` primary, an OpenRouter secondary when
+        # keyed, then the first local model as the fail-soft fallback (thesis #1 +
+        # spec §6). With no local model the cloud tiers answer on their own; with
+        # the cloud brain disabled (``KINOX_BRAIN=local``) it is local-only. Only an
+        # empty chain (no cloud, no local) is a hard stop.
         from daemon.brain import brain_chain
 
         local_tier = (

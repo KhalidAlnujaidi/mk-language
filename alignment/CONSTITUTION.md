@@ -83,6 +83,32 @@ versioned package is always a mechanical step.
 
 ---
 
+## The brain rule
+
+_Added 2026-06-26 (deliberate change): names the model tiering every `kx` scope
+obeys, so it is a framework property, not a per-session setting._
+
+kinox's **brain** — the high-value *reasoning* tier — is **cloud-first, local
+last**. This does not contradict thesis #1: the genuinely hard, fuzzy reasoning is
+exactly where the best model earns its cost, while everything cheaper — grooming,
+tagging, deterministic checks — stays local. The brain resolves through one
+chokepoint (`daemon/brain.py:brain_chain`), so the route/hub, `kx kin` (admin),
+`kx <project>`, and `kx dev` all inherit the same chain; **no scope can opt out.**
+
+The chain, top to bottom, **fails soft** (thesis #2) — an outage, missing key, or
+error at any tier degrades to the next, never offline:
+
+1. **Primary — the frontier subscription brain.** `glm-5.2` on z.ai (cloud).
+2. **Secondary — OpenRouter.** Provider-diverse cloud, and the experimentation
+   surface for trying other models. Active only when `OPENROUTER_API_KEY` is set.
+3. **Fallback — the smallest fitting local model.** Keeps the workspace usable
+   with no network and no keys.
+
+Only an empty chain (no cloud, no local) is a hard stop. Keys live in
+`~/.kinox/env` (`ZAI_API_KEY`, `OPENROUTER_API_KEY`), never committed.
+
+---
+
 ## Alignment with the workstation requirement
 
 kinox embodies the machine-wide rule from `PROJECT-ALIGNMENT-REQUIREMENT.md`:

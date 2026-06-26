@@ -22,19 +22,26 @@
 
 ## The brain (which model thinks)
 
-- **Default: `glm-5.2` on z.ai (cloud)**, via the GLM **Coding Plan** endpoint
-  `https://api.z.ai/api/coding/paas/v4` — resolved in `daemon/brain.py`.
-- **Fallback: the first local Ollama model** (e.g. `deepseek-r1:8b`). The chain is
-  always `[cloud brain, local]` — a cloud outage/missing key fails **soft** to
-  local (vision §3 thesis #1 + §7 fail-soft).
+**Cloud-first, local last — a framework rule** every `kx` scope obeys (one
+chokepoint, `daemon/brain.py:brain_chain`). The chain fails **soft** down the
+tiers (vision §3 thesis #1 + §7 fail-soft); only an empty chain is a hard stop:
+
+| # | Tier | What | When |
+|---|---|---|---|
+| **1** | **Primary** | `glm-5.2` on z.ai (cloud), GLM **Coding Plan** endpoint `https://api.z.ai/api/coding/paas/v4` | always (subscription) |
+| **2** | **Secondary** | **OpenRouter** — provider-diverse cloud + experimentation surface (default `z-ai/glm-4.6`) | only when `OPENROUTER_API_KEY` is set |
+| **3** | **Fallback** | the smallest fitting **local** Ollama model (e.g. `qwen3:1.7b`) | last resort — no network/keys |
+
 - **Selectable** at runtime from chat: `/model` (z.ai presets), `/model openrouter
   <id>` (any OpenRouter text model), `/model local`. `/models` lists OpenRouter
   text→text ids. A choice is applied live (next turn) and persisted to
   `~/.kinox/env` via `brain.py:set_brain()`.
-- **Override via env** (read every turn): `KINOX_BRAIN` (model, or `local` to
-  disable cloud), `KINOX_BRAIN_BACKEND` (`zai` | `openrouter` | `ollama` | …),
-  `KINOX_BRAIN_WHERE` (`cloud` | `local`). Keys: `ZAI_API_KEY`,
-  `OPENROUTER_API_KEY` — in `~/.kinox/env`, never committed.
+- **Override via env** (read every turn): `KINOX_BRAIN` (primary model, or `local`
+  to disable cloud), `KINOX_BRAIN_BACKEND` (`zai` | `openrouter` | `ollama` | …),
+  `KINOX_BRAIN_WHERE` (`cloud` | `local`); `KINOX_BRAIN_SECONDARY` /
+  `KINOX_BRAIN_SECONDARY_BACKEND` (the secondary tier, or a disabling value to drop
+  it). Keys: `ZAI_API_KEY`, `OPENROUTER_API_KEY` — in `~/.kinox/env`, never
+  committed. The rule itself: `alignment/CONSTITUTION.md` · "The brain rule".
 
 ## The agent (how a turn runs)
 
@@ -57,7 +64,7 @@ products/chat/app.py · _run_agent_turn()
 products/agent/loop.py · run_agent()              ◀── THE AGENT HARNESS
         │   Perceive → Decide → Act → Observe, up to 30 turns
         ▼
-daemon/exec.py · execute([brain, local], …)       fallback chain, fail-soft
+daemon/exec.py · execute([brain, openrouter?, local], …)   fallback chain, fail-soft
         │
         ▼
 daemon/backends.py · make_dispatch()              OpenAI-compatible HTTP
