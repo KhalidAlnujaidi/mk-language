@@ -124,10 +124,16 @@ def default_render(items: list[MenuItem]) -> None:
     except ImportError:
         print("kinox — local · governed · cost-efficient")
         return
-    Console().print(
+    from products import theme
+
+    console = Console()
+    console.print()
+    console.print(
         Panel.fit(
-            "[bold]kinox[/bold] · local · governed · cost-efficient",
-            border_style="cyan",
+            theme.banner_text(width=console.width),
+            border_style=theme.BORDER,
+            box=theme.box(),
+            padding=(0, 2),
         )
     )
 

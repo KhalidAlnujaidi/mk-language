@@ -235,13 +235,19 @@ def _welcome(session: ChatSession) -> None:
     else:
         model_block = f"model: {local_name or 'none'}"
 
-    Console().print(
+    from products import theme
+
+    console = Console()
+    console.print(
         Panel.fit(
-            f"[bold cyan]kinox[/bold cyan] · {scope}\n"
+            f"{theme.wordmark(width=console.width)}\n"
+            f"[bold cyan]scope[/bold cyan]  {scope}\n"
             f"{model_block}\n"
             f"[dim]agent mode · read · write · bash · skills[/dim]\n\n"
             f"[dim]/help  /model  /chat  /quit[/dim]",
-            border_style="cyan",
+            border_style=theme.BORDER,
+            box=theme.box(),
+            padding=(0, 2),
         )
     )
 
@@ -278,11 +284,29 @@ def _text_loop(session: ChatSession, console: object) -> int:
 
 def _pt_loop(session: ChatSession, console: object, pt: object) -> int:
     """Main loop with prompt_toolkit for multi-line input + command history."""
+    import time
+
     from prompt_toolkit.history import InMemoryHistory
     from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.styles import Style
 
+    from products import theme
+
     history = InMemoryHistory()
+
+    # Session context for the toolbar: scope name + the active brain model, both
+    # resolved once (the brain tier is stable for the session) so each keystroke
+    # repaint stays cheap. Fail-soft — a missing brain just shows a dash.
+    session_start = time.monotonic()
+    scope_name = session.cwd.name or str(session.cwd)
+    try:
+        from daemon.brain import brain_tier
+
+        _bt = brain_tier()
+        model_label = _bt.model_name if _bt is not None else "—"
+        is_cloud = _bt is not None and getattr(_bt, "where", None) == "cloud"
+    except Exception:  # noqa: BLE001 — toolbar must never crash the prompt
+        model_label, is_cloud = "—", False
 
     # Key bindings: Enter submits (the universal default); Esc+Enter / Alt+Enter
     # inserts a newline for multi-line input or pasted code. Without the explicit
@@ -312,9 +336,13 @@ def _pt_loop(session: ChatSession, console: object, pt: object) -> int:
 
     def bottom_toolbar() -> str:
         n = len(session.history) // 2
+        secs = int(time.monotonic() - session_start)
+        m, s = divmod(secs, 60)
+        elapsed = f"{m}m{s:02d}s" if m else f"{s}s"
+        cloud = f" {theme.CLOUD}" if is_cloud and not theme.ascii_only() else ""
         return (
-            f" turns: {n}  |  Enter to send · Esc+Enter newline  "
-            "|  /help /clear /quit"
+            f" {scope_name} · {model_label}{cloud} · {n} turns · {elapsed}"
+            "    Enter send · Esc+Enter newline · /help /clear /quit"
         )
 
     # Use prompt_toolkit.shortcuts.PromptSession for a clean API.
@@ -569,6 +597,7 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
     import asyncio
     import time
     import uuid
+    from collections import deque
     from concurrent.futures import ThreadPoolExecutor
 
     from daemon.brain import brain_tier
@@ -613,10 +642,20 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
         )
         return
 
-    console.print(f"\n[bold cyan]agent:[/bold cyan] {task}")
-    console.print(
-        f"[dim]tools: {', '.join(registry.tools)}  ·  skills: {len(skills)}[/dim]"
-    )
+    # Quiet by default: show only the spinner, the final answer, and a one-line
+    # status footer. Set KINOX_VERBOSE=1 to restore the prompt echo, tool list,
+    # and per-step trace (useful when debugging the agent loop).
+    verbose = os.environ.get("KINOX_VERBOSE", "0").lower() in ("1", "on", "true", "yes")
+    if verbose:
+        console.print(f"\n[bold cyan]agent:[/bold cyan] {task}")
+        console.print(
+            f"[dim]tools: {', '.join(registry.tools)}  ·  skills: {len(skills)}[/dim]"
+        )
+
+    # Live trace: run_agent fires on_step for every tool call as it happens. We
+    # push those into a thread-safe queue and DRAIN them on the main thread (the
+    # spinner loop) so nothing prints across threads while the live status is up.
+    steps_q: deque[object] = deque()
 
     def work() -> object:
         return asyncio.run(
@@ -628,38 +667,137 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
                 task_id=uuid.uuid4().hex[:12],
                 fallback=local_tier,
                 max_turns=30,  # real dev tasks need room to read → act → verify
+                on_step=steps_q.append,
             )
         )
 
+    tools_done = 0
     with ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(work)
         start = time.monotonic()
         with console.status("[dim]agent working…[/dim]", spinner="dots") as status:
-            while not future.done():
+            while True:
+                # Drain steps emitted since the last tick, above the live status.
+                while steps_q:
+                    step = steps_q.popleft()
+                    if step.kind == "tool":
+                        tools_done += 1
+                        console.print(
+                            _format_tool_step(step.name, step.detail, verbose)
+                        )
+                    elif step.kind == "blocked":
+                        console.print(
+                            f"  [red]⛔ {step.name} blocked:[/red] "
+                            f"[dim]{step.detail}[/dim]"
+                        )
+                    # "final" is the summary — rendered in the panel below.
                 status.update(
-                    f"[dim]agent working… ({time.monotonic() - start:.1f}s)[/dim]"
+                    f"[dim]agent working · {tools_done} tool"
+                    f"{'' if tools_done == 1 else 's'} · "
+                    f"{time.monotonic() - start:.1f}s[/dim]"
                 )
-                time.sleep(0.25)
+                if future.done() and not steps_q:
+                    break
+                time.sleep(0.1)
         try:
             result = future.result()
         except Exception as exc:  # noqa: BLE001 — surface, never crash the TUI
             console.print(f"[bold red]agent error:[/bold red] {exc}")
             return
 
-    # Step trace: each tool call / block, then the final answer.
-    for step in result.steps:
-        if step.kind == "tool":
-            console.print(f"  [yellow]→ {step.name}[/yellow] [dim]{step.detail}[/dim]")
-        elif step.kind == "blocked":
-            console.print(f"  [red]⛔ {step.name} blocked: {step.detail}[/red]")
-    label = f" ({result.stopped}, {result.turns} turns)"
-    console.print(f"[bold green]kinox agent{label}:[/bold green]")
-    _render_response(result.final_text, console)
+    # Summary: the final answer, framed in a panel with a status footer.
+    _render_summary(
+        result, console, tools=tools_done, elapsed=time.monotonic() - start
+    )
     console.print()
 
 
+#: First arg key worth showing per call, in priority order.
+_ARG_KEYS = ("path", "file", "cmd", "command", "query", "pattern", "name", "url")
+
+
+def _format_tool_step(name: str, detail: str, verbose: bool) -> str:
+    """One compact, colour-coded line for a live tool call.
+
+    Quiet mode shows just the single most useful argument (path/cmd/query);
+    verbose shows the raw JSON args.
+    """
+    import json
+
+    from products import theme
+
+    color = theme.tool_color(name)
+    glyph = theme.tool_glyph(name)
+    short = name.replace("mcp__", "")
+    if verbose:
+        arg = detail
+    else:
+        arg = ""
+        try:
+            data = json.loads(detail) if detail else {}
+        except Exception:
+            data = {}
+        if isinstance(data, dict) and data:
+            for key in _ARG_KEYS:
+                if key in data:
+                    arg = str(data[key])
+                    break
+            else:
+                k, v = next(iter(data.items()))
+                arg = f"{k}={v}"
+        if len(arg) > 64:
+            arg = arg[:63] + "…"
+    return f"  {glyph} [{color}]{short}[/{color}] [dim]{arg}[/dim]"
+
+
+def _strip_reasoning(text: str) -> str:
+    """Drop ``<think>``/``<thinking>`` blocks so reasoning models (deepseek-r1
+    fallback) never leak their scratchpad into the rendered answer."""
+    import re
+
+    return re.sub(
+        r"<think(?:ing)?>.*?</think(?:ing)?>\s*",
+        "",
+        text,
+        flags=re.DOTALL | re.IGNORECASE,
+    ).strip()
+
+
+def _render_summary(
+    result: object, console: object, *, tools: int, elapsed: float
+) -> None:
+    """Frame the final answer in a panel with a status footer (stopped · turns ·
+    tools · elapsed). Falls back to plain print if rich.Panel is unavailable."""
+    body = _strip_reasoning(result.final_text)
+    Markdown = _import_rich_markdown()
+    renderable = Markdown(body, code_theme="monokai") if Markdown else body
+    footer = f"{result.stopped} · {result.turns} turns · {tools} tools · {elapsed:.1f}s"
+    ok = result.stopped == "complete"
+    try:
+        from rich.panel import Panel
+
+        console.print(
+            Panel(
+                renderable,
+                title="[bold]kinox[/bold]",
+                title_align="left",
+                subtitle=f"[dim]{footer}[/dim]",
+                subtitle_align="right",
+                border_style="green" if ok else "red",
+                padding=(1, 2),
+            )
+        )
+    except Exception:
+        _render_response(result.final_text, console)
+        console.print(f"[dim]{'✓' if ok else '✗'} {footer}[/dim]")
+
+
 def _render_response(text: str, console: object) -> None:
-    """Render model response — try Markdown, fall back to plain text."""
+    """Render model response — try Markdown, fall back to plain text.
+
+    Strips reasoning blocks first (see :func:`_strip_reasoning`).
+    """
+    text = _strip_reasoning(text)
     try:
         Markdown = _import_rich_markdown()
         if Markdown is not None:

@@ -29,24 +29,55 @@ def _fmt(value: float | int | None) -> str:
 
 
 def render(summary: Summary) -> Table:
-    """Build a rich table (one row per tier) from a summary."""
+    """Build a rich table (one row per tier) from a summary.
+
+    Each numeric column is paired with a proportional unicode bar scaled to the
+    largest value across tiers, so relative latency/throughput reads at a glance.
+    Bars are honest: an unknown (``None``) metric renders as an empty dotted
+    cell, never a faked full bar.
+    """
+    from products import theme
+
     caption = (
         f"{summary.total_events} events · "
         f"{summary.correction_count} corrections "
         f"({summary.correction_rate:.0%})"
     )
-    table = Table(title="kinox observability", caption=caption)
+    table = Table(
+        title="[bold cyan]kinox[/bold cyan] observability",
+        caption=caption,
+        box=theme.box(),
+        header_style="bold cyan",
+        border_style=theme.BORDER,
+    )
     table.add_column("tier")
     table.add_column("count", justify="right")
     table.add_column("avg latency (ms)", justify="right")
+    table.add_column("", no_wrap=True)  # latency bar
     table.add_column("tokens out", justify="right")
+    table.add_column("", no_wrap=True)  # tokens bar
     table.add_column("exact?")
+
+    lat_max = max(
+        (r.avg_latency_ms for r in summary.per_tier if r.avg_latency_ms is not None),
+        default=None,
+    )
+    tok_max = max(
+        (
+            r.total_tokens_out
+            for r in summary.per_tier
+            if r.total_tokens_out is not None
+        ),
+        default=None,
+    )
     for r in summary.per_tier:
         table.add_row(
             r.tier,
             str(r.count),
             _fmt(r.avg_latency_ms),
+            f"[magenta]{theme.bar(r.avg_latency_ms, lat_max, width=12)}[/magenta]",
             _fmt(r.total_tokens_out),
+            f"[cyan]{theme.bar(r.total_tokens_out, tok_max, width=12)}[/cyan]",
             "yes" if r.tokens_exact else "est",
         )
     return table
