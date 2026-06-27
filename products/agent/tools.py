@@ -188,8 +188,20 @@ def project_root_guard(
     project already cannot reach up), which is what makes framework-and-project
     development safe to run in parallel without overlap.
     """
+    from products.agent.sandbox import landlock_available
+
     root_p = Path(root)
     denied = [(root_p / s).resolve() for s in deny_write_subpaths]
+    # When Landlock confines this process's shell children at the kernel level
+    # (Stage 1: writes → scope + scratch only, while reads/execs stay free), the
+    # broad lexical path-escape check below is redundant AND wrongly over-blocks
+    # legitimate in-scope work — a venv interpreter symlinked to a system python,
+    # an out-of-root *read*, or a here-doc body that merely contains a '/'-path.
+    # So under Landlock we trust the kernel for out-of-root writes and keep only
+    # the scope-wall (which Landlock does NOT cover: a framework root *contains*
+    # projects/). Without Landlock the lexical jail remains the governing wall
+    # (fail-soft fallback). The shell handler self-jails the same way.
+    os_confined = landlock_available()
 
     def _hits_denied(path: str) -> bool:
         try:
@@ -206,9 +218,10 @@ def project_root_guard(
         args = as_dict(parsed)  # dict[str, object], {} for a non-object shape
         if name == "run_bash":
             command = str(args.get("command", ""))
-            escape = _bash_escape_reason(command, root_p)
-            if escape is not None:
-                return escape
+            if not os_confined:
+                escape = _bash_escape_reason(command, root_p)
+                if escape is not None:
+                    return escape
             if denied:
                 try:
                     tokens = shlex.split(command, comments=False, posix=True)
@@ -369,14 +382,20 @@ def bash_tool(root: Path, *, timeout_s: float = 30.0) -> Tool:
         command = str(args.get("command", "")).strip()
         if not command:
             return "(error: empty command)"
-        # Self-jail (defense-in-depth): even with no loop-level guard wired, the
-        # shell cannot read or write outside its root. Fails CLOSED (thesis #2).
-        escape = _bash_escape_reason(command, root)
-        if escape is not None:
-            return (
-                f"(blocked: {escape} — run_bash is jailed to the project root; "
-                "operate only within it)"
-            )
+        # Self-jail, defense-in-depth. With Landlock active (preexec set) the
+        # KERNEL confines this child's writes to the scope while leaving reads and
+        # execs free, so the lexical pre-check is redundant and would wrongly block
+        # in-scope work (a venv symlink, an out-of-root read, a here-doc body). It
+        # is therefore the FALLBACK wall only — applied when Landlock is absent
+        # (fail-soft at setup). Either way a write past the scope is denied: the
+        # kernel where present, the lexical guard where not (fail-CLOSED, thesis #2).
+        if preexec is None:
+            escape = _bash_escape_reason(command, root)
+            if escape is not None:
+                return (
+                    f"(blocked: {escape} — run_bash is jailed to the project root; "
+                    "operate only within it)"
+                )
         try:
             proc = subprocess.run(  # noqa: S602 — guarded agent tool, sandboxed to root
                 command,
@@ -397,9 +416,10 @@ def bash_tool(root: Path, *, timeout_s: float = 30.0) -> Tool:
         name="run_bash",
         description=(
             "Run a shell command in the working root and return its exit code "
-            "and combined stdout/stderr. The shell is jailed to the project root: "
-            "commands that reference paths outside it (absolute paths, ~, ..) are "
-            "refused. Use paths relative to the root."
+            "and combined stdout/stderr. WRITES are confined to the project root "
+            "(plus temp and the user cache) — you may read files and run system "
+            "programs anywhere, but cannot create, modify, or delete anything "
+            "outside the scope. Use paths relative to the root for files you write."
         ),
         parameters={
             "type": "object",

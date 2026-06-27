@@ -122,6 +122,8 @@ async def run_agent(
     history: Messages | None = None,
     plan: str | None = None,
     max_turns: int = 8,
+    stall_repeats: int = 3,
+    stall_blocks: int = 5,
     context_soft_chars: int = 40_000,
     guard: Guard | None = None,
     call_factory: CallFactory | None = None,
@@ -133,8 +135,17 @@ async def run_agent(
     Each turn calls the model (with the registry's tool schema); if it returns
     ``tool_calls`` they are guarded, dispatched, and their observations appended
     as ``role: tool`` messages before looping. The loop ends when the model
-    returns no tool calls (``complete``) or *max_turns* is reached
-    (``max_turns`` — fail-CLOSED so a runaway cannot spin forever).
+    returns no tool calls (``complete``), when the **logical convergence gate**
+    trips (``stuck``), or when *max_turns* is reached (``max_turns``).
+
+    The convergence gate is the *primary* stop and judges WHAT is called, not how
+    many turns pass: if one ``(tool, args, observation)`` triple recurs
+    *stall_repeats* times it is no-progress repetition, and *stall_blocks* refusals
+    in a row mean the approach does not work in this scope — either stops early
+    with a clear reason. Because the gate keys on the *result* too, a real
+    edit→test→edit loop (same command, changing output) is not flagged. *max_turns*
+    remains only as a fail-CLOSED backstop: a hard ceiling on cost so an agent that
+    never repeats and never converges still cannot spend unbounded cloud budget.
 
     Context is governed deterministically to fight rot (no model judging
     relevance): an idempotent read repeated with the same arguments returns a
@@ -199,6 +210,16 @@ async def run_agent(
     seen_reads: dict[str, int] = {}
     ctx_chars = 0
     nudged = False
+
+    # Logical convergence gate (the primary stop; max_turns is only the backstop).
+    # We watch WHAT the agent does, not just how many turns elapse: a (call, result)
+    # pair that recurs is no-progress repetition, and a run of refusals means the
+    # approach does not work in this scope. Either trips an early, explained stop —
+    # so a productive agent runs free while a stuck one is caught long before it
+    # burns the budget. ``outcome_counts`` keys on action+result so a legitimate
+    # edit→test→edit loop (same command, *different* output) is NOT flagged.
+    outcome_counts: dict[str, int] = {}
+    blocked_streak = 0
 
     for turn in range(max_turns):
         result.turns = turn + 1
@@ -294,6 +315,29 @@ async def run_agent(
                     "content": str(observation),
                 }
             )
+
+            # Logical gate: did this action make progress, or is the agent stuck?
+            outcome = f"{name}\x00{args_json}\x00{observation}"
+            outcome_counts[outcome] = outcome_counts.get(outcome, 0) + 1
+            blocked_streak = blocked_streak + 1 if denial is not None else 0
+            stuck: str | None = None
+            if outcome_counts[outcome] >= stall_repeats:
+                stuck = (
+                    f"the same action ({name}) produced the same result "
+                    f"{outcome_counts[outcome]}× — no progress, looping"
+                )
+            elif blocked_streak >= stall_blocks:
+                stuck = (
+                    f"{blocked_streak} tool calls in a row were refused — the "
+                    "approach is not working in this scope"
+                )
+            if stuck is not None:
+                result.stopped = "stuck"
+                result.final_text = (
+                    f"(stopped: {stuck}. Change approach or narrow the task — this "
+                    "is a no-progress gate, not a turn-count cap.)"
+                )
+                return result
 
         # Once the gathered context grows large, nudge the model to converge —
         # exactly once, so it costs ~one line and never nags. This governs context
