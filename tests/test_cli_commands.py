@@ -57,6 +57,10 @@ def test_scaffold_makes_project_its_own_repo(tmp_path: Path):
         ["git", "log", "--oneline"], cwd=path, capture_output=True, text=True
     )
     assert log.returncode == 0 and log.stdout.strip()  # has the baseline commit
+    branch = subprocess.run(
+        ["git", "branch", "--show-current"], cwd=path, capture_output=True, text=True
+    )
+    assert branch.stdout.strip() == "main"  # standardized default branch
 
 
 def test_init_project_repo_excludes_scratch(tmp_path: Path):

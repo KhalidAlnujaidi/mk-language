@@ -96,7 +96,10 @@ def init_project_repo(project: Path) -> bool:
     _git("config", "user.email", "kinox@localhost")
     if not _git("add", "-A"):
         return False
-    return _git("commit", "-q", "-m", "chore: initialize project baseline")
+    if not _git("commit", "-q", "-m", "chore: initialize project baseline"):
+        return False
+    _git("branch", "-M", "main")  # standardize the default branch (best-effort)
+    return True
 
 
 def scaffold_project(projects_root: Path, name: str) -> Path:
