@@ -146,7 +146,9 @@ def test_no_plan_means_no_hint() -> None:
 
 
 def test_loop_caps_runaway_at_max_turns() -> None:
-    # Model that NEVER stops calling tools → must be stopped fail-CLOSED.
+    # The max_turns BACKSTOP: an agent that never converges (and never trips the
+    # logical gate — so the stall gates are disabled here) must still be stopped
+    # fail-CLOSED at the hard cost ceiling.
     forever = BackendResponse(
         content="",
         tool_calls=[_tool_call("c", "echo", '{"x": "again"}')],
@@ -160,11 +162,106 @@ def test_loop_caps_runaway_at_max_turns() -> None:
             sink=_sink(),
             task_id="t",
             max_turns=3,
+            stall_repeats=99,  # isolate the backstop from the convergence gate
+            stall_blocks=99,
             call_factory=_scripted_factory([forever]),  # type: ignore[arg-type]
         )
     )
     assert result.stopped == "max_turns"
     assert result.turns == 3
+
+
+def test_logical_gate_stops_on_no_progress_repetition() -> None:
+    # The PRIMARY stop: a (tool, args, result) triple that recurs is looping —
+    # caught long before max_turns, with stopped="stuck".
+    forever = BackendResponse(
+        content="",
+        tool_calls=[_tool_call("c", "echo", '{"x": "again"}')],
+        finish_reason="tool_calls",
+    )
+    result = _run(
+        run_agent(
+            "loop forever",
+            tier=TIER,
+            registry=_echo_registry(),
+            sink=_sink(),
+            task_id="t",
+            max_turns=50,  # would run far longer; the gate stops it first
+            stall_repeats=3,
+            call_factory=_scripted_factory([forever]),  # type: ignore[arg-type]
+        )
+    )
+    assert result.stopped == "stuck"
+    assert result.turns == 3  # same outcome 3× → looping
+
+
+def test_logical_gate_allows_same_command_with_changing_output() -> None:
+    # An edit→test→edit loop reuses the SAME command but the output changes each
+    # time (fail → fail → pass). That is progress, not looping — must NOT trip.
+    box = {"i": 0}
+    outputs = ["FAIL: 2 failed", "FAIL: 1 failed", "OK: all passed"]
+
+    def factory(_schema: list[dict[str, object]]) -> Call:
+        async def call(_tier: Tier, _messages: Messages) -> BackendResponse:
+            i = box["i"]
+            box["i"] = i + 1
+            if i < 3:
+                return BackendResponse(
+                    content="",
+                    tool_calls=[_tool_call(f"c{i}", "test", "{}")],
+                    finish_reason="tool_calls",
+                )
+            return BackendResponse(content="done", finish_reason="stop")
+
+        return call
+
+    reg = ToolRegistry()
+    reg.register(
+        Tool(
+            "test",
+            "run tests",
+            {"type": "object", "properties": {}},
+            lambda _a: outputs[min(box["i"] - 1, len(outputs) - 1)],
+        )
+    )
+    result = _run(
+        run_agent(
+            "make tests pass",
+            tier=TIER,
+            registry=reg,
+            sink=_sink(),
+            task_id="t",
+            stall_repeats=3,
+            call_factory=factory,  # type: ignore[arg-type]
+        )
+    )
+    assert result.stopped == "complete"  # changing output = progress, not a loop
+
+
+def test_logical_gate_stops_on_repeated_refusals() -> None:
+    # A run of guard refusals means the approach does not work in this scope →
+    # stopped="stuck" after stall_blocks, not a silent grind to max_turns.
+    forever = BackendResponse(
+        content="",
+        tool_calls=[_tool_call("c", "echo", '{"x": "again"}')],
+        finish_reason="tool_calls",
+    )
+    result = _run(
+        run_agent(
+            "keep trying a blocked thing",
+            tier=TIER,
+            registry=_echo_registry(),
+            sink=_sink(),
+            task_id="t",
+            max_turns=50,
+            stall_repeats=99,  # isolate the blocked-streak gate
+            stall_blocks=4,
+            guard=lambda _n, _a: "denied",  # every call refused
+            call_factory=_scripted_factory([forever]),  # type: ignore[arg-type]
+        )
+    )
+    assert result.stopped == "stuck"
+    assert result.turns == 4
 
 
 def test_guard_blocks_call_fail_closed() -> None:

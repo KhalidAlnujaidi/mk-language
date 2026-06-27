@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from products.agent.tools import (
     Tool,
     ToolRegistry,
@@ -124,10 +125,21 @@ def test_default_registry_gates_bash(tmp_path: Path) -> None:
     assert "run_bash" in default_registry(tmp_path, allow_bash=True).tools
 
 
-def test_bash_tool_jailed_to_root(tmp_path: Path) -> None:
-    """run_bash refuses to touch anything outside its root, fail-CLOSED — even
-    though it is otherwise an arbitrary shell. This is the only containment for
-    the shell (the file tools self-jail via _within)."""
+def _no_landlock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force the lexical-fallback path: pretend the kernel has no Landlock, so the
+    shell is jailed by the lexical guard rather than the OS (which is what runs on
+    kernels without Landlock)."""
+    monkeypatch.setattr("products.agent.sandbox.landlock_available", lambda: False)
+
+
+def test_bash_tool_lexical_jail_when_no_landlock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On a kernel WITHOUT Landlock the lexical guard is the wall: run_bash refuses
+    to touch anything outside its root, fail-CLOSED. (Where Landlock IS present the
+    kernel confines writes instead and reads/execs are free — see test_sandbox and
+    test_run_bash_trusts_landlock_when_available.)"""
+    _no_landlock(monkeypatch)
     tool = bash_tool(tmp_path)
 
     # In-root commands still work.
@@ -145,7 +157,31 @@ def test_bash_tool_jailed_to_root(tmp_path: Path) -> None:
     assert "blocked" in tool.handler({"command": "ls /"})
 
 
-def test_project_root_guard_fails_closed(tmp_path: Path) -> None:
+def test_run_bash_trusts_landlock_when_available(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When Landlock confines writes at the kernel level, the lexical path-escape
+    check is NOT applied (it wrongly blocked in-scope work — a venv symlink, an
+    out-of-root read, a here-doc body). The guard trusts the kernel for out-of-root
+    writes; the scope-wall (which Landlock cannot see) still holds."""
+    monkeypatch.setattr("products.agent.sandbox.landlock_available", lambda: True)
+    (tmp_path / "projects" / "demo").mkdir(parents=True)
+    guard = project_root_guard(tmp_path, deny_write_subpaths=("projects",))
+
+    # An out-of-root READ / exec is no longer refused lexically — Landlock allows
+    # reads/execs and confines only writes, so these reach the kernel-jailed shell.
+    assert guard("run_bash", '{"command": "cat /etc/passwd"}') is None
+    assert guard("run_bash", '{"command": "ls ~/Desktop"}') is None
+    assert guard("run_bash", '{"command": ".venv/bin/python script.py"}') is None
+    # The scope-wall is NOT delegated to Landlock (projects/ is under the root), so
+    # a framework session still cannot write down into a project.
+    assert guard("run_bash", '{"command": "rm projects/demo/x.md"}') is not None
+
+
+def test_project_root_guard_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _no_landlock(monkeypatch)  # exercise the lexical wall (no kernel sandbox)
     guard = project_root_guard(tmp_path)
 
     # Allowed: in-root work returns None (no denial).
