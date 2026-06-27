@@ -9,11 +9,39 @@ from kernel.manifest import LocalModel, Manifest
 from kernel.metrics import MetricsSink
 from products.chat.app import (
     _ollama_reachable,
+    _parse_slices,
     _preflight,
     _QuitChat,
     chat_run,
     make_chat_action,
 )
+
+# --- /par slice parsing ------------------------------------------------------
+
+
+def test_parse_slices_two_agents_with_owned_paths() -> None:
+    specs = _parse_slices("write ui @ products/chat ;; write api @ daemon/brain.py")
+    assert specs == [
+        ("write ui", ("products/chat",)),
+        ("write api", ("daemon/brain.py",)),
+    ]
+
+
+def test_parse_slices_multiple_owned_paths() -> None:
+    specs = _parse_slices("do it @ a.py, b.py , c/")
+    assert specs == [("do it", ("a.py", "b.py", "c/"))]
+
+
+def test_parse_slices_no_at_is_read_only_slice() -> None:
+    assert _parse_slices("just read") == [("just read", ())]
+
+
+def test_parse_slices_empty_returns_none() -> None:
+    assert _parse_slices("   ") is None
+
+
+def test_parse_slices_empty_task_returns_none() -> None:
+    assert _parse_slices("@ a.py") is None
 
 
 def _manifest(**kw: object) -> Manifest:
