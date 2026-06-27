@@ -6,6 +6,15 @@ a bridge into the skill corpus. Pure logic — the TUI in ``products/chat`` call
 it; the model call is injectable for offline tests.
 """
 
+from products.agent.coordinator import (
+    OverlapError,
+    Slice,
+    agent_runner,
+    assert_disjoint,
+    combine_guards,
+    ownership_guard,
+    run_parallel,
+)
 from products.agent.environment import build_preamble
 from products.agent.loop import (
     AGENT_SYSTEM_PROMPT,
@@ -24,10 +33,17 @@ __all__ = [
     "AGENT_SYSTEM_PROMPT",
     "AgentResult",
     "AgentStep",
+    "OverlapError",
+    "Slice",
     "Tool",
     "ToolRegistry",
+    "agent_runner",
+    "assert_disjoint",
     "build_preamble",
+    "combine_guards",
     "default_registry",
+    "ownership_guard",
     "project_root_guard",
     "run_agent",
+    "run_parallel",
 ]

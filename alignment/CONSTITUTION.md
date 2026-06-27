@@ -74,6 +74,28 @@ still decides *what* you reach for.
 
 ---
 
+## The parallelism axiom — agents are independent, never collapsed
+
+_Added 2026-06-27 (deliberate change): the governed pipeline can fan one job out to
+two or more agents at once. The moment work runs in parallel the failure mode is no
+longer "too slow" — it is two agents quietly editing the same file and one silently
+winning. This is an axiom, not a feature toggle: parallelism that cannot guarantee
+non-overlap is forbidden._
+
+**Parallel agents own disjoint slices of the work, and the boundary between slices
+is enforced, not trusted.** Each agent may write only within the slice it owns; a
+write — direct or through the shell — that reaches into another agent's slice is
+refused (fail-CLOSED, thesis #2), and the coordinator proves the owned sets are
+disjoint *before a single agent is spawned*. The consequence is the axiom itself:
+**there is no work to collapse and none to override.** No agent's output can shadow
+another's, and there is no master agent or human override that silently merges two
+parallel results into one — a conflict surfaces as a refused action in the trace,
+never as a lost edit. Reads may overlap freely (observing a file cannot override
+it); only writes are partitioned. The mechanism is `products/agent/coordinator.py`
+(`assert_disjoint` + `ownership_guard` + `run_parallel`).
+
+---
+
 ## The kernel rule
 
 The kernel (`kernel/`) is pure, dependency-light, agent-agnostic, and 100%
