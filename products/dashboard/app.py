@@ -16,6 +16,7 @@ from kernel.metrics import MetricsSink
 from rich.console import Console
 from rich.table import Table
 
+from products.dashboard import statusline
 from products.dashboard.aggregate import Summary, summarize
 
 
@@ -92,7 +93,12 @@ def build_summary(path: Path) -> Summary:
 def main(argv: list[str] | None = None) -> None:  # pragma: no cover - thin shell
     args = sys.argv[1:] if argv is None else argv
     path = Path(args[0]) if args else Path.home() / ".kinox" / "broker-events.jsonl"
-    Console().print(render(build_summary(path)))
+    events = MetricsSink(path).read_all()
+    console = Console()
+    # The status line is the fast-path glance (CodeWhale Tier-2); the table is the
+    # detail. Both read the same events — one pass, no double I/O.
+    console.print(f"[dim]{statusline.render(events)}[/dim]")
+    console.print(render(summarize(events)))
 
 
 if __name__ == "__main__":  # pragma: no cover
