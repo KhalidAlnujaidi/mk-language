@@ -574,6 +574,50 @@ def _cmd_models(console: object) -> None:
 # --- turn processing ---------------------------------------------------------
 
 
+def _stream_turn(raw: str, session: ChatSession, console: object) -> bool:
+    """Stream the reply token-by-token via ``rich.Live`` (vision §5.2 Layer 3).
+
+    Returns ``True`` when it handled the turn (the stream itself fails soft inside
+    :meth:`ChatSession.send_stream`, falling back to the non-streaming chain, so a
+    ``True`` return still means a complete answer was rendered). Returns ``False``
+    only when streaming is unavailable (``KINOX_STREAM=0``, no rich, or a setup
+    error) so the caller uses the spinner path. The streamed view is transient and
+    replaced by the authoritative final render — correct even if the stream fell
+    back internally.
+    """
+    import asyncio
+    import contextlib
+
+    if os.environ.get("KINOX_STREAM", "1").lower() in ("0", "off", "false", "no"):
+        return False
+    try:
+        from rich.live import Live
+        from rich.markdown import Markdown
+    except Exception:
+        return False
+
+    buf: list[str] = []
+
+    def on_delta(delta: str) -> None:
+        buf.append(delta)
+        with contextlib.suppress(Exception):
+            live.update(Markdown(_strip_reasoning("".join(buf))))
+
+    try:
+        with Live(console=console, transient=True, refresh_per_second=12) as live:
+            response, notes, tier = asyncio.run(session.send_stream(raw, on_delta))
+    except Exception:
+        return False  # streaming setup failed → let the spinner path handle it
+
+    for note in notes:
+        console.print(f"  [dim yellow]ⓘ {note}[/dim yellow]")
+    label = f" {tier.model_name} ({tier.backend})" if tier is not None else ""
+    console.print(f"[bold green]kinox{label}:[/bold green]")
+    _render_response(response, console)
+    console.print()
+    return True
+
+
 def _process_turn(raw: str, session: ChatSession, console: object) -> None:
     """Run one user→assistant turn: groom, dispatch, display.
 
@@ -589,6 +633,12 @@ def _process_turn(raw: str, session: ChatSession, console: object) -> None:
     # second "you: …" print just duplicates it. A blank line keeps the turns
     # visually separated.
     console.print()
+
+    # Live streaming path (vision §5.2 Layer 3): render the brain's reply
+    # token-by-token. Returns False (and falls through to the spinner path) only
+    # when streaming is unavailable; the stream itself fails soft inside the session.
+    if _stream_turn(raw, session, console):
+        return
 
     # Process through the session in a background thread.
     with ThreadPoolExecutor(max_workers=1) as executor:
