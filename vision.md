@@ -262,10 +262,14 @@ full autonomy**. Two layers, both gated.
 These are the non-negotiable honesty constraints. They override enthusiasm.
 
 1. **Hooks are a speed bump, not a wall.** `--dangerously-skip-permissions`
-   bypasses them. Real protection for `next.md` / `alignment/` needs OS-level
-   enforcement (`chattr +i`, a separate uid with read-only mounts, documented
-   recovery path). If we won't do OS enforcement, the docs **must** say the rails
-   are advisory, not enforced. No false expectations.
+   bypasses external Claude-Code hooks — but kinox's guards are **in-process,
+   fail-CLOSED callables inside the agent loop**, not hooks, so that flag does not
+   reach them. The rails (`next.md` / `alignment/`) are now protected against agent
+   writes by an in-process guard (`products/agent/rails.py`), with a deliberate
+   `KINOX_UNLOCK_RAILS=1` recovery path. Honest scope: this is process-level (it
+   stops the agent through its own tools, not a non-agent process); `chattr +i` /
+   a read-only mount remains the OS-level option for stronger-than-process
+   guarantees. No false expectations: real for the agent, not kernel immutability.
 
 2. **Self-evolving without an eval harness is just drift.** You cannot evolve what
    you cannot measure. No self-evolving code ships before §8.3 exists.
