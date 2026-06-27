@@ -108,14 +108,18 @@ framework that runs it.** A framework session receives the axioms plus kinox's
 internals (architecture map, file layout); a project session receives the
 operating axioms alone (`alignment/AXIOMS.md`) and nothing about the framework's
 structure, internals, or git state — it follows the rules pre-injected into it and
-is otherwise unaware of the system hosting it. The wall is enforced three ways:
+is otherwise unaware of the system hosting it. The wall is enforced four ways:
 the **scope-aware preamble** (`environment.session_preamble`, the repo root is the
 only framework scope; everything else is a project), the **root jail** that
-confines every tool to its scope (fail-CLOSED), and **per-project isolation** —
-every project is its own git repo with its own recoverable baseline (`kx new`
-initializes it; `projects/` is never tracked by the framework repo). A project
-cannot reach up into the framework, and the framework's self-knowledge never
-leaks down into a project.
+confines every tool to its scope (fail-CLOSED), the **bidirectional write wall** —
+a project cannot reach up into the framework, *and* a framework session may read
+but not write down into a project scope (`project_root_guard(..., deny_write_
+subpaths=("projects",))`) — and **per-project isolation**: every project is its
+own git repo with its own recoverable baseline (`kx new` initializes it on
+`main`; `projects/` is never tracked by the framework repo). Neither scope's work
+crosses into the other, so framework and project development run in parallel
+without overlap — and the framework's self-knowledge never leaks down into a
+project.
 
 ---
 

@@ -164,6 +164,35 @@ def test_project_root_guard_fails_closed(tmp_path: Path) -> None:
     assert guard("read_file", "{not json") is None
 
 
+def test_project_root_guard_scope_wall_blocks_writes_into_subpath(
+    tmp_path: Path,
+) -> None:
+    """A framework scope may READ a project but not WRITE down into it — the wall
+    is bidirectional (a project already cannot reach up), enabling parallel
+    framework + project work without overlap."""
+    (tmp_path / "projects" / "demo").mkdir(parents=True)
+    (tmp_path / "products").mkdir()
+    guard = project_root_guard(tmp_path, deny_write_subpaths=("projects",))
+
+    # Denied: write or shell-mutate into a project scope.
+    assert guard("write_file", '{"path": "projects/demo/x.md"}') is not None
+    assert guard("run_bash", '{"command": "rm projects/demo/x.md"}') is not None
+
+    # Allowed: reading a project is fine (observing cannot cause overlap).
+    assert guard("read_file", '{"path": "projects/demo/x.md"}') is None
+    assert guard("list_dir", '{"path": "projects"}') is None
+
+    # Allowed: writing the framework's own files (outside the denied subpath).
+    assert guard("write_file", '{"path": "products/x.py"}') is None
+
+
+def test_project_root_guard_no_wall_by_default(tmp_path: Path) -> None:
+    """Without deny_write_subpaths (a project scope), nothing extra is blocked."""
+    (tmp_path / "sub").mkdir()
+    guard = project_root_guard(tmp_path)
+    assert guard("write_file", '{"path": "sub/x.md"}') is None
+
+
 def test_find_skill_ranks_by_overlap_no_substring_needed(tmp_path: Path) -> None:
     """Ranked recall surfaces the on-topic skill even with no contiguous substring,
     and orders the more-relevant skill first — the deterministic skill-choice layer."""

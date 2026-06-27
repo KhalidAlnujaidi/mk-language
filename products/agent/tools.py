@@ -164,7 +164,9 @@ def _bash_escape_reason(command: str, root: Path) -> str | None:
     return None
 
 
-def project_root_guard(root: Path) -> Callable[[str, str], str | None]:
+def project_root_guard(
+    root: Path, *, deny_write_subpaths: tuple[str, ...] = ()
+) -> Callable[[str, str], str | None]:
     """A pre-dispatch :data:`~products.agent.loop.Guard` that jails every tool to
     *root* — the governance the loop applies before a handler runs.
 
@@ -174,23 +176,58 @@ def project_root_guard(root: Path) -> Callable[[str, str], str | None]:
     detected escape; passes (returns ``None``) otherwise. Wiring this guard makes
     "the session resides only within its repository" the default for every
     project — framework, evolve, and admin sessions alike.
+
+    *deny_write_subpaths* are directories (relative to *root*) that this scope may
+    READ but not WRITE — ``write_file`` into them and ``run_bash`` referencing them
+    are refused (fail-CLOSED). A **framework** scope passes ``("projects",)`` so it
+    cannot write down into a project scope: the scope wall is bidirectional (a
+    project already cannot reach up), which is what makes framework-and-project
+    development safe to run in parallel without overlap.
     """
     root_p = Path(root)
+    denied = [(root_p / s).resolve() for s in deny_write_subpaths]
+
+    def _hits_denied(path: str) -> bool:
+        try:
+            p = (root_p / path).resolve()
+        except (ValueError, OSError):
+            return False
+        return any(p == d or d in p.parents for d in denied)
 
     def guard(name: str, args_json: str) -> str | None:
         try:
-            args = json.loads(args_json) if args_json else {}
+            parsed: object = json.loads(args_json) if args_json else {}
         except json.JSONDecodeError:
             return None  # malformed args degrade to a fail-soft dispatch error
-        if not isinstance(args, dict):
-            return None
+        args = as_dict(parsed)  # dict[str, object], {} for a non-object shape
         if name == "run_bash":
-            return _bash_escape_reason(str(args.get("command", "")), root_p)
+            command = str(args.get("command", ""))
+            escape = _bash_escape_reason(command, root_p)
+            if escape is not None:
+                return escape
+            if denied:
+                try:
+                    tokens = shlex.split(command, comments=False, posix=True)
+                except ValueError:
+                    return "command could not be parsed for scope-wall safety"
+                for tok in tokens:
+                    for cand in _candidate_paths(tok):
+                        if _hits_denied(cand):
+                            return (
+                                f"path {cand!r} is in another scope (a project) — "
+                                "this framework session may not write there"
+                            )
+            return None
         if name in ("read_file", "list_dir", "write_file"):
             default = "." if name == "list_dir" else ""
             path = str(args.get("path", default))
             if _within(root_p, path) is None:
                 return f"path {path!r} escapes the project root"
+            if name == "write_file" and _hits_denied(path):
+                return (
+                    f"path {path!r} is in another scope (a project) — this "
+                    "framework session may not write there (use the project scope)"
+                )
         return None
 
     return guard

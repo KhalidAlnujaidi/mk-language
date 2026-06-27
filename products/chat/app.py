@@ -741,7 +741,15 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
                 task_id=uuid.uuid4().hex[:12],
                 preamble=_session_preamble(kinox_root, session.cwd),
                 history=list(session.history),
-                guard=project_root_guard(session.cwd),
+                guard=project_root_guard(
+                    session.cwd,
+                    # Framework scope may not write down into a project scope —
+                    # the scope wall is bidirectional, so framework and project
+                    # work can run in parallel without overlap.
+                    deny_write_subpaths=("projects",)
+                    if _is_framework_scope(kinox_root, session.cwd)
+                    else (),
+                ),
                 fallback=local_tier,
                 max_turns=int(os.environ.get("KINOX_MAX_TURNS", "30")),
                 on_step=steps_q.append,
