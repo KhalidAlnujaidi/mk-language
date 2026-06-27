@@ -45,7 +45,8 @@ def test_reading_a_rail_is_allowed(tmp_path: Path) -> None:
     guard = protected_rails_guard(_root(tmp_path))
     assert guard("read_file", '{"path": "alignment/CONSTITUTION.md"}') is None
     assert guard("run_bash", '{"command": "cat alignment/AXIOMS.md"}') is None
-    assert guard("run_bash", '{"command": "grep thesis alignment/CONSTITUTION.md"}') is None
+    grep = '{"command": "grep thesis alignment/CONSTITUTION.md"}'
+    assert guard("run_bash", grep) is None
 
 
 def test_bash_mutation_of_a_rail_is_refused(tmp_path: Path) -> None:

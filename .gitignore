@@ -29,6 +29,10 @@ developer logs/
 # Timestamped session / prompt captures (scratch, not framework)
 /20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-*.txt
 
+# Internal status reports (dev artifacts, not part of the framework)
+/report*.md
+**/session-report-*.md
+
 # Stray scratch / vendored dumps (not part of the framework)
 .deepseek/
 .ts
