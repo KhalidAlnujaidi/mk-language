@@ -78,6 +78,7 @@ CLOUD = "☁"
 TIPS = [
     "/model switches the brain mid-session",
     "Esc+Enter inserts a newline · Enter sends",
+    "Ctrl+U clears the whole input · Ctrl+W deletes a word",
     "/chat resets the conversation context",
     "KINOX_VERBOSE=1 shows the full tool trace",
     "kx doctor runs a health check",
