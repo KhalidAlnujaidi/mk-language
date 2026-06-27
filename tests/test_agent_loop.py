@@ -68,6 +68,115 @@ def _echo_registry() -> ToolRegistry:
     return reg
 
 
+def _edit_registry() -> ToolRegistry:
+    """An editor that fails unless told to succeed, plus a reader — to drive the
+    no-write-progress (edit-thrash) gate. ``smart_edit`` is an edit attempt (name
+    contains 'edit'); ``look`` is a read (never counts toward the edit streak)."""
+    reg = ToolRegistry()
+    reg.register(
+        Tool(
+            "smart_edit",
+            "edit a file",
+            {"type": "object", "properties": {}},
+            lambda a: "wrote ok"
+            if a.get("ok")
+            else f"(error: edit failed near {a.get('n')})",
+        )
+    )
+    reg.register(
+        Tool(
+            "look",
+            "read a file",
+            {"type": "object", "properties": {}},
+            lambda a: f"contents {a.get('p')}",
+        )
+    )
+    return reg
+
+
+def _edit(i: int, *, ok: bool = False) -> dict[str, object]:
+    args = '{"ok": true}' if ok else f'{{"n": {i}}}'
+    return _tool_call(f"e{i}", "smart_edit", args)
+
+
+def _look(i: int) -> dict[str, object]:
+    return _tool_call(f"l{i}", "look", f'{{"p": "f{i}"}}')
+
+
+def _seq_factory(tool_calls: list[dict[str, object]]) -> object:
+    """A factory that issues one scripted tool call per turn (each a distinct
+    assistant turn), then answers 'done' once the script is exhausted."""
+    box = {"i": 0}
+
+    def factory(_schema: list[dict[str, object]]) -> Call:
+        async def call(_t: Tier, _m: Messages) -> BackendResponse:
+            i = box["i"]
+            box["i"] = i + 1
+            if i < len(tool_calls):
+                return BackendResponse(
+                    content="", tool_calls=[tool_calls[i]], finish_reason="tool_calls"
+                )
+            return BackendResponse(content="done", finish_reason="stop")
+
+        return call
+
+    return factory
+
+
+def test_no_write_progress_gate_stops_edit_thrash() -> None:
+    # Distinct failing edits (so the looping gate does NOT fire), interleaved with
+    # reads (which must not reset the streak) → the edit-thrash gate stops it.
+    seq = [_edit(0), _look(0), _edit(1), _look(1), _edit(2), _look(2)]
+    result = _run(
+        run_agent(
+            "edit the file",
+            tier=TIER,
+            registry=_edit_registry(),
+            sink=_sink(),
+            task_id="t",
+            max_turns=50,
+            stall_edit_fails=3,
+            call_factory=_seq_factory(seq),  # type: ignore[arg-type]
+        )
+    )
+    assert result.stopped == "stuck"
+    assert "edit attempts failed" in result.final_text
+
+
+def test_edit_streak_resets_on_a_successful_write() -> None:
+    # fail, fail, SUCCESS (resets), fail, fail, done → never 3 in a row → completes.
+    seq = [_edit(0), _edit(1), _edit(2, ok=True), _edit(3), _edit(4)]
+    result = _run(
+        run_agent(
+            "edit the file",
+            tier=TIER,
+            registry=_edit_registry(),
+            sink=_sink(),
+            task_id="t",
+            stall_edit_fails=3,
+            call_factory=_seq_factory(seq),  # type: ignore[arg-type]
+        )
+    )
+    assert result.stopped == "complete"
+
+
+def test_read_heavy_work_not_flagged_by_edit_gate() -> None:
+    # Many distinct reads (no edit attempts) must not trip the no-write gate.
+    seq = [_look(i) for i in range(6)]
+    result = _run(
+        run_agent(
+            "explore the code",
+            tier=TIER,
+            registry=_edit_registry(),
+            sink=_sink(),
+            task_id="t",
+            stall_edit_fails=3,
+            call_factory=_seq_factory(seq),  # type: ignore[arg-type]
+        )
+    )
+    assert result.stopped == "complete"
+
+
 def test_loop_dispatches_then_completes() -> None:
     factory = _scripted_factory(
         [

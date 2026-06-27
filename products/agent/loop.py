@@ -80,6 +80,59 @@ def _read_key(name: str, args_json: str) -> str | None:
     return f"load_skill:{str(args.get('name', '')).strip()}"
 
 
+#: Markers in a tool observation that signal a write/edit did NOT take effect.
+_EDIT_FAIL_MARKERS = (
+    "(error", "(tool error", "error:", "failed", "no such", "could not",
+    "not found", "(blocked", "traceback", "unable", "does not exist",
+)
+
+
+def _is_edit_attempt(name: str, args_json: str) -> bool:
+    """True if this tool call *attempts to change a file* (vs. read/inspect).
+
+    ``write_file`` is the built-in writer; an MCP editor surfaces under a name with
+    ``edit``/``patch``/``write`` (e.g. ``token-optimizer__smart_edit``); a
+    ``run_bash`` is an edit when it redirects into a file or runs an in-place
+    mutator (``sed -i``/``tee``/``dd of=``/``truncate``). A read (``sed -n``,
+    ``cat``, ``grep``) is deliberately NOT an edit, so read-heavy work never trips
+    the no-write-progress gate.
+    """
+    n = name.lower()
+    if n == "write_file" or any(h in n for h in ("edit", "patch", "write")):
+        return True
+    if n != "run_bash":
+        return False
+    try:
+        parsed = as_dict(json.loads(args_json) if args_json else {})
+    except json.JSONDecodeError:
+        return False
+    cmd = str(parsed.get("command", ""))
+    toks = cmd.lower().split()
+    if ">" in cmd or ">>" in cmd:
+        return True
+    if "tee" in toks or "truncate" in toks:
+        return True
+    if toks[:1] == ["sed"] and "-i" in toks:
+        return True
+    return toks[:1] == ["dd"] and any(t.startswith("of=") for t in toks)
+
+
+def _edit_failed(name: str, observation: str) -> bool:
+    """True if an edit attempt's *observation* shows it did not succeed.
+
+    For ``run_bash`` the exit code is authoritative (``exit=0`` is success even with
+    stderr noise; any non-zero is failure). For tool calls, an error/blocked marker
+    in the observation means the edit did not take.
+    """
+    obs = observation.lower()
+    if name.lower() == "run_bash":
+        if "exit=0" in obs:
+            return False
+        if "exit=" in obs:
+            return True
+    return any(m in obs for m in _EDIT_FAIL_MARKERS)
+
+
 @dataclass(frozen=True)
 class AgentStep:
     """One observable event in a run: a tool call + its observation, or the
@@ -126,6 +179,7 @@ async def run_agent(
     max_turns: int = 8,
     stall_repeats: int = 3,
     stall_blocks: int = 5,
+    stall_edit_fails: int = 3,
     context_soft_chars: int = 40_000,
     token_budget: TokenBudget | None = None,
     guard: Guard | None = None,
@@ -142,13 +196,19 @@ async def run_agent(
     trips (``stuck``), or when *max_turns* is reached (``max_turns``).
 
     The convergence gate is the *primary* stop and judges WHAT is called, not how
-    many turns pass: if one ``(tool, args, observation)`` triple recurs
-    *stall_repeats* times it is no-progress repetition, and *stall_blocks* refusals
-    in a row mean the approach does not work in this scope — either stops early
-    with a clear reason. Because the gate keys on the *result* too, a real
-    edit→test→edit loop (same command, changing output) is not flagged. *max_turns*
-    remains only as a fail-CLOSED backstop: a hard ceiling on cost so an agent that
-    never repeats and never converges still cannot spend unbounded cloud budget.
+    many turns pass. Three no-progress signals, any of which stops the run early
+    with ``stopped="stuck"`` and a clear reason:
+      - **looping** — one ``(tool, args, observation)`` triple recurs *stall_repeats*
+        times (keyed on the *result*, so a real edit→test→edit loop with changing
+        output is not flagged);
+      - **refusal-thrash** — *stall_blocks* tool calls in a row are refused;
+      - **no-write-progress** — *stall_edit_fails* edit attempts fail without an
+        intervening success (the edit-thrash case: an agent re-trying a change that
+        never takes, e.g. a failing in-place edit looped with re-reads). Reads never
+        count, so read-heavy work is unaffected; the streak resets on a successful
+        write.
+    *max_turns* remains only as a fail-CLOSED backstop: a hard ceiling on cost so an
+    agent that never repeats and never converges still cannot spend unbounded budget.
 
     *token_budget* (vision §9), when given, caps the *total* tokens (prompt +
     completion, summed across turns) the run may spend. Unlike *max_turns* (a turn
@@ -230,6 +290,7 @@ async def run_agent(
     # edit→test→edit loop (same command, *different* output) is NOT flagged.
     outcome_counts: dict[str, int] = {}
     blocked_streak = 0
+    edit_fail_streak = 0  # failed edit attempts since the last successful write
 
     # Running token tally for *token_budget* (vision §9). Summed from each model
     # turn's EventRecord (prompt + completion). Checked at the TOP of a turn so an
@@ -352,6 +413,15 @@ async def run_agent(
             outcome = f"{name}\x00{args_json}\x00{observation}"
             outcome_counts[outcome] = outcome_counts.get(outcome, 0) + 1
             blocked_streak = blocked_streak + 1 if denial is not None else 0
+            # No-write-progress: count edit attempts that fail, reset on a success.
+            # Non-edit calls (reads, searches) leave the streak untouched, so a
+            # failing edit looped with re-reads still accumulates (the edit-thrash
+            # case) while read-heavy work never trips it.
+            if _is_edit_attempt(name, args_json):
+                if _edit_failed(name, str(observation)):
+                    edit_fail_streak += 1
+                else:
+                    edit_fail_streak = 0
             stuck: str | None = None
             if outcome_counts[outcome] >= stall_repeats:
                 stuck = (
@@ -362,6 +432,11 @@ async def run_agent(
                 stuck = (
                     f"{blocked_streak} tool calls in a row were refused — the "
                     "approach is not working in this scope"
+                )
+            elif edit_fail_streak >= stall_edit_fails:
+                stuck = (
+                    f"{edit_fail_streak} edit attempts failed without a successful "
+                    "write — the change is not taking; narrow it or check the target"
                 )
             if stuck is not None:
                 result.stopped = "stuck"
