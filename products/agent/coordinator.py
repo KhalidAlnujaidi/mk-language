@@ -38,6 +38,7 @@ from products.agent.loop import AgentResult, Guard, run_agent
 # ``_candidate_paths`` is a deliberate reuse (Rule Zero) of the sibling module's
 # lexical path-token splitter — the same one ``run_bash``'s jail uses — so the
 # ownership guard parses shell paths identically to the root guard.
+from products.agent.rails import protected_rails_guard
 from products.agent.tools import (
     ToolRegistry,
     _candidate_paths,  # noqa: PLC2701 # pyright: ignore[reportPrivateUsage]
@@ -199,7 +200,10 @@ async def run_parallel(
     for i, s in enumerate(slices):
         foreign = tuple(o for j, t in enumerate(slices) if j != i for o in t.owned)
         guard = combine_guards(
-            project_root_guard(root_p), ownership_guard(root_p, s.owned, foreign)
+            project_root_guard(root_p),
+            ownership_guard(root_p, s.owned, foreign),
+            # Hard truth #1: no parallel agent may overwrite kinox's rails either.
+            protected_rails_guard(root_p),
         )
         coros.append(run(s, guard))
     results = await asyncio.gather(*coros)

@@ -32,8 +32,10 @@ from kernel.manifest import probe
 from kernel.metrics import MetricsSink
 from kernel.router import route
 from products.agent.command_safety import Level, assess
+from products.agent.rails import rail_write_reason
 from products.agent.tools import (
     _bash_escape_reason,  # pyright: ignore[reportPrivateUsage]
+    _candidate_paths,  # pyright: ignore[reportPrivateUsage]
 )
 from products.groom.pipeline import groom
 from products.groom.stages.redact import redact
@@ -58,6 +60,13 @@ _GIT_CUES = ("branch", "commit", "git", "status", "diff")
 # deterministic redact path (thesis #1) even when the literal value is too short
 # for the redact regex to match — the *intent* is ground-truth, not fuzzy.
 _SECRET_CUES = ("key", "secret", "password", "token", "credential", "redact")
+
+# Mutation cues: a prompt that intends to CHANGE a file (vs. read it). Used to
+# decide whether a protected-rail path mention is a write the guard would refuse.
+_MUTATION_CUES = (
+    "edit", "write", "remove", "delete", "modify", "change",
+    "overwrite", "append", "replace", "rm ", "update", "rewrite",
+)
 
 
 @dataclass(frozen=True)
@@ -91,6 +100,25 @@ def _guard_refusal(prompt: str, root: Path) -> str | None:
     verdict = assess(prompt)
     if verdict.level is Level.DENY:
         return f"guard refused (denied) the command {prompt!r}: {verdict.reason}"
+    return None
+
+
+def _rail_refusal(prompt: str, root: Path) -> str | None:
+    """If the prompt intends to WRITE a protected rail (alignment/, next.md), run
+    the REAL rail guard on that path and return its refusal — else ``None``.
+
+    Models a ``write_file`` to the named rail through the same ``rail_write_reason``
+    the live guard uses (thesis #1: one ground truth). Gated on a mutation cue so a
+    prompt that merely *reads* a rail is not refused (reads are always allowed).
+    """
+    lower = prompt.lower()
+    if not any(cue in lower for cue in _MUTATION_CUES):
+        return None
+    for tok in prompt.split():
+        for cand in _candidate_paths(tok):
+            reason = rail_write_reason(cand, root, unlocked=False)
+            if reason is not None:
+                return f"guard refused (denied) the write: {reason}"
     return None
 
 
@@ -165,6 +193,10 @@ def _build_context(prompt: str, root: Path) -> _RunContext:
     refusal = _guard_refusal(prompt, root)
     if refusal is not None:
         lines.append(refusal)
+
+    rail_refusal = _rail_refusal(prompt, root)
+    if rail_refusal is not None:
+        lines.append(rail_refusal)
 
     manifest_line = _manifest_line(prompt)
     if manifest_line is not None:

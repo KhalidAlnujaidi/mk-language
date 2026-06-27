@@ -48,6 +48,7 @@ def test_known_true_behaviors_pass() -> None:
     assert _result("router-deterministic-redact").passed  # secret → deterministic
     assert _result("groom-tag-intent").passed  # "unittest" → test tag
     assert _result("guard-refuse-rm-rf").passed  # bash guard refuses rm -rf /
+    assert _result("guard-refuse-protected-write").passed  # rails guard refuses it
 
 
 def test_guard_leaked_key_passes_only_because_redaction_works() -> None:

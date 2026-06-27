@@ -54,10 +54,18 @@ still decides *what* you reach for.
 ## The four hard truths (honesty constraints — they override enthusiasm)
 
 1. **Hooks are a speed bump, not a wall.** `--dangerously-skip-permissions`
-   bypasses them. Real protection for `next.md` / `alignment/` needs OS-level
-   enforcement (`chattr +i`, a separate uid with read-only mounts, a documented
-   recovery path). If we won't do OS enforcement, the docs **must** say the rails
-   are advisory, not enforced. No false expectations.
+   bypasses external Claude-Code hooks. kinox's own guards are different: they are
+   **in-process, fail-CLOSED callables inside the agent loop** (`run_agent`'s
+   `guard=`), not hooks — so that flag does not reach them. The rails
+   (`alignment/`, `next.md`) are protected against agent writes by
+   `products/agent/rails.py:protected_rails_guard` (write_file and bash
+   mutation/redirection refused; reads always allowed), with a deliberate operator
+   **recovery path**: `KINOX_UNLOCK_RAILS=1`. Honest scope: this is *process-level*
+   — it stops the agent through its own tools, not a non-agent process or a write
+   that never routes through the guard. For a guarantee against those, the
+   OS-level option remains (`chattr +i` / a read-only bind mount on `alignment/`).
+   The protection is real and enforced for the agent threat model; it is not
+   claimed to be kernel immutability.
 
 2. **Self-evolving without an eval harness is just drift.** You cannot evolve
    what you cannot measure. No self-evolving code ships before the golden eval

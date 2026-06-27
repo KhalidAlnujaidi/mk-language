@@ -678,7 +678,9 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
     from kernel.contracts import Tier
 
     from products.agent import default_registry, project_root_guard, run_agent
+    from products.agent.coordinator import combine_guards
     from products.agent.planner import plan_task
+    from products.agent.rails import protected_rails_guard
     from products.capabilities.registry import CapabilityRegistry
 
     kinox_root = Path(__file__).resolve().parents[2]
@@ -752,14 +754,19 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
                 preamble=_session_preamble(kinox_root, session.cwd),
                 history=list(session.history),
                 plan=plan,
-                guard=project_root_guard(
-                    session.cwd,
-                    # Framework scope may not write down into a project scope —
-                    # the scope wall is bidirectional, so framework and project
-                    # work can run in parallel without overlap.
-                    deny_write_subpaths=("projects",)
-                    if _is_framework_scope(kinox_root, session.cwd)
-                    else (),
+                guard=combine_guards(
+                    project_root_guard(
+                        session.cwd,
+                        # Framework scope may not write down into a project scope —
+                        # the scope wall is bidirectional, so framework and project
+                        # work can run in parallel without overlap.
+                        deny_write_subpaths=("projects",)
+                        if _is_framework_scope(kinox_root, session.cwd)
+                        else (),
+                    ),
+                    # Hard truth #1: the agent may not overwrite kinox's own rails
+                    # (alignment/, next.md) — fail-CLOSED, KINOX_UNLOCK_RAILS to edit.
+                    protected_rails_guard(session.cwd),
                 ),
                 fallback=local_tier,
                 max_turns=int(os.environ.get("KINOX_MAX_TURNS", "30")),
