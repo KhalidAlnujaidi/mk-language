@@ -38,6 +38,11 @@ _PROJECT_GITIGNORE = """\
 *.log
 *.pid
 
+# Regenerable caches (embeddings, etc.) — not source artifacts
+.cache/
+*.cache
+.emb_cache*
+
 # Timestamped session / prompt captures (scratch)
 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-*.txt
 
