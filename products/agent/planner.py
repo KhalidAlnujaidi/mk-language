@@ -26,17 +26,36 @@ from __future__ import annotations
 
 import os
 import re
+from pathlib import Path
 
 from daemon.exec import BackendError, Call, ChainExhausted, Messages, execute
 from kernel.contracts import Location, Tier
 from kernel.metrics import MetricsSink
 
-#: Default planner: the Qwythos-9B reasoning finetune (native function-calling,
-#: ``<think>``-prefixed CoT) pulled into local Ollama. It only drafts a plan here,
-#: so its tool-calling is unused — what matters is terse, structured decomposition.
-DEFAULT_PLANNER_MODEL = "hf.co/empero-ai/Qwythos-9B-Claude-Mythos-5-1M-GGUF:Q4_K_M"
+#: Default planner: ``qwen2.5:7b`` — a fast local *instruct* model. A planner wants
+#: to emit a terse checklist quickly, NOT to reason at length: in a head-to-head a
+#: reasoning finetune (Qwythos-9B / deepseek-r1) was slow and unreliable here —
+#: it burned tens of seconds, hallucinated commands, or (under Ollama 0.30.x's
+#: reasoning-field split) left an empty answer — while qwen2.5:7b produced clean,
+#: correct plans in ~12s. The model is overridable via ``KINOX_PLANNER``.
+DEFAULT_PLANNER_MODEL = "qwen2.5:7b"
 DEFAULT_PLANNER_BACKEND = "ollama"
 DEFAULT_PLANNER_WHERE: Location = "local"
+
+#: Directories that are noise to a planner — VCS, caches, virtualenvs. Skipped when
+#: building the scope file tree so the model sees source, not scratch.
+_SKIP_DIRS = frozenset(
+    {
+        ".git",
+        "__pycache__",
+        ".venv",
+        "node_modules",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".cache",
+    }
+)
 
 #: ``KINOX_PLANNER`` values (case-insensitive) that mean "no prehook planner".
 _DISABLE = frozenset({"", "off", "none"})
@@ -46,11 +65,14 @@ _DISABLE = frozenset({"", "off", "none"})
 _THINK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 
 _PLANNER_SYSTEM = (
-    "You are a planning prehook for a coding agent. Given a task, emit a SHORT "
-    "ordered checklist (at most 6 steps) of concrete actions, naming the files or "
-    "directories each step touches. Bound the scope tightly — fewer, sharper steps "
-    "beat exhaustive ones. Do NOT execute anything, do NOT explain, do NOT ask "
-    "questions. Output only the checklist, one step per line."
+    "You are a planning prehook for a coding agent. Given a task — and, when "
+    "provided, the list of files in scope — emit a SHORT ordered checklist (at "
+    "most 6 steps) of concrete actions, naming the REAL files or directories each "
+    "step touches (use the provided file list; never invent paths). Bound the "
+    "scope tightly — fewer, sharper steps beat exhaustive ones. Do NOT execute "
+    "anything, do NOT explain, do NOT ask questions. Output the checklist one step "
+    "per line, then a final line 'Done when: <observable condition>' stating how "
+    "the agent knows the task is finished, so it stops instead of over-working."
 )
 
 
@@ -78,6 +100,34 @@ def _strip_think(text: str) -> str:
     return _THINK.sub("", text).strip()
 
 
+def _scope_tree(root: Path, *, max_entries: int = 150, max_depth: int = 2) -> str:
+    """A compact, shallow listing of *root*'s files — enough to ground the planner
+    in real paths without flooding its context.
+
+    Walks at most *max_depth* levels, skips VCS/cache/virtualenv noise and hidden
+    entries, and caps at *max_entries* (a planner needs orientation, not a full
+    inventory). Returns relative POSIX paths, one per line; empty if *root* has no
+    listable files. Read-only — listing never crosses the scope's write wall.
+    """
+    root = Path(root)
+    lines: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(
+            d for d in dirnames if d not in _SKIP_DIRS and not d.startswith(".")
+        )
+        rel = Path(dirpath).relative_to(root)
+        if len(rel.parts) >= max_depth:
+            dirnames[:] = []  # prune deeper descent, keep this level's files
+        for f in sorted(filenames):
+            if f.startswith("."):
+                continue
+            lines.append((rel / f).as_posix() if rel.parts else f)
+            if len(lines) >= max_entries:
+                lines.append("… (more files omitted)")
+                return "\n".join(lines)
+    return "\n".join(lines)
+
+
 def _default_plan_call() -> Call:
     """The production planner call: a plain chat dispatch with **no tools** — the
     planner drafts text, it never acts."""
@@ -91,6 +141,7 @@ async def plan_task(
     *,
     sink: MetricsSink,
     task_id: str,
+    root: Path | None = None,
     tier: Tier | None = None,
     call: Call | None = None,
 ) -> str | None:
@@ -105,14 +156,29 @@ async def plan_task(
     The boundary is recorded on *sink* like any model call (``kind="plan"``) so
     the prehook is visible in the honest action log (vision §4.6), distinct from
     the agent turns it precedes.
+
+    *root*, when given, is the scope directory; a compact shallow listing of its
+    files is handed to the planner so it names REAL paths instead of inventing
+    them (a blind planner guessed ``kx_cli.py`` for a CLI that lives in ``kx``).
+    Listing is read-only and never crosses the scope's write wall.
     """
     planner = tier if tier is not None else planner_tier()
     if planner is None:
         return None
     plan_call = call if call is not None else _default_plan_call()
+    # Ground the plan in real paths: a blind planner invents files (it guessed
+    # `kx_cli.py` for a CLI that lives in `kx`); the scope tree fixes that.
+    user = task
+    if root is not None:
+        tree = _scope_tree(root)
+        if tree:
+            user = (
+                f"Files in scope (use these real paths, never invent):\n{tree}"
+                f"\n\nTask: {task}"
+            )
     messages: Messages = [
         {"role": "system", "content": _PLANNER_SYSTEM},
-        {"role": "user", "content": task},
+        {"role": "user", "content": user},
     ]
     try:
         result = await execute(

@@ -79,6 +79,41 @@ def test_plan_task_sends_planner_system_prompt() -> None:
     assert seen["m"][1]["content"] == "do it"
 
 
+def test_plan_task_grounds_in_scope_tree(tmp_path: Path) -> None:
+    # With a root, the planner is handed the scope's real files so it stops
+    # inventing paths. Hidden/cache entries are excluded as noise.
+    (tmp_path / "kx").write_text("# cli entrypoint\n")
+    (tmp_path / "README.md").write_text("# proj\n")
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "HEAD").write_text("ref: x\n")
+    seen: dict[str, Messages] = {}
+    _run(
+        plan_task(
+            "add a flag",
+            sink=_sink(),
+            task_id="p",
+            root=tmp_path,
+            tier=TIER,
+            call=_call("1. edit kx", seen=seen),
+        )
+    )
+    user = str(seen["m"][1]["content"])
+    assert "kx" in user and "README.md" in user
+    assert "Task: add a flag" in user
+    assert ".git" not in user  # VCS noise excluded
+
+
+def test_plan_task_no_root_sends_bare_task() -> None:
+    # Without a root, the user message is just the task (back-compat, no tree).
+    seen: dict[str, Messages] = {}
+    _run(
+        plan_task(
+            "do it", sink=_sink(), task_id="p", tier=TIER, call=_call("1. x", seen=seen)
+        )
+    )
+    assert seen["m"][1]["content"] == "do it"
+
+
 def test_plan_task_fail_soft_on_backend_error() -> None:
     plan = _run(
         plan_task(

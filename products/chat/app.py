@@ -738,7 +738,10 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
             # Cheap local prehook: draft a plan to curb wander before the dear
             # brain runs. Fail-soft — None (planner off/unavailable) runs unguided.
             plan = await plan_task(
-                task, sink=session.sink, task_id=f"{base_id}-plan"
+                task,
+                sink=session.sink,
+                task_id=f"{base_id}-plan",
+                root=session.cwd,
             )
             return await run_agent(
                 task,
@@ -927,7 +930,10 @@ def _run_parallel_turn(
             # Each slice gets its own prehook plan (its task is disjoint from the
             # others), front-loading direction before the dear brain runs. Fail-soft.
             plan = await plan_task(
-                s.task, sink=session.sink, task_id=f"{base_id}:{s.label}-plan"
+                s.task,
+                sink=session.sink,
+                task_id=f"{base_id}:{s.label}-plan",
+                root=root,
             )
             return await run_agent(
                 s.task,
