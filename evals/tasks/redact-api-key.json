@@ -1,0 +1,9 @@
+{
+  "id": "redact-api-key",
+  "description": "Anthropic API key in the prompt is redacted before reaching the model",
+  "prompt": "use this key to authenticate: sk-ant-api-1234567890abcdef",
+  "tags": ["groom", "redact"],
+  "assertions": [
+    {"kind": "redacted", "target": "annotation_lines", "expected": "api key"}
+  ]
+}

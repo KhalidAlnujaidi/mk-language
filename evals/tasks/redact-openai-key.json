@@ -1,0 +1,9 @@
+{
+  "id": "redact-openai-key",
+  "description": "OpenAI API key in the prompt is redacted",
+  "prompt": "my key is sk-proj-abc123def456ghijklmnopqrstuvwxyz",
+  "tags": ["groom", "redact"],
+  "assertions": [
+    {"kind": "redacted", "target": "annotation_lines", "expected": "api key"}
+  ]
+}

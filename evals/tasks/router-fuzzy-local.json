@@ -1,0 +1,9 @@
+{
+  "id": "router-fuzzy-local",
+  "description": "A general coding question routes to a local model tier",
+  "prompt": "explain the difference between a list and a tuple in Python",
+  "tags": ["router", "fuzzy"],
+  "assertions": [
+    {"kind": "routed", "target": "tier_where", "expected": "local"}
+  ]
+}

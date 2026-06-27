@@ -1,0 +1,9 @@
+{
+  "id": "correction-detected",
+  "description": "When the user immediately corrects the agent, correction_of is populated",
+  "prompt": "no, actually use a list comprehension instead",
+  "tags": ["corrections", "thesis-3"],
+  "assertions": [
+    {"kind": "contains", "target": "annotation_lines", "expected": "correction"}
+  ]
+}

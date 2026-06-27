@@ -1,0 +1,9 @@
+{
+  "id": "broker-multi-backend",
+  "description": "The broker dispatches to the correct backend (ollama/vllm/llamacpp)",
+  "prompt": "what model is running?",
+  "tags": ["broker", "multi-backend"],
+  "assertions": [
+    {"kind": "routed", "target": "tier_where", "expected": "local"}
+  ]
+}

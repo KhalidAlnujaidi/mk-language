@@ -1,0 +1,9 @@
+{
+  "id": "router-deterministic-git",
+  "description": "A git-status-only prompt routes to the deterministic tier",
+  "prompt": "what branch am I on?",
+  "tags": ["router", "deterministic"],
+  "assertions": [
+    {"kind": "routed", "target": "tier_where", "expected": "deterministic"}
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "id": "outbox-append-then-mark",
+  "description": "An outbox entry is appended as pending, then marked done after execution",
+  "prompt": "create a file called test.txt with 'hello' in it",
+  "tags": ["outbox", "hard-truth-4"],
+  "setup": {},
+  "assertions": [
+    {"kind": "contains", "target": "annotation_lines", "expected": "outbox"}
+  ]
+}

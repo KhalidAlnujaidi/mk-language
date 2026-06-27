@@ -1,0 +1,9 @@
+{
+  "id": "groom-tag-intent",
+  "description": "The tag stage identifies intent from the prompt",
+  "prompt": "write a unittest for the login function",
+  "tags": ["groom", "tag"],
+  "assertions": [
+    {"kind": "contains", "target": "annotation_lines", "expected": "test"}
+  ]
+}
