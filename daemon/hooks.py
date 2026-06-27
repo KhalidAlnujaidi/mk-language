@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 from kernel.contracts import FailDirection
 
@@ -71,6 +72,11 @@ class HookDecl:
     handler: HookHandler
 
 
+def _no_hooks() -> list[HookDecl]:
+    """Typed empty-list factory — `default_factory=list` erases the element type."""
+    return []
+
+
 @dataclass
 class HookChain:
     """An ordered list of hooks to run for one hook kind.
@@ -82,7 +88,7 @@ class HookChain:
       fail-direction — a conscious deny is always final).
     """
 
-    hooks: list[HookDecl] = field(default_factory=list)
+    hooks: list[HookDecl] = field(default_factory=_no_hooks)
 
     async def run(self, hook_input: HookInput) -> HookResult:
         """Execute every hook in order. Returns the accumulated result."""
@@ -132,13 +138,16 @@ def load_chain(
     hooks_section = raw.get("hooks", {})
     if not isinstance(hooks_section, dict):
         return HookChain()
+    # tomllib hands back untyped JSON-ish data; pin the shapes we require.
+    section = cast("dict[str, object]", hooks_section)
 
-    names = hooks_section.get(kind)
+    names = section.get(kind)
     if not isinstance(names, list):
         return HookChain()
+    name_list = cast("list[object]", names)
 
     decls: list[HookDecl] = []
-    for name in names:
+    for name in name_list:
         if not isinstance(name, str):
             continue
         if name not in registry:

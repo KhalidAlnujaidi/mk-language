@@ -163,11 +163,11 @@ async def openai_compatible_call(
     # so we never surface the string "None" to the user.
     content = message.get("content") or ""
     raw_tool_calls = message.get("tool_calls")
-    tool_calls = (
-        [as_dict(tc) for tc in raw_tool_calls]
-        if isinstance(raw_tool_calls, list) and raw_tool_calls
-        else None
-    )
+    if isinstance(raw_tool_calls, list) and raw_tool_calls:
+        tc_list: list[object] = list(raw_tool_calls)  # type: ignore[arg-type]  # untyped JSON
+        tool_calls = [as_dict(tc) for tc in tc_list]
+    else:
+        tool_calls = None
     finish = first.get("finish_reason")
     usage = as_dict(data.get("usage"))
     return BackendResponse(

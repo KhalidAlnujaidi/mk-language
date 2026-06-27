@@ -115,12 +115,17 @@ def _completion_body(content: str, model: str, event: EventRecord) -> dict[str, 
     }
 
 
-def _coerce_messages(raw: object) -> list[dict[str, str]]:
-    """Normalise an incoming ``messages`` field to a list of chat dicts."""
+def _coerce_messages(raw: object) -> list[dict[str, object]]:
+    """Normalise an incoming ``messages`` field to a list of chat dicts.
+
+    Returns ``Messages`` (``dict`` values typed ``object``) so the result feeds
+    ``execute`` directly — ``dict`` is invariant, so ``dict[str, str]`` would
+    not satisfy the ``list[dict[str, object]]`` parameter.
+    """
     if not isinstance(raw, list):
         return []
     items: list[object] = list(raw)  # type: ignore[arg-type]  # JSON list is untyped
-    out: list[dict[str, str]] = []
+    out: list[dict[str, object]] = []
     for item in items:
         coerced = as_dict(item)
         if coerced:
