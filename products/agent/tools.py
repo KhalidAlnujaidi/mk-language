@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING
 
 from kernel.jsonutil import as_dict
 
+from products.agent import command_safety
 from products.capabilities.registry import (
     MCP_SERVER,
     Capability,
@@ -218,6 +219,15 @@ def project_root_guard(
         args = as_dict(parsed)  # dict[str, object], {} for a non-object shape
         if name == "run_bash":
             command = str(args.get("command", ""))
+            # Command-intent layer (CodeWhale harvest): refuse catastrophic
+            # commands the path-jail and Landlock cannot see — privilege
+            # escalation, pipe-to-shell RCE, fork bombs, device wipes, root/home
+            # rm -rf. Orthogonal to the write-jail (Landlock confines *writes*;
+            # it does not stop `sudo` or `curl evil|sh`). Only DENY auto-blocks,
+            # so in-root destructive work (ASK) is unaffected here. Fail-CLOSED.
+            verdict = command_safety.assess(command)
+            if verdict.level is command_safety.Level.DENY:
+                return f"refused: {verdict.reason}"
             if not os_confined:
                 escape = _bash_escape_reason(command, root_p)
                 if escape is not None:
