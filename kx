@@ -70,6 +70,32 @@ def _ensure_venv() -> None:
         os.execv(str(venv_py), [str(venv_py), str(repo / "kx"), *sys.argv[1:]])
 
 
+def _auto_update() -> None:
+    """Self-upgrade on launch: fast-forward the checked-out branch, then reload.
+
+    kx runs straight from the working tree (this file is symlinked onto
+    ``~/.local/bin``), so once the repo fast-forwards the next process runs the
+    new code. We fetch the current branch's upstream and fast-forward ONLY when
+    behind, clean, and ff-able — never a merge/rebase, so work is never lost. If
+    the tree actually moved, re-exec so THIS launch already runs the fresh code.
+    Interactive launches only (no TTY → tests/pipes/CI skip it); set
+    ``KINOX_NO_AUTOUPDATE=1`` to opt out. Fail-soft: a sync hiccup never blocks kx.
+    """
+    if not sys.stdin.isatty() or os.environ.get("KINOX_NO_AUTOUPDATE"):
+        return
+    try:
+        from products.launcher import sync
+
+        outcome = sync.auto_update()
+    except Exception:  # noqa: BLE001 — a sync error must never block the launch
+        return
+    if outcome.line:
+        print(outcome.line)
+    if outcome.changed:
+        repo = Path(__file__).resolve().parent
+        os.execv(sys.executable, [sys.executable, str(repo / "kx"), *sys.argv[1:]])
+
+
 def _reject_reserved(name: str) -> None:
     if name in RESERVED:
         print(f"error: '{name}' is the reserved admin/core scope — not a project name.")
@@ -80,7 +106,8 @@ def hub(role: str | None = None, *, preselect: "Path | None" = None) -> int:
     """The default working environment: the launcher hub (vision §8.2).
 
     Opens with a login layer (pick admin / developer) unless *role* is given,
-    brings the broker up lazily, checks GitHub (fetch + notify), then lists the
+    brings the broker up lazily (launch-time git-sync runs earlier, in
+    ``__main__`` via ``_auto_update``), then lists the
     scopes + actions for that role. Sessions launch by SPAWNING the ``kin``
     script as a subprocess, so control returns to the hub when a session exits —
     there is no execve anywhere; the hub is the persistent container.
@@ -91,7 +118,6 @@ def hub(role: str | None = None, *, preselect: "Path | None" = None) -> int:
     its plan and exits 0 without spawning — the existing non-interactive contract.
     """
     from products.cli.commands import scaffold_project
-    from products.launcher import sync
     from products.launcher.app import make_kin_spawner, run, select_role
 
     repo_root = Path(__file__).resolve().parent
@@ -115,7 +141,8 @@ def hub(role: str | None = None, *, preselect: "Path | None" = None) -> int:
                 print(f"  broker: {broker.reason} ({broker.socket})")
         except Exception:  # noqa: BLE001 — never let broker setup block the hub
             pass
-        print(sync.startup_status())
+        # Launch-time git-sync is handled once in __main__ (`_auto_update`), so
+        # the working tree is already on the latest code by the time we get here.
 
     spawn = make_kin_spawner(repo_root / "kin", role=role)
 
@@ -326,4 +353,5 @@ def main(argv: list[str]) -> int:
 if __name__ == "__main__":
     _load_env()  # secrets from ~/.kinox/env (e.g. ZAI_API_KEY) → os.environ
     _ensure_venv()  # ensure outer-layer deps (rich/questionary) are importable
+    _auto_update()  # self-upgrade: ff the checked-out branch to upstream, reload
     raise SystemExit(main(sys.argv[1:]))
