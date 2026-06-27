@@ -229,6 +229,38 @@ def _recording_factory(turns: list[BackendResponse], seen: list[Messages]) -> ob
     return factory
 
 
+def test_prior_history_is_spliced_before_this_turn() -> None:
+    """A multi-turn agent run remembers earlier turns: ``history`` is injected
+    between the system prompt and this turn's task, so the model sees prior
+    user/assistant pairs (fixes agent-turn amnesia)."""
+    seen: list[Messages] = []
+    factory = _recording_factory(
+        [BackendResponse(content="answer", finish_reason="stop")], seen
+    )
+    history: Messages = [
+        {"role": "user", "content": "earlier question"},
+        {"role": "assistant", "content": "earlier answer"},
+    ]
+    _run(
+        run_agent(
+            "follow-up",
+            tier=TIER,
+            registry=_echo_registry(),
+            sink=_sink(),
+            task_id="t",
+            history=history,
+            call_factory=factory,  # type: ignore[arg-type]
+        )
+    )
+    msgs = seen[0]
+    roles = [m.get("role") for m in msgs]
+    contents = [str(m.get("content")) for m in msgs]
+    assert roles == ["system", "user", "assistant", "user"]
+    assert "earlier question" in contents[1]
+    assert "earlier answer" in contents[2]
+    assert contents[3] == "follow-up"  # this turn's task comes last
+
+
 def test_context_budget_nudges_once(tmp_path: Path) -> None:
     """Once accumulated tool output passes the soft limit, the loop injects one
     convergence nudge (and only one) — soft governance, not a hard cap."""

@@ -40,17 +40,18 @@ CallFactory = Callable[[list[dict[str, object]]], Call]
 #: Returning a string BLOCKS the call (fail-CLOSED, thesis #2); ``None`` allows it.
 Guard = Callable[[str, str], "str | None"]
 
+#: Operational instructions for the agent.  Identity ("what kinox is") and
+#: axioms live in the preamble (alignment/PREAMBLE.md via build_preamble) so they
+#: are not restated here — no duplication.
 AGENT_SYSTEM_PROMPT = (
-    "You are kinox, a governed local-first coding agent. You operate ONLY within "
-    "the current project's directory — you have no awareness of, and no business "
-    "with, anything outside it. Accomplish the user's task by calling tools, "
-    "observing results, and continuing until the task is done. Prefer find_skill "
-    "BEFORE unfamiliar work — the skill corpus often already encodes how to do it. "
-    "Read with intent, not breadth: open only files relevant to the task, never "
-    "re-read a file you have already seen, and stop exploring the moment you have "
+    "Accomplish the user's task by calling tools, observing results, and "
+    "continuing until the task is done. Prefer find_skill BEFORE unfamiliar "
+    "work — the skill corpus often already encodes how to do it. Read with "
+    "intent, not breadth: open only files relevant to the task, never re-read "
+    "a file you have already seen, and stop exploring the moment you have "
     "enough to act. When the task is complete, reply with a short plain-text "
-    "summary and NO further tool calls. Be concise and honest; if you cannot do "
-    "something, say so."
+    "summary and NO further tool calls. Be concise and honest; if you cannot "
+    "do something, say so."
 )
 
 #: Idempotent read tools: calling them again with the same arguments yields the
@@ -118,6 +119,7 @@ async def run_agent(
     task_id: str,
     system_prompt: str = AGENT_SYSTEM_PROMPT,
     preamble: str = "",
+    history: Messages | None = None,
     max_turns: int = 8,
     context_soft_chars: int = 40_000,
     guard: Guard | None = None,
@@ -149,6 +151,12 @@ async def run_agent(
     per-turn fallback chain: if the primary brain (e.g. a cloud model) errors on a
     turn, the executor falls through to it (fail SOFT, spec §6) so a cloud outage
     degrades to the local model rather than aborting the run.
+
+    *history*, when given, is the prior conversation (OpenAI-format user/assistant
+    messages) spliced in *between* the system prompt and this turn's *task* so a
+    multi-turn agent session has memory of earlier turns. Only the caller's
+    distilled turn pairs belong here — never this run's ephemeral tool scratch,
+    which is rebuilt fresh each call.
     """
     factory = call_factory or _default_call_factory()
     chain = [tier] if fallback is None or fallback == tier else [tier, fallback]
@@ -158,6 +166,7 @@ async def run_agent(
     )
     messages: Messages = [
         {"role": "system", "content": compiled_prompt},
+        *(history or []),
         {"role": "user", "content": task},
     ]
     result = AgentResult(final_text="")
