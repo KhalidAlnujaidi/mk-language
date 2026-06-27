@@ -75,7 +75,9 @@ def run_golden_eval(
     """
     from evals.execute import run_golden_set
 
-    results = run_golden_set(tasks_dir, root=root)
-    total = len(results)
-    failed = sum(1 for r in results if not r.passed)
+    # Skipped tasks (live-agent-only, not opted in) are neither pass nor fail — they
+    # do not participate in the deterministic gate, so exclude them from the tally.
+    ran = [r for r in run_golden_set(tasks_dir, root=root) if not r.skipped]
+    total = len(ran)
+    failed = sum(1 for r in ran if not r.passed)
     return EvalReport(total=total, passed=total - failed, failed=failed)

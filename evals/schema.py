@@ -154,6 +154,11 @@ class EvalResult:
     passed: bool
     assertion_results: list[AssertionResult]
     duration_ms: float
+    # A task whose only observables need a live agent run (step_count/tools_called)
+    # is SKIPPED in the deterministic gate — not a pass, not a failure. It runs only
+    # under an explicit opt-in (KINOX_EVAL_LIVE), so the zero-cost gate stays
+    # deterministic and CI-safe while the live metric is still measurable on demand.
+    skipped: bool = False
     trace: list[str] = field(default_factory=_empty_str_list)
     # Cheat #2: cost + token accounting
     cost_usd: float = 0.0      # total LLM spend for this task, in USD

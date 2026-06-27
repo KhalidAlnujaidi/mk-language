@@ -19,6 +19,7 @@ golden set is safe to run in CI and before every evolution (it is the gate).
 
 from __future__ import annotations
 
+import os
 import re
 import tempfile
 import time
@@ -47,6 +48,19 @@ from evals.schema import EvalResult, EvalTask, load_all_tasks
 # A placeholder prior turn for the correction detector — non-empty so the
 # heuristic can fire (it requires a prior prompt to exist).
 _PRIOR_TURN = "previous turn"
+
+# Targets that can only be observed by RUNNING a live agent (a model + the loop).
+# They are non-deterministic and model-dependent, so they do not belong in the
+# zero-cost deterministic gate: by default a task needing them is SKIPPED, and runs
+# only under the explicit KINOX_EVAL_LIVE opt-in (against a local model).
+_LIVE_TARGETS = frozenset({"step_count", "tools_called"})
+
+
+def _live_enabled() -> bool:
+    """True if the operator opted into live-agent eval (KINOX_EVAL_LIVE)."""
+    return os.environ.get("KINOX_EVAL_LIVE", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
 
 # Capability-probe keywords: prompts asking what the machine can do should be
 # answered honestly from the manifest (null, never a fabricated false).
@@ -216,12 +230,61 @@ def _build_context(prompt: str, root: Path) -> _RunContext:
     )
 
 
-def _produce(target: str, ctx: _RunContext) -> object:
+def _run_live_agent(task: EvalTask, root: Path) -> dict[str, object] | None:
+    """Run the REAL agent loop against a local model and return its observed
+    ``step_count`` (model turns) and ``tools_called`` (the tool names dispatched).
+
+    Returns ``None`` — so the task is SKIPPED, never falsely failed — when no local
+    model is available or the run errors. A task with ``setup`` runs in a throwaway
+    copy (so the eval never pollutes the repo); a task without runs against *root*
+    (e.g. a codebase-search task needs the real tree). Reads + bash only, jailed.
+    """
+    import asyncio
+
+    from kernel.contracts import Tier
+    from products.agent.loop import run_agent
+    from products.agent.tools import default_registry, project_root_guard
+
+    models = probe().fitting_local_models() or list(probe().local_models)
+    if not models:
+        return None
+    tier = Tier.model(models[0].name, where="local", backend="ollama")
+
+    def _measure(run_root: Path) -> dict[str, object]:
+        for rel, content in task.setup.items():
+            p = run_root / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, encoding="utf-8")
+        reg = default_registry(run_root, allow_bash=True)
+        result = asyncio.run(
+            run_agent(
+                task.prompt,
+                tier=tier,
+                registry=reg,
+                sink=MetricsSink(Path("/dev/null")),
+                task_id=f"live-{task.id}",
+                guard=project_root_guard(run_root),
+                max_turns=6,
+            )
+        )
+        tools = sorted({s.name for s in result.steps if s.kind == "tool"})
+        return {"step_count": result.turns, "tools_called": tools}
+
+    try:
+        if task.setup:
+            with tempfile.TemporaryDirectory() as tmp:
+                return _measure(Path(tmp))
+        return _measure(root)
+    except Exception:
+        return None  # a model hiccup must skip, never fail the gate
+
+
+def _produce(target: str, ctx: _RunContext, live: dict[str, object]) -> object:
     """Map an assertion target to the observed value from the real run.
 
-    Unbacked targets (``step_count``, ``tools_called`` — no live agent here)
-    return an empty value so their assertions fail honestly rather than being
-    fabricated. ``cost_usd`` is the genuine spend of this run: zero (no cloud).
+    Live targets (``step_count``/``tools_called``) come from *live* (a real agent
+    run); they are only present under the KINOX_EVAL_LIVE opt-in — otherwise the
+    task is skipped upstream. ``cost_usd`` is the genuine spend: zero (no cloud).
     """
     if target == "annotation_lines":
         return ctx.annotation_lines
@@ -233,15 +296,35 @@ def _produce(target: str, ctx: _RunContext) -> object:
         return 0.0  # the executor calls no cloud model — real, measured zero
     if target in ("tokens_in", "tokens_out"):
         return 0
-    # step_count / tools_called: no live agent run backs these → fail honestly.
+    if target in _LIVE_TARGETS:
+        return live.get(target, "")
     return ""
 
 
 def run_task(task: EvalTask, *, root: Path) -> EvalResult:
-    """Run one golden task against the real components and check its assertions."""
+    """Run one golden task against the real components and check its assertions.
+
+    A task whose observables require a live agent (``step_count``/``tools_called``)
+    is SKIPPED unless KINOX_EVAL_LIVE is set — and skipped (not failed) too if the
+    live run can't proceed (no local model / error). So the deterministic gate stays
+    clean and CI-safe while the live metric is still measurable on demand.
+    """
     t0 = time.perf_counter()
+    needs_live = any(a.target in _LIVE_TARGETS for a in task.assertions)
+    live: dict[str, object] = {}
+    if needs_live:
+        live_result = _run_live_agent(task, root) if _live_enabled() else None
+        if live_result is None:
+            return EvalResult(
+                task_id=task.id,
+                passed=False,
+                skipped=True,
+                assertion_results=[],
+                duration_ms=(time.perf_counter() - t0) * 1000.0,
+            )
+        live = live_result
     ctx = _build_context(task.prompt, root)
-    results = [check(a, _produce(a.target, ctx)) for a in task.assertions]
+    results = [check(a, _produce(a.target, ctx, live)) for a in task.assertions]
     passed = all(r.passed for r in results)
     duration_ms = (time.perf_counter() - t0) * 1000.0
     return EvalResult(

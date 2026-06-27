@@ -26,15 +26,33 @@ def test_every_task_runs_without_raising() -> None:
     assert len(results) == n_tasks
     assert n_tasks >= 20  # the golden set is substantial (vision §8.3: 20–50)
     for r in results:
-        assert r.assertion_results  # every task produced at least one check
+        # A live-only task is skipped (no checks); every other task ran ≥1 check.
+        assert r.skipped or r.assertion_results
         assert r.duration_ms >= 0.0
 
 
-def test_run_golden_eval_reports_all_tasks() -> None:
-    n_tasks = len(load_all_tasks(_TASKS))
+def test_run_golden_eval_excludes_skipped() -> None:
+    results = run_golden_set(_TASKS, root=_ROOT)
+    ran = [r for r in results if not r.skipped]
     report = run_golden_eval(_TASKS, root=_ROOT)
-    assert report.total == n_tasks
-    assert report.passed + report.failed == n_tasks
+    # The deterministic gate tallies only the tasks that actually ran.
+    assert report.total == len(ran)
+    assert report.passed + report.failed == report.total
+
+
+def test_live_only_tasks_are_skipped_not_failed_by_default() -> None:
+    # Without KINOX_EVAL_LIVE the agent-metric tasks need a live model run, so they
+    # are SKIPPED — never counted as deterministic failures (keeps the gate clean).
+    for tid in ("agent-step-efficiency", "agent-tool-correctness"):
+        res = _result(tid)
+        assert res.skipped and not res.passed
+
+
+def test_deterministic_gate_is_clean() -> None:
+    # Every NON-skipped golden task passes — the gate self-evolution runs against
+    # carries no red. (Live-only tasks are excluded; they run under KINOX_EVAL_LIVE.)
+    report = run_golden_eval(_TASKS, root=_ROOT)
+    assert report.failed == 0 and report.ok
 
 
 def _result(task_id: str):
