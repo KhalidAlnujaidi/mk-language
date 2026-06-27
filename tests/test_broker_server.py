@@ -282,6 +282,89 @@ def test_outbox_not_created_when_path_is_none(tmp_path: Path) -> None:
     outbox_candidates = list(tmp_path.glob("outbox*"))
     assert outbox_candidates == []
 
+
+# ---------------------------------------------------------------------------
+# Crash recovery (hard truth #4): on startup, effects left `pending` by a prior
+# crash are reconciled — never left phantom-pending, never blindly re-run.
+# ---------------------------------------------------------------------------
+
+
+def test_recover_pending_reconciles_orphans_and_keeps_history(tmp_path: Path) -> None:
+    from daemon.outbox import Outbox
+    from daemon.server import recover_pending
+
+    path = tmp_path / "outbox.jsonl"
+    box = Outbox(path)
+    box.append(id="crashed-1", kind="inference", payload="{}")  # left pending
+    box.append(id="crashed-2", kind="inference", payload="{}")  # left pending
+    box.append(id="finished", kind="inference", payload="{}")
+    box.mark_done("finished")  # already terminal — must be untouched
+
+    resolved = recover_pending(box)
+
+    assert {e.id for e in resolved} == {"crashed-1", "crashed-2"}
+    assert box.pending() == []  # phantom pending set is cleared
+    states = {e.id: e.status for e in box.all()}
+    assert states == {"crashed-1": "failed", "crashed-2": "failed", "finished": "done"}
+    # Append-only: every original pending line survives on disk (audit trail) —
+    # all three appends, including the one later marked done.
+    raw = path.read_text()
+    assert raw.count('"status": "pending"') == 3  # noqa: PLR2004
+
+
+def test_recover_pending_is_a_noop_on_a_clean_outbox(tmp_path: Path) -> None:
+    from daemon.outbox import Outbox
+    from daemon.server import recover_pending
+
+    path = tmp_path / "outbox.jsonl"
+    box = Outbox(path)
+    box.append(id="done-1", kind="inference", payload="{}")
+    box.mark_done("done-1")
+    before = path.read_text()
+
+    assert recover_pending(box) == []
+    assert path.read_text() == before  # nothing appended when nothing is pending
+
+
+def test_broker_reconciles_a_crashed_inference_on_startup(tmp_path: Path) -> None:
+    """A pending entry from a prior crash is resolved when the broker starts."""
+    from daemon.outbox import Outbox
+
+    async def call(tier: Tier, messages: list[dict[str, str]]) -> BackendResponse:
+        return BackendResponse(content="x", tokens_in=1, tokens_out=1)
+
+    outbox_path = tmp_path / "outbox.jsonl"
+    # Simulate a crash: an inference logged pending that never reached a terminal.
+    Outbox(outbox_path).append(id="orphan-42", kind="inference", payload="{}")
+
+    config = BrokerConfig(
+        probe=_manifest,
+        call=call,
+        metrics_path=tmp_path / "e.jsonl",
+        outbox_path=outbox_path,
+    )
+    # `with` enters the lifespan → startup recovery runs (mere create_app does not).
+    with TestClient(create_app(config)) as client:
+        body: Any = client.get("/broker/status").json()
+        assert body["recovered_on_start"] == ["orphan-42"]
+
+    # The orphan is now a terminal `failed`, not phantom-pending.
+    assert Outbox(outbox_path).pending() == []
+    states = {e.id: e.status for e in Outbox(outbox_path).all()}
+    assert states["orphan-42"] == "failed"
+
+
+def test_broker_startup_without_outbox_reports_no_recovery(tmp_path: Path) -> None:
+    async def call(tier: Tier, messages: list[dict[str, str]]) -> BackendResponse:
+        return BackendResponse(content="x")
+
+    config = BrokerConfig(
+        probe=_manifest, call=call, metrics_path=tmp_path / "e.jsonl", outbox_path=None
+    )
+    with TestClient(create_app(config)) as client:
+        body: Any = client.get("/broker/status").json()
+        assert body["recovered_on_start"] == []
+
 # ---------------------------------------------------------------------------
 # Hook chain integration (Brick B — thesis #2: fail-direction per hook, wired
 # into the broker's pre-inference flow).

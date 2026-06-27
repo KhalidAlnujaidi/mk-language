@@ -30,6 +30,7 @@ import json
 import os
 import time
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -49,7 +50,7 @@ from daemon.exec import (
 )
 from daemon.fallback import build_chain
 from daemon.hooks import HookChain
-from daemon.outbox import Outbox
+from daemon.outbox import Outbox, OutboxEntry
 from daemon.resources import ResourceSnapshot
 from daemon.resources import sample as default_resources
 from daemon.serializer import Serializer
@@ -64,6 +65,15 @@ DEFAULT_SOCKET_PATH = os.environ.get("KINOX_BROKER_SOCKET", "/run/kinox/broker.s
 _DEFAULT_METRICS_PATH = Path(
     os.environ.get(
         "KINOX_BROKER_METRICS", str(Path.home() / ".kinox" / "broker-events.jsonl")
+    )
+)
+
+# Default durable outbox for the production broker (hard truth #4). The injectable
+# BrokerConfig.outbox_path defaults to None so create_app stays side-effect-free
+# for tests; the module-level production ``app`` wires this real path explicitly.
+_DEFAULT_OUTBOX_PATH = Path(
+    os.environ.get(
+        "KINOX_BROKER_OUTBOX", str(Path.home() / ".kinox" / "broker-outbox.jsonl")
     )
 )
 
@@ -141,6 +151,28 @@ def _error_response(message: str, *, type_: str, status: int) -> JSONResponse:
     )
 
 
+# --- Crash recovery (hard truth #4) -------------------------------------------
+
+
+def recover_pending(outbox: Outbox) -> list[OutboxEntry]:
+    """Reconcile effects left ``pending`` by a prior crash; return what was resolved.
+
+    On startup, any outbox entry still ``pending`` was logged BEFORE execution but
+    never reached a terminal record — the broker died mid-flight. The broker's only
+    effect kind is ``inference``, which is NOT safe to replay post-crash: the
+    requesting client is long gone and a cloud call would cost money for no
+    recipient. So recovery RECONCILES each orphan to ``failed`` (its honest terminal
+    state) rather than re-running it — clearing the phantom pending set and leaving
+    a truthful, append-only audit trail (the ``failed`` record is appended; the
+    original ``pending`` line survives). When the broker grows genuinely replayable
+    (idempotent) effect kinds, branch on ``entry.kind`` here to re-apply them.
+    """
+    orphans = outbox.pending()
+    for entry in orphans:
+        outbox.mark_failed(entry.id)
+    return orphans
+
+
 # --- App factory --------------------------------------------------------------
 
 
@@ -152,10 +184,20 @@ def create_app(config: BrokerConfig | None = None) -> FastAPI:
     hook_chain = cfg.hook_chain
     outbox: Outbox | None = Outbox(cfg.outbox_path) if cfg.outbox_path else None
     sink = MetricsSink(cfg.metrics_path)
-    # In-memory record of the last tier used (status debug aid; null until first call).
-    state: dict[str, str | None] = {"last_tier_used": None}
+    # In-memory state for /broker/status: the last tier used (null until first call)
+    # and the ids reconciled from a prior crash on this startup (hard truth #4).
+    state: dict[str, object] = {"last_tier_used": None, "recovered_on_start": []}
 
-    app = FastAPI(title="kinox broker", version="0.1.0")
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):  # pyright: ignore[reportUnusedFunction]
+        # Crash recovery runs when the daemon STARTS (uvicorn lifespan / a
+        # `with TestClient(...)` block) — never on mere import — so importing this
+        # module to build the app touches no outbox file.
+        if outbox is not None:
+            state["recovered_on_start"] = [e.id for e in recover_pending(outbox)]
+        yield
+
+    app = FastAPI(title="kinox broker", version="0.1.0", lifespan=lifespan)
 
     @app.post("/v1/chat/completions")
     async def chat_completions(  # pyright: ignore[reportUnusedFunction]
@@ -267,6 +309,7 @@ def create_app(config: BrokerConfig | None = None) -> FastAPI:
                 "ram_total_gb": snap.ram_total_gb,
             },
             "last_tier_used": state["last_tier_used"],
+            "recovered_on_start": state["recovered_on_start"],
             "recent_events": [dataclasses.asdict(e) for e in recent],
         }
 
@@ -278,8 +321,10 @@ def _ensure_socket_dir(socket_path: str) -> None:
     Path(socket_path).parent.mkdir(parents=True, exist_ok=True)
 
 
-# The default app for ``uvicorn daemon.server:app --uds …``.
-app = create_app()
+# The default app for ``uvicorn daemon.server:app --uds …``. The production broker
+# wires the durable outbox (hard truth #4) so every inference is logged before
+# execution and a crash is reconciled on the next startup via the lifespan hook.
+app = create_app(BrokerConfig(outbox_path=_DEFAULT_OUTBOX_PATH))
 
 
 def serve(socket_path: str = DEFAULT_SOCKET_PATH) -> None:  # pragma: no cover
