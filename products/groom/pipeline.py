@@ -1,7 +1,7 @@
 """Squire grooming pipeline — composes the four stages in order.
 
 Execution order:
-    redact → expand → context → tag
+    redact → expand → context → deslop → tag
 
 Each stage emits exactly one ``EventRecord`` to the sink.  Tier strings:
     - ``"deterministic"``   for the three ground-truth stages
@@ -23,6 +23,7 @@ from kernel.metrics import MetricsSink
 
 from products.groom import tag as tagmod
 from products.groom.stages import context as context_stage
+from products.groom.stages import deslop as deslop_stage
 from products.groom.stages import expand as expand_stage
 from products.groom.stages import redact as redact_stage
 from products.groom.tag import ModelTag
@@ -124,6 +125,28 @@ def groom(
 
     for ctx_line in context_result.lines:
         lines.append(ctx_line)
+
+    # ------------------------------------------------------------------
+    # Stage 3b: deslop — flag LLM "slop" phrasing in the working text.
+    # SOFT (thesis #2): never rewrites the prompt, only annotates, so a false
+    # positive costs one harmless line and nothing more.
+    # ------------------------------------------------------------------
+    t0 = time.perf_counter()
+    slop_result = deslop_stage.find_slop(working_text)
+    latency_deslop = (time.perf_counter() - t0) * 1000.0
+
+    sink.record(
+        EventRecord(
+            task_id=task_id,
+            kind="deslop",
+            tier=_DETERMINISTIC_TIER,
+            tokens_exact=False,
+            latency_ms=latency_deslop,
+        )
+    )
+
+    if not slop_result.clean:
+        lines.append("slop flagged: " + ", ".join(slop_result.found))
 
     # ------------------------------------------------------------------
     # Stage 4: tag (the ONE fuzzy step — router is real; offloads to a local

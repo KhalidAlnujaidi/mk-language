@@ -14,11 +14,18 @@ injected here at request time. The kernel is never imported in reverse.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from kernel.contracts import EventRecord, Tier
+
+from daemon.backoff import RetryPolicy
+
+#: A sleeper for backoff waits. Injected in tests (so no real time passes); the
+#: default is the real event-loop sleep.
+Sleeper = Callable[[float], Awaitable[None]]
 
 # --- Injected backend boundary -----------------------------------------------
 
@@ -114,6 +121,33 @@ def tier_label(tier: Tier) -> str:
 # --- Executor -----------------------------------------------------------------
 
 
+async def _call_with_retry(
+    call: Call,
+    tier: Tier,
+    messages: Messages,
+    *,
+    retry: RetryPolicy | None,
+    sleep: Sleeper,
+) -> BackendResponse | None:
+    """Call one *tier*, retrying on *retryable* transient errors with backoff.
+
+    Returns the response, or ``None`` to signal "give up on this tier, fall
+    through" (legacy behaviour when *retry* is ``None`` — exactly one attempt).
+    A non-retryable ``BackendError`` is never retried; a retryable one is retried
+    up to ``retry.max_attempts`` with :meth:`RetryPolicy.delay_before` waits.
+    """
+    attempts = retry.max_attempts if retry is not None else 1
+    for attempt in range(1, attempts + 1):
+        try:
+            return await call(tier, messages)
+        except BackendError as exc:
+            # Last attempt, no policy, or a hard error → stop retrying this tier.
+            if retry is None or not exc.retryable or attempt == attempts:
+                return None
+            await sleep(retry.delay_before(attempt + 1))
+    return None
+
+
 async def execute(
     chain: list[Tier],
     messages: Messages,
@@ -122,12 +156,20 @@ async def execute(
     task_id: str,
     kind: str = "chat",
     sample_vram: VramSampler | None = None,
+    retry: RetryPolicy | None = None,
+    sleep: Sleeper = asyncio.sleep,
 ) -> ExecResult:
     """Walk *chain*, executing on the first tier that succeeds.
 
     Each tier is tried via *call*; any failure is absorbed (the broker fails
     SOFT, spec §6) and the next tier is tried. On success an ``ExecResult`` is
     returned with an exact-token ``EventRecord`` and a best-effort VRAM delta.
+
+    *retry* (CodeWhale Tier-2), when given, retries a tier on a *retryable*
+    transient error with exponential backoff *before* falling through — so a blip
+    on the preferred tier does not needlessly demote to a worse one. ``None``
+    keeps the legacy one-shot-per-tier behaviour exactly. *sleep* is injected so
+    the backoff waits are instant under test.
 
     Raises ``ChainExhausted`` — carrying a failure ``EventRecord`` (so the log
     has no silent gap) — when every tier fails or the chain is empty.
@@ -138,10 +180,11 @@ async def execute(
         last_tier = tier
         before = sample_vram() if sample_vram is not None else None
         started = time.perf_counter()
-        try:
-            response = await call(tier, messages)
-        except BackendError:
-            # Fail soft: absorb and fall through to the next tier.
+        response = await _call_with_retry(
+            call, tier, messages, retry=retry, sleep=sleep
+        )
+        if response is None:
+            # Fail soft: this tier gave up (after any retries) → next tier.
             continue
         latency_ms = (time.perf_counter() - started) * 1000.0
         after = sample_vram() if sample_vram is not None else None

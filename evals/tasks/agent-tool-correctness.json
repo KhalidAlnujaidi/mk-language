@@ -1,0 +1,9 @@
+{
+  "id": "agent-tool-correctness",
+  "description": "Agent calls the expected tools (read_file, then grep) for a code-search task",
+  "prompt": "find all callers of run_agent() in the codebase",
+  "tags": ["agent", "tool_correctness"],
+  "assertions": [
+    {"kind": "tool_correctness", "target": "tools_called", "expected": "read_file,grep"}
+  ]
+}

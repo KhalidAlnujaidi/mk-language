@@ -16,12 +16,13 @@ Every decision records an evolution artifact (branch + eval diff) via
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 from products.feedback.review import ReviewItem
 
-from evals.runner import EvalReport
+from evals.runner import EvalReport, run_golden_eval
 from evals.store import record_evolution
 
 #: Targets the proposer is allowed to touch automatically (config only).
@@ -97,12 +98,16 @@ def gate(
             reason="touches code / non-sanctioned target — needs human approval",
         )
 
-    if not after.ok or after.failed > before.failed:
+    # Reject on REGRESSION relative to the baseline (not on absolute non-greenness):
+    # the golden set legitimately carries known-failing tasks (honest fitness gaps),
+    # so the bar is "added no new failures", per this gate's own contract — "does
+    # not regress vs. the baseline". An empty run (nothing measured) is also refused.
+    if after.total == 0 or after.failed > before.failed:
         return Decision(
             proposal,
             approved=False,
             requires_human=False,
-            reason="rejected — eval set regressed",
+            reason="rejected — eval set regressed vs. baseline (or nothing ran)",
         )
 
     return Decision(
@@ -110,4 +115,52 @@ def gate(
         approved=True,
         requires_human=False,
         reason="auto-approved — sanctioned config change, eval set green",
+    )
+
+
+def run_evolution_gate(
+    proposal: Proposal,
+    *,
+    root: Path,
+    apply_change: Callable[[], None],
+    evolutions_dir: str | Path,
+    eval_id: str,
+    tasks_dir: Path = Path("evals/tasks"),
+) -> Decision:
+    """Gate *proposal* on the GOLDEN eval set, measured before vs. after the change.
+
+    This is the connection §8.3 was missing: the gate's pass/fail signal now comes
+    from running the real golden set (:func:`evals.runner.run_golden_eval`), not a
+    hand-supplied ``EvalReport``. The cycle:
+
+      1. measure the golden baseline (``before``);
+      2. for a **code** or non-sanctioned proposal, never apply it — gate straight
+         to a human, recording ``before`` as both sides (no change was made);
+      3. for a sanctioned **config** proposal, ``apply_change()`` then re-measure
+         (``after``) and let :func:`gate` auto-approve only if the golden set did
+         not regress.
+
+    So self-evolution is blocked on the golden baseline end-to-end (hard truth #2):
+    a config change that drops any golden task is rejected, and code is never
+    self-applied. The caller supplies ``apply_change`` so applying the change and
+    its reversal remain its responsibility — this function only measures and gates.
+    """
+    before = run_golden_eval(tasks_dir, root=root)
+    if proposal.kind == "code" or proposal.target not in SANCTIONED_TARGETS:
+        # Code is never self-applied; gate it to a human against the baseline.
+        return gate(
+            proposal,
+            before=before,
+            after=before,
+            evolutions_dir=evolutions_dir,
+            eval_id=eval_id,
+        )
+    apply_change()
+    after = run_golden_eval(tasks_dir, root=root)
+    return gate(
+        proposal,
+        before=before,
+        after=after,
+        evolutions_dir=evolutions_dir,
+        eval_id=eval_id,
     )

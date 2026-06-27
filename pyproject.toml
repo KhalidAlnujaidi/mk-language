@@ -1,8 +1,9 @@
 [project]
 name = "kinox"
-version = "0.0.0"
+version = "0.9.0"
 description = "A local-first, governed, cost-efficient workspace for running coding agents."
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11"
 # Kernel is dependency-light by design (vision §4). Runtime deps are added per
 # product/adapter as they earn their place — never speculatively.
@@ -25,6 +26,13 @@ daemon = [
 ]
 dashboard = [
     "rich>=15.0.0",
+]
+# Document ingest for the groom pipeline (products/groom/ingest.py). markitdown
+# (PDF/DOCX/PPTX/XLSX/HTML/image → markdown) is optional: the stage fails SOFT
+# when it is absent, so a plain install still grooms — it just can't convert
+# attached documents. Outer-layer only; never imported from kernel/.
+groom = [
+    "markitdown>=0.0.1a2",
 ]
 # The launcher hub (the default working environment) — questionary for the
 # arrow-key menu selection, rich (above) for the header. Outer-layer only.

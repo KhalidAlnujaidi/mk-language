@@ -1,0 +1,9 @@
+{
+  "id": "agent-step-efficiency",
+  "description": "Agent completes a simple file-read task in 2 or fewer steps",
+  "prompt": "read the file config.toml and tell me the app name",
+  "tags": ["agent", "step_efficiency"],
+  "assertions": [
+    {"kind": "step_efficiency", "target": "step_count", "expected": "2"}
+  ]
+}
