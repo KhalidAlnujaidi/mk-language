@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING
 
 from kernel.jsonutil import as_dict
 
-from products.agent import command_safety
+from products.agent import command_safety, permission
 from products.capabilities.registry import (
     MCP_SERVER,
     Capability,
@@ -170,7 +170,10 @@ def _bash_escape_reason(command: str, root: Path) -> str | None:
 
 
 def project_root_guard(
-    root: Path, *, deny_write_subpaths: tuple[str, ...] = ()
+    root: Path,
+    *,
+    deny_write_subpaths: tuple[str, ...] = (),
+    ruleset: permission.Ruleset | None = None,
 ) -> Callable[[str, str], str | None]:
     """A pre-dispatch :data:`~products.agent.loop.Guard` that jails every tool to
     *root* — the governance the loop applies before a handler runs.
@@ -188,6 +191,13 @@ def project_root_guard(
     cannot write down into a project scope: the scope wall is bidirectional (a
     project already cannot reach up), which is what makes framework-and-project
     development safe to run in parallel without overlap.
+
+    *ruleset* (optional, CodeWhale Tier-2) is a layered permission
+    :class:`~products.agent.permission.Ruleset`. When given, a ``run_bash``
+    command's catastrophic-DENY floor is checked first (unconditional), then the
+    ruleset resolves the rest: an AGENT/USER rule may tighten an otherwise-allowed
+    command to DENY (refused here) or downgrade a builtin ASK to ALLOW (surfaced,
+    not blocked). ``None`` keeps the prior behaviour exactly — no regression.
     """
     from products.agent.sandbox import landlock_available
 
@@ -228,6 +238,17 @@ def project_root_guard(
             verdict = command_safety.assess(command)
             if verdict.level is command_safety.Level.DENY:
                 return f"refused: {verdict.reason}"
+            # Layered permission rules (CodeWhale Tier-2): a USER/AGENT rule may
+            # tighten an otherwise-allowed command to DENY. The catastrophic floor
+            # above already ran, so this only ADDS denials — ASK/ALLOW never block.
+            if ruleset is not None:
+                decision = ruleset.resolve(
+                    tool="run_bash",
+                    command=command,
+                    baseline=permission.level_to_action(verdict.level),
+                )
+                if decision.action is permission.Action.DENY:
+                    return f"refused: {decision.reason}"
             if not os_confined:
                 escape = _bash_escape_reason(command, root_p)
                 if escape is not None:
