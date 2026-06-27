@@ -19,6 +19,7 @@ from pathlib import Path
 from kernel.contracts import Tier
 from kernel.manifest import LocalModel, Manifest
 from kernel.metrics import MetricsSink
+from kernel.tracing import span
 
 from products.groom.pipeline import groom
 from products.groom.tag import ModelTag
@@ -68,81 +69,84 @@ class ChatSession:
         (the response will be a plain-text fallback).
         """
         task_id = uuid.uuid4().hex[:12]
-        models = self.manifest.local_models
+        # The "chat.turn" root span of the end-to-end trace (vision §7): groom and
+        # the broker dispatch nest under it. A no-op unless a tracer is installed.
+        with span("chat.turn", {"kinox.task_id": task_id}):
+            models = self.manifest.local_models
 
-        # Step 1: Groom the input (redact → expand → context → tag). The ONE
-        # fuzzy step (tag) is offloaded to a local model via the broker when one
-        # is available — so the boundary record logs ``tier: model:local`` rather
-        # than ``deterministic``. SOFT (thesis #2): any backend failure falls
-        # back to deterministic keyword tags; no model means no offload at all.
-        model_tag = self.model_tag
-        if model_tag is None and models:
-            from products.groom.model_tag import broker_tag
+            # Step 1: Groom the input (redact → expand → context → tag). The ONE
+            # fuzzy step (tag) is offloaded to a local model via the broker when one
+            # is available — so the boundary record logs ``tier: model:local`` rather
+            # than ``deterministic``. SOFT (thesis #2): any backend failure falls
+            # back to deterministic keyword tags; no model means no offload at all.
+            model_tag = self.model_tag
+            if model_tag is None and models:
+                from products.groom.model_tag import broker_tag
 
-            model_tag = broker_tag()
-        annotation = groom(
-            user_text,
-            manifest=self.manifest,
-            sink=self.sink,
-            cwd=self.cwd,
-            task_id=task_id,
-            model_tag=model_tag,
-        )
-
-        # Step 2: Build the reasoning chain (the brain rule, CONSTITUTION). kinox's
-        # brain is cloud-first: ``glm-5.2`` primary, an OpenRouter secondary when
-        # keyed, then the first local model as the fail-soft fallback (thesis #1 +
-        # spec §6). With no local model the cloud tiers answer on their own; with
-        # the cloud brain disabled (``KINOX_BRAIN=local``) it is local-only. Only an
-        # empty chain (no cloud, no local) is a hard stop.
-        from daemon.brain import brain_chain
-
-        # The local fallback is the SMALLEST model under the size cap
-        # (``fitting_local_models`` is capped + sorted smallest-first) — never a
-        # large model loaded as a pre-context fallback. None when no small model
-        # fits, in which case the cloud brain answers on its own.
-        fitting = self.manifest.fitting_local_models()
-        local_tier = (
-            Tier.model(fitting[0].name, where="local", backend=fitting[0].backend)
-            if fitting
-            else None
-        )
-        chain = brain_chain(local_tier)
-        if not chain:
-            return (
-                "(no model available — set ZAI_API_KEY for the cloud brain, "
-                "or run a local model with `ollama serve`)",
-                annotation.lines,
-                None,
+                model_tag = broker_tag()
+            annotation = groom(
+                user_text,
+                manifest=self.manifest,
+                sink=self.sink,
+                cwd=self.cwd,
+                task_id=task_id,
+                model_tag=model_tag,
             )
 
-        # Step 3: Build the messages payload, with groom context pre-injected.
-        # Context lines (redacted secrets, expanded paths, git/fs state, tags)
-        # are prepended to the user message so the model has situational
-        # awareness — the same information the human sees as ⓘ notes.
-        enriched = user_text
-        if annotation.lines:
-            ctx_block = "[groom context]\n" + "\n".join(
-                f"  {line}" for line in annotation.lines
+            # Step 2: Build the reasoning chain (the brain rule, CONSTITUTION). kinox's
+            # brain is cloud-first: ``glm-5.2`` primary, an OpenRouter secondary when
+            # keyed, then the first local model as the fail-soft fallback (thesis #1 +
+            # spec §6). With no local model the cloud tiers answer on their own; with
+            # the cloud brain disabled (``KINOX_BRAIN=local``) it is local-only. Only an
+            # empty chain (no cloud, no local) is a hard stop.
+            from daemon.brain import brain_chain
+
+            # The local fallback is the SMALLEST model under the size cap
+            # (``fitting_local_models`` is capped + sorted smallest-first) — never a
+            # large model loaded as a pre-context fallback. None when no small model
+            # fits, in which case the cloud brain answers on its own.
+            fitting = self.manifest.fitting_local_models()
+            local_tier = (
+                Tier.model(fitting[0].name, where="local", backend=fitting[0].backend)
+                if fitting
+                else None
             )
-            enriched = f"{ctx_block}\n---\n{user_text}"
+            chain = brain_chain(local_tier)
+            if not chain:
+                return (
+                    "(no model available — set ZAI_API_KEY for the cloud brain, "
+                    "or run a local model with `ollama serve`)",
+                    annotation.lines,
+                    None,
+                )
 
-        messages: list[dict[str, object]] = [
-            {"role": "system", "content": self.system_prompt},
-            *self.history,
-            {"role": "user", "content": enriched},
-        ]
+            # Step 3: Build the messages payload, with groom context pre-injected.
+            # Context lines (redacted secrets, expanded paths, git/fs state, tags)
+            # are prepended to the user message so the model has situational
+            # awareness — the same information the human sees as ⓘ notes.
+            enriched = user_text
+            if annotation.lines:
+                ctx_block = "[groom context]\n" + "\n".join(
+                    f"  {line}" for line in annotation.lines
+                )
+                enriched = f"{ctx_block}\n---\n{user_text}"
 
-        # Step 4: Dispatch over the fallback chain via the broker executor.
-        response_text, tier_used = self._dispatch(chain, messages, task_id)
+            messages: list[dict[str, object]] = [
+                {"role": "system", "content": self.system_prompt},
+                *self.history,
+                {"role": "user", "content": enriched},
+            ]
 
-        # Step 5: Update history, capped at _MAX_HISTORY_PAIRS pairs.
-        self.history.append({"role": "user", "content": user_text})
-        self.history.append({"role": "assistant", "content": response_text})
-        while len(self.history) > _MAX_HISTORY_PAIRS * 2:
-            self.history.pop(0)  # drop oldest pair
+            # Step 4: Dispatch over the fallback chain via the broker executor.
+            response_text, tier_used = self._dispatch(chain, messages, task_id)
 
-        return response_text, annotation.lines, tier_used
+            # Step 5: Update history, capped at _MAX_HISTORY_PAIRS pairs.
+            self.history.append({"role": "user", "content": user_text})
+            self.history.append({"role": "assistant", "content": response_text})
+            while len(self.history) > _MAX_HISTORY_PAIRS * 2:
+                self.history.pop(0)  # drop oldest pair
+
+            return response_text, annotation.lines, tier_used
 
     def clear(self) -> None:
         """Reset conversation history (keep system prompt and wiring)."""

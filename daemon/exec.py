@@ -20,6 +20,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from kernel.contracts import EventRecord, Tier
+from kernel.tracing import span
 
 from daemon.backoff import RetryPolicy
 
@@ -174,50 +175,58 @@ async def execute(
     Raises ``ChainExhausted`` — carrying a failure ``EventRecord`` (so the log
     has no silent gap) — when every tier fails or the chain is empty.
     """
-    last_tier: Tier | None = None
+    # The "broker" span of the end-to-end trace (vision §7): one per execute call,
+    # with a child span per tier attempt. A no-op unless a tracer is installed.
+    with span(
+        "broker.execute",
+        {"kinox.task_id": task_id, "kinox.kind": kind, "kinox.chain_len": len(chain)},
+    ):
+        last_tier: Tier | None = None
 
-    for tier in chain:
-        last_tier = tier
-        before = sample_vram() if sample_vram is not None else None
-        started = time.perf_counter()
-        response = await _call_with_retry(
-            call, tier, messages, retry=retry, sleep=sleep
-        )
-        if response is None:
-            # Fail soft: this tier gave up (after any retries) → next tier.
-            continue
-        latency_ms = (time.perf_counter() - started) * 1000.0
-        after = sample_vram() if sample_vram is not None else None
+        for tier in chain:
+            last_tier = tier
+            before = sample_vram() if sample_vram is not None else None
+            started = time.perf_counter()
+            with span("broker.tier", {"kinox.tier": tier_label(tier)}) as tier_span:
+                response = await _call_with_retry(
+                    call, tier, messages, retry=retry, sleep=sleep
+                )
+                tier_span.set_attribute("kinox.hit", response is not None)
+            if response is None:
+                # Fail soft: this tier gave up (after any retries) → next tier.
+                continue
+            latency_ms = (time.perf_counter() - started) * 1000.0
+            after = sample_vram() if sample_vram is not None else None
 
-        event = EventRecord(
+            event = EventRecord(
+                task_id=task_id,
+                kind=kind,
+                tier=tier_label(tier),
+                tokens_in=response.tokens_in,
+                tokens_out=response.tokens_out,
+                tokens_exact=response.tokens_exact,
+                latency_ms=latency_ms,
+            )
+            vram_delta = (
+                after - before if (before is not None and after is not None) else None
+            )
+            return ExecResult(
+                content=response.content,
+                tier_used=tier,
+                event=event,
+                vram_delta_gb=vram_delta,
+                tool_calls=response.tool_calls,
+                finish_reason=response.finish_reason,
+            )
+
+        # Chain exhausted (or empty): emit a failure record, then raise.
+        failure = EventRecord(
             task_id=task_id,
             kind=kind,
-            tier=tier_label(tier),
-            tokens_in=response.tokens_in,
-            tokens_out=response.tokens_out,
-            tokens_exact=response.tokens_exact,
-            latency_ms=latency_ms,
+            tier=tier_label(last_tier) if last_tier is not None else "none",
+            tokens_in=None,
+            tokens_out=None,
+            tokens_exact=False,
+            latency_ms=None,
         )
-        vram_delta = (
-            after - before if (before is not None and after is not None) else None
-        )
-        return ExecResult(
-            content=response.content,
-            tier_used=tier,
-            event=event,
-            vram_delta_gb=vram_delta,
-            tool_calls=response.tool_calls,
-            finish_reason=response.finish_reason,
-        )
-
-    # Chain exhausted (or empty): emit a failure record, then raise.
-    failure = EventRecord(
-        task_id=task_id,
-        kind=kind,
-        tier=tier_label(last_tier) if last_tier is not None else "none",
-        tokens_in=None,
-        tokens_out=None,
-        tokens_exact=False,
-        latency_ms=None,
-    )
-    raise ChainExhausted(failure)
+        raise ChainExhausted(failure)
