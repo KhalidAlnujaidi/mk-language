@@ -102,12 +102,27 @@ def gate(
     # the golden set legitimately carries known-failing tasks (honest fitness gaps),
     # so the bar is "added no new failures", per this gate's own contract — "does
     # not regress vs. the baseline". An empty run (nothing measured) is also refused.
-    if after.total == 0 or after.failed > before.failed:
+    #
+    # Crucially this checks the per-task regression SET, not just the failure count:
+    # a change that fixes one golden task and breaks another leaves the count
+    # unchanged but must still be rejected. ``regressed`` = tasks that passed before
+    # and fail now. (The count check stays as a fallback for count-only reports.)
+    regressed = sorted(set(after.failed_ids) - set(before.failed_ids))
+    if after.total == 0 or regressed or after.failed > before.failed:
+        if after.total == 0:
+            reason = "rejected — nothing ran (no measurable eval signal)"
+        elif regressed:
+            reason = (
+                "rejected — previously-passing golden task(s) regressed: "
+                + ", ".join(regressed)
+            )
+        else:
+            reason = "rejected — eval set regressed vs. baseline (more failures)"
         return Decision(
             proposal,
             approved=False,
             requires_human=False,
-            reason="rejected — eval set regressed vs. baseline (or nothing ran)",
+            reason=reason,
         )
 
     return Decision(

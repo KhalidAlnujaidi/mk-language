@@ -84,3 +84,62 @@ def test_config_change_that_regresses_is_rejected(
     )
     assert not decision.approved and not decision.requires_human
     assert "regress" in decision.reason.lower()
+
+
+def test_gate_rejects_a_same_count_task_swap(tmp_path: Path) -> None:
+    # The regression the raw failure COUNT misses: one golden task fixed, another
+    # broken, net failures unchanged (1 → 1). The per-task set must still reject it.
+    before = EvalReport(total=10, passed=9, failed=1, failed_ids=("task-A",))
+    after = EvalReport(total=10, passed=9, failed=1, failed_ids=("task-B",))
+    decision = evolve.gate(
+        Proposal(target="groom.config", change="swap", kind="config"),
+        before=before,
+        after=after,
+        evolutions_dir=tmp_path,
+        eval_id="ev-swap",
+    )
+    assert not decision.approved and not decision.requires_human
+    assert "task-B" in decision.reason  # names the regressed task, not a bare count
+    assert "regress" in decision.reason.lower()
+
+
+def test_gate_approves_a_pure_improvement(tmp_path: Path) -> None:
+    # A task FIXED with no new failures → empty regression set → approved.
+    before = EvalReport(total=10, passed=8, failed=2, failed_ids=("task-A", "task-B"))
+    after = EvalReport(total=10, passed=9, failed=1, failed_ids=("task-A",))
+    decision = evolve.gate(
+        Proposal(target="groom.config", change="fix", kind="config"),
+        before=before,
+        after=after,
+        evolutions_dir=tmp_path,
+        eval_id="ev-fix",
+    )
+    assert decision.approved and not decision.requires_human
+
+
+def test_run_evolution_gate_rejects_a_task_swap_end_to_end(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Wiring proof: run_evolution_gate carries failed_ids through to the gate, so a
+    # same-count swap (one task fixed, another broken) is rejected by identity.
+    reports = iter(
+        [
+            EvalReport(
+                total=28, passed=27, failed=1, failed_ids=("router-fuzzy-local",)
+            ),
+            EvalReport(
+                total=28, passed=27, failed=1, failed_ids=("groom-tag-intent",)
+            ),
+        ]
+    )
+    monkeypatch.setattr(evolve, "run_golden_eval", lambda *_a, **_k: next(reports))
+    decision = run_evolution_gate(
+        Proposal(target="groom.config", change="risky-swap", kind="config"),
+        root=_ROOT,
+        apply_change=lambda: None,
+        evolutions_dir=tmp_path,
+        eval_id="ev-swap-e2e",
+        tasks_dir=_TASKS,
+    )
+    assert not decision.approved and not decision.requires_human
+    assert "groom-tag-intent" in decision.reason

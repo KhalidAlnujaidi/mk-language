@@ -25,6 +25,13 @@ def test_verdict_detects_hard_regression() -> None:
     assert _verdict(before, after) == "regressed"
 
 
+def test_verdict_detects_same_count_task_swap_as_regressed() -> None:
+    """Same failure count, but a previously-passing task now fails → regressed."""
+    before = EvalReport(total=10, passed=9, failed=1, failed_ids=("task-A",))
+    after = EvalReport(total=10, passed=9, failed=1, failed_ids=("task-B",))
+    assert _verdict(before, after) == "regressed"
+
+
 def test_verdict_detects_partial_regression_via_score() -> None:
     """Score drop with stable pass/fail → score_regressed (cheat #1)."""
     before = EvalReport(total=10, passed=10, failed=0)

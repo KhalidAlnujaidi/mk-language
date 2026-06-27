@@ -23,11 +23,19 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class EvalReport:
-    """Outcome of one eval-set run. ``ok`` needs >=1 test and zero failures."""
+    """Outcome of one eval-set run. ``ok`` needs >=1 test and zero failures.
+
+    ``failed_ids`` carries the *identity* of the failing cases (a sorted tuple —
+    JSON-serialisable, unlike a set), so a gate can detect a per-task regression
+    that the raw ``failed`` count misses: a change that fixes one task and breaks
+    another leaves the count unchanged but must still be rejected. Defaults to
+    empty for back-compat with count-only constructions.
+    """
 
     total: int
     passed: int
     failed: int
+    failed_ids: tuple[str, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -55,11 +63,22 @@ def run_eval_set(path: str = "tests/eval") -> EvalReport:
     # <testsuites> wraps one-or-more <testsuite>; sum tallies across all.
     suites = root.findall("testsuite") if root.tag == "testsuites" else [root]
     total = failed = skipped = 0
+    failed_ids: list[str] = []
     for s in suites:
         total += int(s.get("tests", 0))
         failed += int(s.get("failures", 0)) + int(s.get("errors", 0))
         skipped += int(s.get("skipped", 0))
-    return EvalReport(total=total, passed=total - failed - skipped, failed=failed)
+        for case in s.iter("testcase"):
+            if case.find("failure") is not None or case.find("error") is not None:
+                cls = case.get("classname", "")
+                name = case.get("name", "")
+                failed_ids.append(f"{cls}::{name}" if cls else name)
+    return EvalReport(
+        total=total,
+        passed=total - failed - skipped,
+        failed=failed,
+        failed_ids=tuple(sorted(failed_ids)),
+    )
 
 
 def run_golden_eval(
@@ -79,5 +98,10 @@ def run_golden_eval(
     # do not participate in the deterministic gate, so exclude them from the tally.
     ran = [r for r in run_golden_set(tasks_dir, root=root) if not r.skipped]
     total = len(ran)
-    failed = sum(1 for r in ran if not r.passed)
-    return EvalReport(total=total, passed=total - failed, failed=failed)
+    failing = tuple(sorted(r.task_id for r in ran if not r.passed))
+    return EvalReport(
+        total=total,
+        passed=total - len(failing),
+        failed=len(failing),
+        failed_ids=failing,
+    )
