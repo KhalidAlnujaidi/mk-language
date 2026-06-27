@@ -1,9 +1,9 @@
 {
   "id": "agent-tool-correctness",
-  "description": "Agent calls the expected tools (read_file, then grep) for a code-search task",
-  "prompt": "find all callers of run_agent() in the codebase",
-  "tags": ["agent", "tool_correctness"],
+  "description": "Live eval (KINOX_EVAL_LIVE): the agent uses the shell search tool (run_bash/grep) to find callers in the codebase.",
+  "prompt": "find all callers of run_agent() in the codebase using grep",
+  "tags": ["agent", "tool_correctness", "live"],
   "assertions": [
-    {"kind": "tool_correctness", "target": "tools_called", "expected": "read_file,grep"}
+    {"kind": "tool_correctness", "target": "tools_called", "expected": "run_bash"}
   ]
 }

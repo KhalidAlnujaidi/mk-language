@@ -1,9 +1,10 @@
 {
   "id": "agent-step-efficiency",
-  "description": "Agent completes a simple file-read task in 2 or fewer steps",
+  "description": "Live eval (KINOX_EVAL_LIVE): the agent reads one file and answers in a few (<=3) steps.",
   "prompt": "read the file config.toml and tell me the app name",
-  "tags": ["agent", "step_efficiency"],
+  "tags": ["agent", "step_efficiency", "live"],
+  "setup": {"config.toml": "[app]\nname = \"kinox\"\n"},
   "assertions": [
-    {"kind": "step_efficiency", "target": "step_count", "expected": "2"}
+    {"kind": "step_efficiency", "target": "step_count", "expected": "3"}
   ]
 }

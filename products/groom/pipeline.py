@@ -90,7 +90,7 @@ def groom(
     # Stage 2: expand
     # ------------------------------------------------------------------
     t0 = time.perf_counter()
-    expand_result = expand_stage.expand(working_text)
+    expand_result = expand_stage.expand(working_text, cwd=cwd)
     latency_expand = (time.perf_counter() - t0) * 1000.0
 
     sink.record(
