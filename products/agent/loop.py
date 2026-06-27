@@ -30,6 +30,7 @@ from kernel.contracts import EventRecord, Tier
 from kernel.jsonutil import as_dict
 from kernel.metrics import MetricsSink
 
+from products.agent.budget import TokenBudget
 from products.agent.tools import ToolRegistry
 
 #: Builds the executor ``Call`` for a given tool schema. Default binds the schema
@@ -92,7 +93,8 @@ class AgentStep:
 @dataclass
 class AgentResult:
     """The outcome of a run: the final text, the full step trace, the turn count,
-    and why it stopped (``"complete"`` | ``"max_turns"`` | ``"error"``)."""
+    and why it stopped (``"complete"`` | ``"max_turns"`` | ``"budget"`` |
+    ``"stuck"`` | ``"error"``)."""
 
     final_text: str
     steps: list[AgentStep] = field(default_factory=list[AgentStep])
@@ -125,6 +127,7 @@ async def run_agent(
     stall_repeats: int = 3,
     stall_blocks: int = 5,
     context_soft_chars: int = 40_000,
+    token_budget: TokenBudget | None = None,
     guard: Guard | None = None,
     call_factory: CallFactory | None = None,
     on_step: Callable[[AgentStep], None] | None = None,
@@ -146,6 +149,13 @@ async def run_agent(
     edit→test→edit loop (same command, changing output) is not flagged. *max_turns*
     remains only as a fail-CLOSED backstop: a hard ceiling on cost so an agent that
     never repeats and never converges still cannot spend unbounded cloud budget.
+
+    *token_budget* (vision §9), when given, caps the *total* tokens (prompt +
+    completion, summed across turns) the run may spend. Unlike *max_turns* (a turn
+    proxy), this is the real cost ceiling. It fails SOFT: once spent, the loop
+    returns what it has with ``stopped="budget"`` rather than starting another
+    expensive turn — a run may overshoot by at most the turn in flight. ``None``
+    (default) is unlimited, so an unset budget never changes a run.
 
     Context is governed deterministically to fight rot (no model judging
     relevance): an idempotent read repeated with the same arguments returns a
@@ -221,7 +231,24 @@ async def run_agent(
     outcome_counts: dict[str, int] = {}
     blocked_streak = 0
 
+    # Running token tally for *token_budget* (vision §9). Summed from each model
+    # turn's EventRecord (prompt + completion). Checked at the TOP of a turn so an
+    # exhausted budget stops the run *before* spending another expensive call.
+    spent_tokens = 0
+
     for turn in range(max_turns):
+        if token_budget is not None and token_budget.exhausted(spent_tokens):
+            # Fail-soft early exit (vision §9): return what we have, don't raise.
+            # Checked before the turn counter so result.turns reflects *completed*
+            # turns, and before execute() so no further call is spent.
+            result.stopped = "budget"
+            if not result.final_text:
+                result.final_text = (
+                    f"(stopped: token budget of {token_budget.limit} reached after "
+                    f"{result.turns} turns / {spent_tokens} tokens — raise the "
+                    "budget or narrow the task)"
+                )
+            return result
         result.turns = turn + 1
         try:
             exec_result = await execute(
@@ -245,6 +272,11 @@ async def run_agent(
 
         # Every model turn is one boundary record (kind="agent").
         sink.record(exec_result.event)
+        # Accrue this turn's tokens toward the budget (honest: counts may be None
+        # when a backend did not report them — treat missing as zero, never guess).
+        spent_tokens += (exec_result.event.tokens_in or 0) + (
+            exec_result.event.tokens_out or 0
+        )
         tool_calls = exec_result.tool_calls
         if not tool_calls:
             # Plain-text answer → the task is done.
