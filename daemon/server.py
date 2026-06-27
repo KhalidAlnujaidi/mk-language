@@ -33,7 +33,7 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from kernel.contracts import EventRecord
 from kernel.jsonutil import as_dict
@@ -54,6 +54,7 @@ from daemon.outbox import Outbox, OutboxEntry
 from daemon.resources import ResourceSnapshot
 from daemon.resources import sample as default_resources
 from daemon.serializer import Serializer
+from daemon.tracing import incoming_trace, init_tracing
 
 # How many recent events ``/broker/status`` surfaces.
 _RECENT_EVENTS_LIMIT = 20
@@ -190,6 +191,10 @@ def create_app(config: BrokerConfig | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):  # pyright: ignore[reportUnusedFunction]
+        # Activate the daemon's own OTel tracer (vision §7) so the broker process
+        # emits spans and can join an external caller's trace. No-op unless
+        # KINOX_OTEL=1 and the otel extra is installed; fail-soft otherwise.
+        init_tracing()
         # Crash recovery runs when the daemon STARTS (uvicorn lifespan / a
         # `with TestClient(...)` block) — never on mere import — so importing this
         # module to build the app touches no outbox file.
@@ -202,69 +207,74 @@ def create_app(config: BrokerConfig | None = None) -> FastAPI:
     @app.post("/v1/chat/completions")
     async def chat_completions(  # pyright: ignore[reportUnusedFunction]
         request: dict[str, object],
+        http_request: Request,
     ) -> object:
-        messages = _coerce_messages(request.get("messages"))
-        requested = request.get("model")
-        preferred = requested if isinstance(requested, str) else None
-        task_id = f"chat-{int(time.time() * 1000)}"
+        # Join the caller's trace if the request carries a W3C traceparent, so the
+        # broker's spans (broker.execute → …) nest under the remote span — one trace
+        # across the process boundary. A no-op when tracing is off.
+        with incoming_trace(http_request.headers):
+            messages = _coerce_messages(request.get("messages"))
+            requested = request.get("model")
+            preferred = requested if isinstance(requested, str) else None
+            task_id = f"chat-{int(time.time() * 1000)}"
 
-        # Run the pre-inference hook chain before any model call.
-        # CLOSED hooks block; SOFT hooks inject context (thesis #2).
-        if hook_chain is not None:
-            hook_input: dict[str, object] = {
-                "messages": messages,
-                "model": preferred or "auto",
-            }
-            hook_result = await hook_chain.run(hook_input)
-            if hook_result.decision == "deny":
-                return _error_response(
-                    hook_result.reason or "blocked by hook",
-                    type_="hook_denied",
-                    status=403,
-                )
+            # Run the pre-inference hook chain before any model call.
+            # CLOSED hooks block; SOFT hooks inject context (thesis #2).
+            if hook_chain is not None:
+                hook_input: dict[str, object] = {
+                    "messages": messages,
+                    "model": preferred or "auto",
+                }
+                hook_result = await hook_chain.run(hook_input)
+                if hook_result.decision == "deny":
+                    return _error_response(
+                        hook_result.reason or "blocked by hook",
+                        type_="hook_denied",
+                        status=403,
+                    )
 
-        # Hard truth #4: record the intended effect BEFORE execution —
-        # triples as crash-replay source, audit trail, and correction signal.
-        if outbox is not None:
-            outbox.append(
-                id=task_id,
-                kind="inference",
-                payload=json.dumps(
-                    {
-                        "model": preferred or "auto",
-                        "message_count": len(messages),
-                        "timestamp": int(time.time()),
-                    }
-                ),
-            )
-
-        async with serializer.slot():
-            manifest = cfg.probe()
-            chain = build_chain(manifest, preferred)
-            try:
-                result = await execute(
-                    chain,
-                    messages,
-                    call=call,
-                    task_id=task_id,
-                )
-            except ChainExhausted as exc:
-                if outbox is not None:
-                    outbox.mark_failed(task_id)
-                sink.record(exc.event)
-                state["last_tier_used"] = exc.event.tier
-                return _error_response(
-                    "no model tier could serve this request",
-                    type_="broker_chain_exhausted",
-                    status=503,
-                )
-
+            # Hard truth #4: record the intended effect BEFORE execution —
+            # triples as crash-replay source, audit trail, and correction signal.
             if outbox is not None:
-                outbox.mark_done(task_id)
-            sink.record(result.event)
-            state["last_tier_used"] = result.event.tier
-            model_name = result.tier_used.model_name or "unknown"
-            return _completion_body(result.content, model_name, result.event)
+                outbox.append(
+                    id=task_id,
+                    kind="inference",
+                    payload=json.dumps(
+                        {
+                            "model": preferred or "auto",
+                            "message_count": len(messages),
+                            "timestamp": int(time.time()),
+                        }
+                    ),
+                )
+
+            async with serializer.slot():
+                manifest = cfg.probe()
+                chain = build_chain(manifest, preferred)
+                try:
+                    result = await execute(
+                        chain,
+                        messages,
+                        call=call,
+                        task_id=task_id,
+                    )
+                except ChainExhausted as exc:
+                    if outbox is not None:
+                        outbox.mark_failed(task_id)
+                    sink.record(exc.event)
+                    state["last_tier_used"] = exc.event.tier
+                    return _error_response(
+                        "no model tier could serve this request",
+                        type_="broker_chain_exhausted",
+                        status=503,
+                    )
+
+                if outbox is not None:
+                    outbox.mark_done(task_id)
+                sink.record(result.event)
+                state["last_tier_used"] = result.event.tier
+                model_name = result.tier_used.model_name or "unknown"
+                return _completion_body(result.content, model_name, result.event)
 
     @app.get("/broker/route")
     async def broker_route(  # pyright: ignore[reportUnusedFunction]
