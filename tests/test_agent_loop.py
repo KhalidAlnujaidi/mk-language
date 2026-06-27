@@ -96,6 +96,55 @@ def test_loop_dispatches_then_completes() -> None:
     assert tool_steps and tool_steps[0].name == "echo"
 
 
+def _capturing_factory(seen: dict[str, Messages]) -> object:
+    """A call_factory that records the messages of the first turn, then completes."""
+
+    def factory(_schema: list[dict[str, object]]) -> Call:
+        async def call(_tier: Tier, messages: Messages) -> BackendResponse:
+            seen.setdefault("m", list(messages))
+            return BackendResponse(content="done", finish_reason="stop")
+
+        return call
+
+    return factory
+
+
+def test_plan_injected_as_hint() -> None:
+    # A prehook plan rides in as a system message the brain sees, framed as a hint.
+    seen: dict[str, Messages] = {}
+    _run(
+        run_agent(
+            "do it",
+            tier=TIER,
+            registry=_echo_registry(),
+            sink=_sink(),
+            task_id="t",
+            plan="1. edit a.py\n2. run tests",
+            call_factory=_capturing_factory(seen),  # type: ignore[arg-type]
+        )
+    )
+    systems = [m["content"] for m in seen["m"] if m["role"] == "system"]
+    assert any(
+        "edit a.py" in str(c) and "hint, not a contract" in str(c) for c in systems
+    )
+
+
+def test_no_plan_means_no_hint() -> None:
+    # Absent a plan (planner off/unavailable), the brain runs exactly as before.
+    seen: dict[str, Messages] = {}
+    _run(
+        run_agent(
+            "do it",
+            tier=TIER,
+            registry=_echo_registry(),
+            sink=_sink(),
+            task_id="t",
+            call_factory=_capturing_factory(seen),  # type: ignore[arg-type]
+        )
+    )
+    assert not any("[plan]" in str(m["content"]) for m in seen["m"])
+
+
 def test_loop_caps_runaway_at_max_turns() -> None:
     # Model that NEVER stops calling tools → must be stopped fail-CLOSED.
     forever = BackendResponse(

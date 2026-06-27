@@ -121,6 +121,7 @@ async def run_agent(
     system_prompt: str = AGENT_SYSTEM_PROMPT,
     preamble: str = "",
     history: Messages | None = None,
+    plan: str | None = None,
     max_turns: int = 8,
     context_soft_chars: int = 40_000,
     guard: Guard | None = None,
@@ -158,6 +159,12 @@ async def run_agent(
     multi-turn agent session has memory of earlier turns. Only the caller's
     distilled turn pairs belong here — never this run's ephemeral tool scratch,
     which is rebuilt fresh each call.
+
+    *plan*, when given, is a terse checklist a cheap local prehook planner
+    (:func:`products.agent.planner.plan_task`) drafted for this task; it is
+    injected as a HINT (an extra system message), never a contract — the guards
+    and the model's judgment stay authoritative. It front-loads direction to curb
+    wander before the expensive brain starts; absent/empty, the brain runs unguided.
     """
     factory = call_factory or _default_call_factory()
     chain = [tier] if fallback is None or fallback == tier else [tier, fallback]
@@ -170,6 +177,21 @@ async def run_agent(
         *(history or []),
         {"role": "user", "content": task},
     ]
+    # A cheap local planner (products.agent.planner) may front-load a terse plan to
+    # curb wander before the expensive brain starts. It is a HINT, not a contract:
+    # the guards and the model's judgment stay authoritative, so a wrong plan can
+    # mislead but never override safety. Empty/absent → the brain runs unguided.
+    if plan:
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "[plan] A cheap local planner suggested this approach. Treat it "
+                    "as a hint, not a contract — follow it only where it is correct, "
+                    "and your guards and judgment remain authoritative:\n" + plan
+                ),
+            }
+        )
     result = AgentResult(final_text="")
 
     # Context governance (fights rot, not breadth): remember idempotent reads so a

@@ -678,6 +678,7 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
     from kernel.contracts import Tier
 
     from products.agent import default_registry, project_root_guard, run_agent
+    from products.agent.planner import plan_task
     from products.capabilities.registry import CapabilityRegistry
 
     kinox_root = Path(__file__).resolve().parents[2]
@@ -732,15 +733,22 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
     steps_q: deque[object] = deque()
 
     def work() -> object:
-        return asyncio.run(
-            run_agent(
+        async def _go() -> object:
+            base_id = uuid.uuid4().hex[:12]
+            # Cheap local prehook: draft a plan to curb wander before the dear
+            # brain runs. Fail-soft — None (planner off/unavailable) runs unguided.
+            plan = await plan_task(
+                task, sink=session.sink, task_id=f"{base_id}-plan"
+            )
+            return await run_agent(
                 task,
                 tier=tier,
                 registry=registry,
                 sink=session.sink,
-                task_id=uuid.uuid4().hex[:12],
+                task_id=base_id,
                 preamble=_session_preamble(kinox_root, session.cwd),
                 history=list(session.history),
+                plan=plan,
                 guard=project_root_guard(
                     session.cwd,
                     # Framework scope may not write down into a project scope —
@@ -754,7 +762,8 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
                 max_turns=int(os.environ.get("KINOX_MAX_TURNS", "30")),
                 on_step=steps_q.append,
             )
-        )
+
+        return asyncio.run(_go())
 
     tools_done = 0
     with ThreadPoolExecutor(max_workers=1) as executor:
@@ -854,6 +863,7 @@ def _run_parallel_turn(
 
     from products.agent import Slice, default_registry, run_agent, run_parallel
     from products.agent.coordinator import OverlapError, assert_disjoint
+    from products.agent.planner import plan_task
     from products.capabilities.registry import CapabilityRegistry
 
     specs = _parse_slices(arg)
@@ -914,6 +924,11 @@ def _run_parallel_turn(
 
     def make_run() -> object:
         async def run(s: Slice, guard: object) -> object:
+            # Each slice gets its own prehook plan (its task is disjoint from the
+            # others), front-loading direction before the dear brain runs. Fail-soft.
+            plan = await plan_task(
+                s.task, sink=session.sink, task_id=f"{base_id}:{s.label}-plan"
+            )
             return await run_agent(
                 s.task,
                 tier=tier,
@@ -922,6 +937,7 @@ def _run_parallel_turn(
                 task_id=f"{base_id}:{s.label}",
                 guard=guard,  # type: ignore[arg-type]
                 preamble=preamble,
+                plan=plan,
                 fallback=local_tier,
                 max_turns=max_turns,
                 # Tag each step with its slice label so the interleaved trace is
