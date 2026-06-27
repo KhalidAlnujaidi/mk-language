@@ -25,17 +25,18 @@ Examples:
   python scripts/ws_listener.py --clear /tmp/mydir                # Custom dir with clear
   kill "$(cat ~/.local/state/videodb/videodb_ws_pid)"             # Stop the listener
 """
-import os
-import sys
-import json
-import signal
 import asyncio
-import logging
 import contextlib
-from datetime import datetime, timezone
+import json
+import logging
+import os
+import signal
+import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 import videodb
@@ -112,7 +113,7 @@ def log(msg: str):
 
 def append_event(event: dict):
     """Append event to JSONL file with timestamps."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     event["ts"] = now.isoformat()
     event["unix_ts"] = now.timestamp()
     with EVENTS_FILE.open("a", encoding="utf-8") as f:

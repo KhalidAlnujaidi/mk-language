@@ -27,7 +27,7 @@ from pathlib import Path
 from kernel.manifest import Manifest
 from kernel.metrics import MetricsSink
 
-from products.chat.session import ChatSession
+from products.chat.session import _MAX_HISTORY_PAIRS, ChatSession
 
 #: How many turns of command history prompt_toolkit remembers.
 _HISTORY_SIZE = 200
@@ -328,11 +328,35 @@ def _pt_loop(session: ChatSession, console: object, pt: object) -> int:
     def _(event: object) -> None:
         event.current_buffer.insert_text("\t")
 
+    @kb.add("c-u")
+    def _(event: object) -> None:
+        # Wipe the WHOLE input in one keystroke — the default c-u only deletes
+        # to the start of the current line, which is useless after a long or
+        # pasted multi-line message. Clearing .text also resets the cursor.
+        event.current_buffer.text = ""
+
+    # Ctrl+W (delete previous word) and Ctrl+K (delete to end of line) come for
+    # free from prompt_toolkit's default emacs bindings; c-u above is the only
+    # one we override so it clears everything, not just the line.
+
     style = Style.from_dict(
         {
             "prompt": "ansicyan bold",
             "bottom-toolbar": "dim",
         }
+    )
+
+    # A fixed key reference, always pinned to the bottom so editing shortcuts
+    # are visible at a glance instead of only surfacing in the rotating tip.
+    sep = " | " if theme.ascii_only() else " · "
+    keys_line = sep.join(
+        (
+            "Enter send",
+            "Esc+Enter newline",
+            "Ctrl+U clear all",
+            "Ctrl+W del word",
+            "Ctrl+C quit",
+        )
     )
 
     def bottom_toolbar() -> str:
@@ -341,12 +365,13 @@ def _pt_loop(session: ChatSession, console: object, pt: object) -> int:
         m, s = divmod(secs, 60)
         elapsed = f"{m}m{s:02d}s" if m else f"{s}s"
         cloud = f" {theme.CLOUD}" if is_cloud and not theme.ascii_only() else ""
-        # Rotate a fresh hint each turn so the keybindings/commands teach
-        # themselves over a session instead of a fixed (ignorable) banner.
-        return (
+        # Two lines: a live status line + a rotating hint, then a fixed key
+        # reference pinned underneath so the shortcuts are always on screen.
+        status = (
             f" {scope_name} · {model_label}{cloud} · {n} turns · {elapsed}"
             f"    {theme.tip(n)}"
         )
+        return f"{status}\n {keys_line}"
 
     # Use prompt_toolkit.shortcuts.PromptSession for a clean API.
     try:
@@ -406,7 +431,12 @@ def _handle_command(raw: str, session: ChatSession, console: object) -> bool:
             "  [cyan]/model[/cyan]  — show/switch the brain (z.ai, OpenRouter, local)\n"
             "  [cyan]/models[/cyan] — list OpenRouter text models\n"
             "  [cyan]/chat[/cyan]   — one plain reply, no tools (escape agent mode)\n"
-            "  [cyan]/agent[/cyan]  — explicit agent task (turns are agent mode)\n\n"
+            "  [cyan]/agent[/cyan]  — explicit agent task (turns are agent mode)\n"
+            "  [cyan]/par[/cyan]    — fan out to parallel agents on disjoint slices "
+            "(project scope):\n"
+            "            [dim]/par <task> @ p1,p2 ;; <task2> @ p3[/dim]\n"
+            "  [cyan]/parf[/cyan]   — same, but framework scope (whole kinox "
+            "workspace)\n\n"
             "[dim]Every message runs the agent: read · write_file · run_bash · "
             "skills, in this scope.[/dim]\n"
             "[dim]Enter sends · Esc+Enter inserts a newline (multi-line)[/dim]\n"
@@ -429,6 +459,14 @@ def _handle_command(raw: str, session: ChatSession, console: object) -> bool:
             )
         else:
             _run_agent_turn(arg.strip(), session, console)
+        return True
+
+    if cmd in ("par", "parallel"):
+        _run_parallel_turn(arg.strip(), session, console, framework=False)
+        return True
+
+    if cmd == "parf":
+        _run_parallel_turn(arg.strip(), session, console, framework=True)
         return True
 
     if cmd == "chat":
@@ -587,15 +625,48 @@ def _process_turn(raw: str, session: ChatSession, console: object) -> None:
     console.print()  # blank line before next prompt
 
 
+
+
+def _is_framework_scope(kinox_root: Path, scope: Path) -> bool:
+    """True when the session scope IS the framework repo root (admin core scope).
+
+    Any other scope — a project under ``projects/`` or an external directory — is
+    a project scope. The discriminator is exact identity with the repo root, so a
+    project can never be mistaken for the framework.
+    """
+    try:
+        return scope.resolve() == kinox_root.resolve()
+    except OSError:
+        return False
+
+
+def _session_preamble(kinox_root: Path, scope: Path) -> str:
+    """Compile the scope-appropriate preamble for a session, pre-injected at turn one.
+
+    A **framework**-scope session (working on kinox) gets the axioms plus the
+    framework internals; a **project** session gets the axioms alone — it is told
+    the rules it must follow, never the structure of the framework that runs it.
+    Cached per root. Fails soft: returns '' if no alignment files are found.
+    """
+    try:
+        from products.agent.environment import session_preamble
+
+        return session_preamble(
+            kinox_root, framework=_is_framework_scope(kinox_root, scope)
+        )
+    except Exception:
+        return ""
+
+
 def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
     """Run one tool-calling agent task and render its step trace + answer.
 
-    This is the **default** turn for a ``kx`` session: the full, unrestricted
-    toolset — read + ``write_file`` + ``run_bash`` + the skill bridge over
-    ``.claude/skills`` (275 skills) — sandboxed to the session scope, with NO
-    pre-tool guard. The session is fully trusted (it is the operator's own admin
-    shell), so write/exec are ON. Dispatch runs in a worker thread for the
-    spinner.
+    This is the **default** turn for a ``kx`` session: the full toolset — read +
+    ``write_file`` + ``run_bash`` + the skill bridge over ``.claude/skills`` —
+    write/exec ON because the session is the operator's own shell, but jailed to
+    the session scope by ``project_root_guard`` so even an admin session resides
+    only within its repository (run_bash escapes the root → blocked, fail-CLOSED).
+    Dispatch runs in a worker thread for the spinner.
     """
     import asyncio
     import time
@@ -606,7 +677,8 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
     from daemon.brain import brain_tier
     from kernel.contracts import Tier
 
-    from products.agent import default_registry, run_agent
+    from products.agent import default_registry, project_root_guard, run_agent
+    from products.agent.planner import plan_task
     from products.capabilities.registry import CapabilityRegistry
 
     kinox_root = Path(__file__).resolve().parents[2]
@@ -661,18 +733,40 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
     steps_q: deque[object] = deque()
 
     def work() -> object:
-        return asyncio.run(
-            run_agent(
+        async def _go() -> object:
+            base_id = uuid.uuid4().hex[:12]
+            # Cheap local prehook: draft a plan to curb wander before the dear
+            # brain runs. Fail-soft — None (planner off/unavailable) runs unguided.
+            plan = await plan_task(
+                task,
+                sink=session.sink,
+                task_id=f"{base_id}-plan",
+                root=session.cwd,
+            )
+            return await run_agent(
                 task,
                 tier=tier,
                 registry=registry,
                 sink=session.sink,
-                task_id=uuid.uuid4().hex[:12],
+                task_id=base_id,
+                preamble=_session_preamble(kinox_root, session.cwd),
+                history=list(session.history),
+                plan=plan,
+                guard=project_root_guard(
+                    session.cwd,
+                    # Framework scope may not write down into a project scope —
+                    # the scope wall is bidirectional, so framework and project
+                    # work can run in parallel without overlap.
+                    deny_write_subpaths=("projects",)
+                    if _is_framework_scope(kinox_root, session.cwd)
+                    else (),
+                ),
                 fallback=local_tier,
-                max_turns=30,  # real dev tasks need room to read → act → verify
+                max_turns=int(os.environ.get("KINOX_MAX_TURNS", "30")),
                 on_step=steps_q.append,
             )
-        )
+
+        return asyncio.run(_go())
 
     tools_done = 0
     with ThreadPoolExecutor(max_workers=1) as executor:
@@ -708,10 +802,195 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
             console.print(f"[bold red]agent error:[/bold red] {exc}")
             return
 
+    # Persist this turn into the session's single canonical history so the next
+    # agent turn remembers it (each run_agent call otherwise starts cold). Store
+    # only the distilled user task + final answer — never the run's ephemeral tool
+    # scratch — mirroring ChatSession.send, and trim to the same pair cap.
+    final_text = getattr(result, "final_text", "")
+    if final_text:
+        session.history.append({"role": "user", "content": task})
+        session.history.append({"role": "assistant", "content": final_text})
+        while len(session.history) > _MAX_HISTORY_PAIRS * 2:
+            session.history.pop(0)  # drop oldest pair
+
     # Summary: the final answer, framed in a panel with a status footer.
     _render_summary(
         result, console, tools=tools_done, elapsed=time.monotonic() - start
     )
+    console.print()
+
+
+def _parse_slices(arg: str) -> list[tuple[str, tuple[str, ...]]] | None:
+    """Parse ``task @ p1,p2 ;; task2 @ p3`` into ``(task, owned_paths)`` specs.
+
+    Agents are split on ``;;``; within each, ``@`` separates the task from a
+    comma-list of owned paths. A spec with no ``@`` owns nothing (a read-only
+    slice). Returns ``None`` when nothing parseable is found or a task is empty.
+    """
+    specs: list[tuple[str, tuple[str, ...]]] = []
+    for chunk in arg.split(";;"):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        task, sep, paths = chunk.partition("@")
+        task = task.strip()
+        if not task:
+            return None
+        owned = (
+            tuple(p.strip() for p in paths.split(",") if p.strip()) if sep else ()
+        )
+        specs.append((task, owned))
+    return specs or None
+
+
+def _run_parallel_turn(
+    arg: str, session: ChatSession, console: object, *, framework: bool
+) -> None:
+    """Fan one turn out to N agents over disjoint slices (the parallelism axiom).
+
+    The scope is the *root* the coordinator partitions: the session's project
+    (``/par``) or the whole kinox workspace (``/parf``, *framework*). Each agent
+    is jailed to its own slice — a write into another agent's slice is refused —
+    so two agents run at once with nothing to collapse or override. The partition
+    is validated up-front (fail-CLOSED) so a bad split is a clean message, not a
+    half-run.
+    """
+    import asyncio
+    import time
+    import uuid
+    from collections import deque
+    from concurrent.futures import ThreadPoolExecutor
+
+    from daemon.brain import brain_tier
+    from kernel.contracts import Tier
+
+    from products.agent import Slice, default_registry, run_agent, run_parallel
+    from products.agent.coordinator import OverlapError, assert_disjoint
+    from products.agent.planner import plan_task
+    from products.capabilities.registry import CapabilityRegistry
+
+    specs = _parse_slices(arg)
+    if not specs or len(specs) < 2:
+        console.print(
+            "[dim]usage: /par <task> @ p1,p2 ;; <task2> @ p3 — 2+ agents, each "
+            "owning disjoint paths (/parf = framework scope)[/dim]"
+        )
+        return
+
+    kinox_root = Path(__file__).resolve().parents[2]
+    root = kinox_root if framework else session.cwd
+    scope = "framework" if framework else "project"
+
+    slices = [
+        Slice(task=t, owned=o, label=f"a{i + 1}") for i, (t, o) in enumerate(specs)
+    ]
+    try:
+        assert_disjoint(slices, root)  # fail-CLOSED before any agent spawns
+    except OverlapError as exc:
+        console.print(f"[bold red]overlap refused:[/bold red] {exc}")
+        return
+
+    skills = CapabilityRegistry.from_claude_dir(kinox_root / ".claude")
+    # One registry, jailed to the SCOPE root; each agent's per-slice guard (built
+    # by run_parallel) is what confines its writes. Dispatch is stateless, so the
+    # shared registry is safe under concurrency.
+    registry = default_registry(
+        root, skills=skills, allow_bash=True, allow_write=True
+    )
+    models = session.manifest.local_models
+    local_tier = (
+        Tier.model(models[0].name, where="local", backend=models[0].backend)
+        if models
+        else None
+    )
+    tier = brain_tier(fallback=local_tier)
+    if tier is None:
+        console.print(
+            "[dim]no model available (set ZAI_API_KEY or run a local model)[/dim]"
+        )
+        return
+
+    console.print(
+        f"\n[bold cyan]parallel[/bold cyan] [dim]({scope} scope)[/dim] · "
+        f"{len(slices)} agents"
+    )
+    for s in slices:
+        owns = ", ".join(s.owned) or "(read-only)"
+        console.print(
+            f"  [magenta]{s.label}[/magenta] [dim]{s.task} · owns {owns}[/dim]"
+        )
+
+    steps_q: deque[tuple[str, object]] = deque()
+    base_id = uuid.uuid4().hex[:12]
+    preamble = _session_preamble(kinox_root, root)
+    max_turns = int(os.environ.get("KINOX_MAX_TURNS", "30"))
+
+    def make_run() -> object:
+        async def run(s: Slice, guard: object) -> object:
+            # Each slice gets its own prehook plan (its task is disjoint from the
+            # others), front-loading direction before the dear brain runs. Fail-soft.
+            plan = await plan_task(
+                s.task,
+                sink=session.sink,
+                task_id=f"{base_id}:{s.label}-plan",
+                root=root,
+            )
+            return await run_agent(
+                s.task,
+                tier=tier,
+                registry=registry,
+                sink=session.sink,
+                task_id=f"{base_id}:{s.label}",
+                guard=guard,  # type: ignore[arg-type]
+                preamble=preamble,
+                plan=plan,
+                fallback=local_tier,
+                max_turns=max_turns,
+                # Tag each step with its slice label so the interleaved trace is
+                # attributable (one trace, the axiom's no-two-ID-systems rule).
+                on_step=lambda step, label=s.label: steps_q.append((label, step)),
+            )
+
+        return run
+
+    def work() -> object:
+        return asyncio.run(run_parallel(slices, root=root, run=make_run()))  # type: ignore[arg-type]
+
+    tools_done = 0
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(work)
+        start = time.monotonic()
+        with console.status("[dim]agents working…[/dim]", spinner="dots") as status:
+            while True:
+                while steps_q:
+                    label, step = steps_q.popleft()
+                    if step.kind == "tool":
+                        tools_done += 1
+                        line = _format_tool_step(step.name, step.detail, False)
+                        console.print(f"  [magenta]{label}[/magenta]{line}")
+                    elif step.kind == "blocked":
+                        console.print(
+                            f"  [magenta]{label}[/magenta]  [red]⛔ {step.name} "
+                            f"blocked:[/red] [dim]{step.detail}[/dim]"
+                        )
+                status.update(
+                    f"[dim]{len(slices)} agents · {tools_done} tools · "
+                    f"{time.monotonic() - start:.1f}s[/dim]"
+                )
+                if future.done() and not steps_q:
+                    break
+                time.sleep(0.1)
+        try:
+            pairs = future.result()
+        except Exception as exc:  # noqa: BLE001 — surface, never crash the TUI
+            console.print(f"[bold red]parallel error:[/bold red] {exc}")
+            return
+
+    elapsed = time.monotonic() - start
+    for s, result in pairs:
+        console.print(f"\n[bold magenta]{s.label}[/bold magenta] [dim]{s.task}[/dim]")
+        agent_tools = sum(1 for st in result.steps if st.kind == "tool")
+        _render_summary(result, console, tools=agent_tools, elapsed=elapsed)
     console.print()
 
 

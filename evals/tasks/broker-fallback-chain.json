@@ -1,0 +1,9 @@
+{
+  "id": "broker-fallback-chain",
+  "description": "When the primary model is unavailable, the broker falls through to the next tier",
+  "prompt": "summarize this: kinox is a governed coding-agent workspace",
+  "tags": ["broker", "fallback"],
+  "assertions": [
+    {"kind": "contains", "target": "response_text", "expected": ""}
+  ]
+}

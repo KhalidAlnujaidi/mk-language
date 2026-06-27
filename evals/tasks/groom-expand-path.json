@@ -1,0 +1,9 @@
+{
+  "id": "groom-expand-path",
+  "description": "A relative path in the prompt is expanded to absolute form",
+  "prompt": "read the file at ./README.md",
+  "tags": ["groom", "expand"],
+  "assertions": [
+    {"kind": "contains", "target": "annotation_lines", "expected": "README.md"}
+  ]
+}

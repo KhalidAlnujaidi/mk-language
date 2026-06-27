@@ -1,0 +1,9 @@
+{
+  "id": "router-deterministic-redact",
+  "description": "A secret-redaction prompt routes to the deterministic tier (no model call)",
+  "prompt": "use key: sk-ant-api-1234 with this code: print(1+1)",
+  "tags": ["router", "deterministic"],
+  "assertions": [
+    {"kind": "routed", "target": "tier_where", "expected": "deterministic"}
+  ]
+}

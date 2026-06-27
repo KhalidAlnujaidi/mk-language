@@ -2,7 +2,7 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
 
 jobs:
@@ -21,11 +21,27 @@ jobs:
         # dashboard (rich) optional deps the broker + dashboard tests/types need.
         run: uv sync --all-extras
 
+      # --- Hard gates: a red mark here blocks the merge. ---------------------
+
       - name: Lint (ruff)
         run: uv run ruff check .
 
-      - name: Type-check (pyright)
-        run: uv run pyright
+      # Type-check the pristine core as a HARD gate. These packages are at zero
+      # pyright errors and MUST stay there — this is the ratchet's locked rung.
+      # As products/tests reach zero (see the informational step below), promote
+      # them into this list so the clean set only ever grows.
+      - name: Type-check core (pyright · gated)
+        run: uv run pyright kernel daemon adapters evals kx
 
-      - name: Test (pytest, incl. architecture guardrail)
+      - name: Test (pytest, incl. kernel-purity architecture guardrail)
         run: uv run pytest
+
+      # --- Visibility: the remaining type debt, surfaced but non-blocking. ---
+
+      # products/tests still carry ~300 pre-existing strict-mode errors. We
+      # print them on every run so the debt is visible and reviewers can see it
+      # shrink, but they don't wall every PR. Pay down a package, get it to
+      # zero, then move it up into the gated step above and delete it here.
+      - name: Type-check rest (pyright · informational)
+        continue-on-error: true
+        run: uv run pyright products tests

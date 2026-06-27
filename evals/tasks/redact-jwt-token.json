@@ -1,0 +1,9 @@
+{
+  "id": "redact-jwt-token",
+  "description": "A JWT token in the prompt is redacted",
+  "prompt": "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.signature",
+  "tags": ["groom", "redact"],
+  "assertions": [
+    {"kind": "redacted", "target": "annotation_lines", "expected": "token"}
+  ]
+}

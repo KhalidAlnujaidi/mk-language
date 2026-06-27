@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import subprocess
 from dataclasses import dataclass
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-
 from scripts.runner import _setup_sandbox, run_scenario
 
 

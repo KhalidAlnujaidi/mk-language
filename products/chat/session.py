@@ -24,10 +24,15 @@ from products.groom.pipeline import groom
 from products.groom.tag import ModelTag
 
 DEFAULT_SYSTEM_PROMPT = (
-    "You are a helpful coding assistant running inside kinox — a local-first, "
-    "governed coding-agent workspace. Be concise, direct, and prefer showing "
-    "over telling. When asked to write code, include the full file or patch. "
-    "When unsure, say so rather than guessing."
+    "You are kinox — a local-first, governed coding-agent workspace. You operate "
+    "only within the current project; you have no business outside it. You are "
+    "bound by kinox's axioms: reuse before building (assume it already exists and "
+    "prove it does not first — compose, don't invent); prefer plain deterministic "
+    "code over a model whenever there is a ground truth; be honestly observable "
+    "(never fabricate a value, never leave a silent gap); a guard in doubt fails "
+    "CLOSED. Be concise, direct, and prefer showing over telling. When asked to "
+    "write code, include the full file or patch. When unsure, say so rather than "
+    "guessing."
 )
 
 # Keep at most this many user/assistant message pairs in history (≈200 lines of
@@ -92,9 +97,14 @@ class ChatSession:
         # empty chain (no cloud, no local) is a hard stop.
         from daemon.brain import brain_chain
 
+        # The local fallback is the SMALLEST model under the size cap
+        # (``fitting_local_models`` is capped + sorted smallest-first) — never a
+        # large model loaded as a pre-context fallback. None when no small model
+        # fits, in which case the cloud brain answers on its own.
+        fitting = self.manifest.fitting_local_models()
         local_tier = (
-            Tier.model(models[0].name, where="local", backend=models[0].backend)
-            if models
+            Tier.model(fitting[0].name, where="local", backend=fitting[0].backend)
+            if fitting
             else None
         )
         chain = brain_chain(local_tier)

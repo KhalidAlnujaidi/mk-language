@@ -74,6 +74,55 @@ still decides *what* you reach for.
 
 ---
 
+## The parallelism axiom — agents are independent, never collapsed
+
+_Added 2026-06-27 (deliberate change): the governed pipeline can fan one job out to
+two or more agents at once. The moment work runs in parallel the failure mode is no
+longer "too slow" — it is two agents quietly editing the same file and one silently
+winning. This is an axiom, not a feature toggle: parallelism that cannot guarantee
+non-overlap is forbidden._
+
+**Parallel agents own disjoint slices of the work, and the boundary between slices
+is enforced, not trusted.** Each agent may write only within the slice it owns; a
+write — direct or through the shell — that reaches into another agent's slice is
+refused (fail-CLOSED, thesis #2), and the coordinator proves the owned sets are
+disjoint *before a single agent is spawned*. The consequence is the axiom itself:
+**there is no work to collapse and none to override.** No agent's output can shadow
+another's, and there is no master agent or human override that silently merges two
+parallel results into one — a conflict surfaces as a refused action in the trace,
+never as a lost edit. Reads may overlap freely (observing a file cannot override
+it); only writes are partitioned. The mechanism is `products/agent/coordinator.py`
+(`assert_disjoint` + `ownership_guard` + `run_parallel`).
+
+---
+
+## The scope axiom — framework and project, with a wall between them
+
+_Added 2026-06-27 (deliberate change): there are exactly two scopes a session can
+run in, and what each is allowed to know is a governance boundary, not a
+convenience._
+
+**A session is either framework scope (working *on* kinox) or project scope
+(working *in* a user project), and a project is told only its axioms — never the
+framework that runs it.** A framework session receives the axioms plus kinox's
+internals (architecture map, file layout); a project session receives the
+operating axioms alone (`alignment/AXIOMS.md`) and nothing about the framework's
+structure, internals, or git state — it follows the rules pre-injected into it and
+is otherwise unaware of the system hosting it. The wall is enforced four ways:
+the **scope-aware preamble** (`environment.session_preamble`, the repo root is the
+only framework scope; everything else is a project), the **root jail** that
+confines every tool to its scope (fail-CLOSED), the **bidirectional write wall** —
+a project cannot reach up into the framework, *and* a framework session may read
+but not write down into a project scope (`project_root_guard(..., deny_write_
+subpaths=("projects",))`) — and **per-project isolation**: every project is its
+own git repo with its own recoverable baseline (`kx new` initializes it on
+`main`; `projects/` is never tracked by the framework repo). Neither scope's work
+crosses into the other, so framework and project development run in parallel
+without overlap — and the framework's self-knowledge never leaks down into a
+project.
+
+---
+
 ## The kernel rule
 
 The kernel (`kernel/`) is pure, dependency-light, agent-agnostic, and 100%

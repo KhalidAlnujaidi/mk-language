@@ -6,7 +6,13 @@ readme = "README.md"
 requires-python = ">=3.11"
 # Kernel is dependency-light by design (vision §4). Runtime deps are added per
 # product/adapter as they earn their place — never speculatively.
-dependencies = []
+dependencies = [
+    # OS-enforced filesystem jail for agent shell subprocesses. Linux-only —
+    # Landlock is a Linux LSM; on other platforms the sandbox fails soft to the
+    # lexical guard, so this dependency is platform-gated and never blocks a
+    # non-Linux install.
+    "landlock>=1.0.0.dev5; sys_platform == 'linux'",
+]
 
 [project.optional-dependencies]
 # The broker daemon (M1) — the kernel stays stdlib-only; these live in the
@@ -55,10 +61,18 @@ src = ["kernel", "products", "adapters", "daemon", "tests"]
 # `kx` is an extensionless Python entrypoint — lint it too so its code is gated
 # (it isn't picked up by the default *.py discovery). `kin` is bash, not Python.
 extend-include = ["kx"]
+# Vendored skill scripts under .claude/ are not project code — don't lint them.
+exclude = [".claude", ".venv", "var"]
 
 [tool.ruff.lint]
 # Sensible, strict-but-not-noisy default. Expand deliberately.
 select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# server.py is ~90% one embedded dashboard asset (the `PAGE` HTML/CSS/JS
+# string). Its long lines are deliberately minified markup, not code to wrap —
+# breaking them would corrupt JS template literals for zero readability gain.
+"products/beacon/server.py" = ["E501"]
 
 [tool.pyright]
 pythonVersion = "3.11"

@@ -24,6 +24,15 @@ from kernel.jsonutil import as_dict
 
 CLOUD_DEFAULT_MODEL: str = "claude-haiku-4-5"
 
+#: Hard ceiling on the size of any LOCAL model the system will select on its own
+#: — for grooming offload, routing, or the fail-soft fallback brain. kinox is
+#: cloud-first (``daemon.brain``): a local model is only ever the no-internet
+#: fallback or cheap-groundwork tier, so it must stay small. A model larger than
+#: this is NEVER auto-loaded as a pre-context/pre-hook model (a bigger one may
+#: still be requested explicitly, e.g. via ``/model``). 4 GB keeps the resident
+#: footprint to one small model and leaves the GPU free.
+LOCAL_FALLBACK_MAX_GB: float = 4.0
+
 # Canonical OpenAI-compatible endpoint per local backend (env var, default URL).
 # The SINGLE SOURCE OF TRUTH for where local backends live: the manifest probes
 # these, and ``daemon.backends`` imports :func:`local_backend_urls` to dispatch
@@ -83,18 +92,25 @@ class Manifest:
     # --- Derived views --------------------------------------------------------
 
     def fitting_local_models(self) -> tuple[LocalModel, ...]:
-        """Local models whose VRAM requirement is known and fits the GPU.
+        """Chat-capable local models whose VRAM requirement is known and fits the
+        GPU (the machine's raw capability view — *not* policy-capped).
 
         A model with ``vram_gb_required is None`` is excluded — we cannot
         verify it fits, so we do not claim it does.  If ``gpu_vram_gb`` is
-        ``None`` no local model is claimed to fit.
+        ``None`` no local model is claimed to fit. Embedding/reranker models are
+        excluded outright: they cannot serve chat completions, so they are never
+        a valid reasoning/groom/fallback tier. The brain-size *policy* cap lives
+        in :meth:`auto_local_model`, not here, so general capability views (e.g.
+        the broker's ``/broker/route``) still report everything that fits.
         """
         if self.gpu_vram_gb is None:
             return ()
         fitting = [
             m
             for m in self.local_models
-            if m.vram_gb_required is not None and m.vram_gb_required <= self.gpu_vram_gb
+            if m.vram_gb_required is not None
+            and m.vram_gb_required <= self.gpu_vram_gb
+            and not _is_embedding_model(m.name)
         ]
 
         def _vram_key(m: LocalModel) -> float:
@@ -105,6 +121,26 @@ class Manifest:
         # Sort by smallest VRAM requirement first.
         fitting.sort(key=_vram_key)
         return tuple(fitting)
+
+    def auto_local_model(
+        self, *, max_gb: float = LOCAL_FALLBACK_MAX_GB
+    ) -> LocalModel | None:
+        """The local model kinox may AUTO-load as the fail-soft fallback brain.
+
+        kinox is cloud-first (:mod:`daemon.brain`): a local model is only ever
+        the no-internet fallback, so it must stay small. This returns the
+        SMALLEST chat-capable model that fits the GPU and is at or under *max_gb*
+        (the policy cap, default :data:`LOCAL_FALLBACK_MAX_GB`), or ``None`` when
+        none qualifies — in which case the cloud brain answers on its own rather
+        than a large model being loaded as a pre-context fallback. A bigger local
+        model is never auto-selected here; it is only used when explicitly
+        requested (e.g. via ``/model``).
+        """
+        for m in self.fitting_local_models():  # smallest-first, embeddings excluded
+            assert m.vram_gb_required is not None  # guaranteed by fitting_local_models
+            if m.vram_gb_required <= max_gb:
+                return m
+        return None
 
     def available_tiers(self) -> tuple[Tier, ...]:
         """Ordered list of execution tiers this machine can offer right now.
@@ -188,15 +224,55 @@ def _probe_local_models() -> tuple[LocalModel, ...]:
             return ()
         lines = result.stdout.strip().splitlines()
         # First line is the header (NAME  ID  SIZE  MODIFIED …); skip it.
+        # Each row splits to: [name, id, size_value, size_unit, modified…], e.g.
+        # ``deepseek-r1:8b 6995872bfe4c 5.2 GB 32 hours ago`` — parts[2:4] is the
+        # size. We record it as ``vram_gb_required`` (the on-disk size is a good
+        # proxy for the resident footprint) so the size cap can be enforced.
         models: list[LocalModel] = []
         for line in lines[1:]:
             parts = line.split()
             if not parts:
                 continue
-            models.append(LocalModel(name=parts[0], vram_gb_required=None))
+            size_gb = _parse_ollama_size_gb(parts)
+            models.append(LocalModel(name=parts[0], vram_gb_required=size_gb))
         return tuple(models)
     except Exception:
         return ()
+
+
+#: Substrings marking a model as an embedding/reranker — it cannot serve chat
+#: completions, so it is never selectable as a reasoning/groom/fallback tier.
+_EMBEDDING_MARKERS: tuple[str, ...] = ("embed", "bge-", "bge_", "rerank")
+
+
+def _is_embedding_model(name: str) -> bool:
+    """True for embedding/reranker models (by name), which cannot do chat."""
+    lowered = name.lower()
+    return any(marker in lowered for marker in _EMBEDDING_MARKERS)
+
+
+def _parse_ollama_size_gb(parts: list[str]) -> float | None:
+    """Parse the SIZE column (``parts[2]`` value + ``parts[3]`` unit) into GB.
+
+    ``None`` when the columns are missing or unparseable — we never fabricate a
+    size, and an unknown size is excluded by :meth:`Manifest.fitting_local_models`
+    rather than wrongly assumed to fit under the cap.
+    """
+    if len(parts) < 4:
+        return None
+    try:
+        value = float(parts[2])
+    except ValueError:
+        return None
+    factor = {
+        "KB": 1.0 / (1024.0 * 1024.0),
+        "MB": 1.0 / 1024.0,
+        "GB": 1.0,
+        "TB": 1024.0,
+    }.get(parts[3].upper())
+    if factor is None:
+        return None
+    return value * factor
 
 
 def _http_get_json(url: str, *, timeout: float = _PROBE_TIMEOUT_S) -> object | None:

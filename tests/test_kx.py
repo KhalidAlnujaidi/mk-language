@@ -5,6 +5,7 @@ TDD Step 1: write these tests first; they must be RED before implementation.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -72,8 +73,8 @@ def test_kx_new_scaffolds_next_md(tmp_path: Path) -> None:
     assert out.returncode == 0
     p = REPO / "projects" / name / "next.md"
     assert p.exists()
-    p.unlink()
-    (REPO / "projects" / name).rmdir()  # clean up scaffolded fixture
+    # scaffold now also makes the project its own git repo — remove the tree.
+    shutil.rmtree(REPO / "projects" / name, ignore_errors=True)
 
 
 def test_kx_new_then_launches_session_in_the_project() -> None:
@@ -94,9 +95,7 @@ def test_kx_new_then_launches_session_in_the_project() -> None:
         assert "kinox chat session" in out.stdout.lower()
         assert str(project) in out.stdout  # scope is the new project's dir
     finally:
-        (project / "next.md").unlink(missing_ok=True)
-        if project.exists():
-            project.rmdir()
+        shutil.rmtree(project, ignore_errors=True)
 
 
 def test_kx_activate_existing_project_launches_session() -> None:
@@ -122,9 +121,7 @@ def test_kx_activate_existing_project_launches_session() -> None:
         assert "kinox chat session" in out.stdout.lower()
         assert str(project) in out.stdout
     finally:
-        (project / "next.md").unlink(missing_ok=True)
-        if project.exists():
-            project.rmdir()
+        shutil.rmtree(project, ignore_errors=True)
 
 
 def test_kx_activate_missing_project_hints_new() -> None:

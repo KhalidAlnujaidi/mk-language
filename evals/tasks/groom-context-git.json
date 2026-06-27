@@ -1,0 +1,12 @@
+{
+  "id": "groom-context-git",
+  "description": "The groom pipeline attaches git context (branch, files changed)",
+  "prompt": "commit these changes",
+  "tags": ["groom", "context"],
+  "setup": {
+    "src/main.py": "print('hello')"
+  },
+  "assertions": [
+    {"kind": "contains", "target": "annotation_lines", "expected": "branch"}
+  ]
+}

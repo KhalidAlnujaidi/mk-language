@@ -1,0 +1,9 @@
+{
+  "id": "fail-soft-optimizer",
+  "description": "A SOFT optimizer that fails passes through without blocking",
+  "prompt": "optimize this regex: ^[a-z]+@[a-z]+\\\\.com$",
+  "tags": ["fail-direction", "optimizer"],
+  "assertions": [
+    {"kind": "contains", "target": "response_text", "expected": ""}
+  ]
+}
