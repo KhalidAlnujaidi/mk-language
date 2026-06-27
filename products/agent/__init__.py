@@ -15,7 +15,11 @@ from products.agent.coordinator import (
     ownership_guard,
     run_parallel,
 )
-from products.agent.environment import build_preamble
+from products.agent.environment import (
+    build_axioms,
+    build_preamble,
+    session_preamble,
+)
 from products.agent.loop import (
     AGENT_SYSTEM_PROMPT,
     AgentResult,
@@ -39,6 +43,7 @@ __all__ = [
     "ToolRegistry",
     "agent_runner",
     "assert_disjoint",
+    "build_axioms",
     "build_preamble",
     "combine_guards",
     "default_registry",
@@ -46,4 +51,5 @@ __all__ = [
     "project_root_guard",
     "run_agent",
     "run_parallel",
+    "session_preamble",
 ]

@@ -1,88 +1,120 @@
-"""Tests for the kinox environment preamble compilation.
+"""Tests for the scope-aware agent preamble compilation.
 
-Verifies that :func:`build_preamble` reads the single canonical preamble source
-(``alignment/PREAMBLE.md``), returns it verbatim, truncates when too long,
-handles a missing file (fail-soft), reads *only* that file, and caches per root.
+Two scopes, told only what each should know:
+- **project** scope → the operating axioms alone (``alignment/AXIOMS.md``);
+- **framework** scope → axioms + framework internals (``alignment/PREAMBLE.md``).
+
+Verifies the two builders, the ``session_preamble`` switch, fail-soft on missing
+files, truncation, caching, and — against the real repo — that a project scope
+never leaks framework internals.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from products.agent.environment import build_preamble, clear_cache
+from products.agent.environment import (
+    build_axioms,
+    build_preamble,
+    clear_cache,
+    session_preamble,
+)
 
 
-def _write_preamble(root: Path, body: str) -> None:
-    """Create ``<root>/alignment/PREAMBLE.md`` with *body*."""
+def _write(root: Path, name: str, body: str) -> None:
+    """Create ``<root>/alignment/<name>`` with *body*."""
     (root / "alignment").mkdir(exist_ok=True)
-    (root / "alignment" / "PREAMBLE.md").write_text(body, encoding="utf-8")
+    (root / "alignment" / name).write_text(body, encoding="utf-8")
 
 
-def test_build_preamble_reads_canonical_file(tmp_path: Path) -> None:
-    """The preamble is the content of ``alignment/PREAMBLE.md``."""
-    _write_preamble(tmp_path, "# CONSTITUTION\n\nRule Zero — search and reuse.")
+# --- build_axioms (project scope) --------------------------------------------
+
+
+def test_axioms_reads_axioms_file(tmp_path: Path) -> None:
+    _write(tmp_path, "AXIOMS.md", "Rule Zero — search and reuse.")
     clear_cache()
-    preamble = build_preamble(tmp_path)
-    assert "CONSTITUTION" in preamble
-    assert "Rule Zero" in preamble
+    assert "Rule Zero" in build_axioms(tmp_path)
 
 
-def test_build_preamble_reads_only_canonical_source(tmp_path: Path) -> None:
-    """Only PREAMBLE.md is read — the old multi-file sources are ignored."""
-    _write_preamble(tmp_path, "canonical preamble body")
-    # These were inlined under the old design; the new one must NOT read them.
-    (tmp_path / "BRAIN.md").write_text("brain body")
-    (tmp_path / "vision.md").write_text("vision body")
-    (tmp_path / "README.md").write_text("readme body")
+def test_axioms_ignores_framework_internals(tmp_path: Path) -> None:
+    """A project scope is told the axioms and nothing about the framework."""
+    _write(tmp_path, "AXIOMS.md", "the axioms")
+    _write(tmp_path, "PREAMBLE.md", "ARCHITECTURE MAP — secret framework internals")
     clear_cache()
-    preamble = build_preamble(tmp_path)
-    assert preamble == "canonical preamble body"
-    for stray in ("brain body", "vision body", "readme body"):
-        assert stray not in preamble
+    axioms = build_axioms(tmp_path)
+    assert axioms == "the axioms"
+    assert "framework internals" not in axioms
 
 
-def test_build_preamble_missing_file_returns_empty(tmp_path: Path) -> None:
-    """A missing PREAMBLE.md returns '' (fail-soft) even if other files exist."""
-    (tmp_path / "BRAIN.md").write_text("brain body")  # not the canonical source
+def test_axioms_missing_returns_empty(tmp_path: Path) -> None:
+    clear_cache()
+    assert build_axioms(tmp_path) == ""
+
+
+# --- build_preamble (framework scope) ----------------------------------------
+
+
+def test_preamble_combines_axioms_then_framework(tmp_path: Path) -> None:
+    _write(tmp_path, "AXIOMS.md", "AX-BODY")
+    _write(tmp_path, "PREAMBLE.md", "FW-BODY")
+    clear_cache()
+    p = build_preamble(tmp_path)
+    assert "AX-BODY" in p and "FW-BODY" in p
+    assert p.index("AX-BODY") < p.index("FW-BODY")  # axioms first
+
+
+def test_preamble_with_only_axioms(tmp_path: Path) -> None:
+    _write(tmp_path, "AXIOMS.md", "just axioms")
+    clear_cache()
+    assert build_preamble(tmp_path) == "just axioms"
+
+
+def test_preamble_empty_when_no_files(tmp_path: Path) -> None:
     clear_cache()
     assert build_preamble(tmp_path) == ""
 
 
-def test_build_preamble_empty_when_no_files(tmp_path: Path) -> None:
-    """Returns empty string when no preamble file exists."""
-    clear_cache()
-    assert build_preamble(tmp_path) == ""
-
-
-def test_build_preamble_truncates_long_content(tmp_path: Path) -> None:
-    """An over-long preamble is truncated with a marker."""
+def test_preamble_truncates_long_content(tmp_path: Path) -> None:
     from products.agent import environment as env_mod
 
-    _write_preamble(tmp_path, "X" * 20_000)
+    _write(tmp_path, "AXIOMS.md", "X" * 20_000)
     clear_cache()
-    preamble = build_preamble(tmp_path)
-    assert len(preamble) <= env_mod._MAX_PREAMBLE + 200  # body + truncation note
-    assert "truncated" in preamble.lower()
+    p = build_preamble(tmp_path)
+    assert len(p) <= env_mod._MAX_PREAMBLE + 200
+    assert "truncated" in p.lower()
 
 
-def test_build_preamble_is_cached(tmp_path: Path) -> None:
-    """Repeated calls with the same root return the cached result."""
-    _write_preamble(tmp_path, "cached body")
+def test_preamble_is_cached(tmp_path: Path) -> None:
+    _write(tmp_path, "AXIOMS.md", "cached body")
     clear_cache()
     first = build_preamble(tmp_path)
-    # Delete the file — cached result should still be returned.
-    (tmp_path / "alignment" / "PREAMBLE.md").unlink()
-    second = build_preamble(tmp_path)
-    assert first == second
-    assert "cached body" in first
+    (tmp_path / "alignment" / "AXIOMS.md").unlink()
+    assert build_preamble(tmp_path) == first  # cached despite the deletion
     clear_cache()
 
 
-def test_build_preamble_uses_real_repo() -> None:
-    """Building against the actual kinox repo root yields a meaningful preamble."""
+# --- session_preamble (the scope switch) -------------------------------------
+
+
+def test_session_switch_project_vs_framework(tmp_path: Path) -> None:
+    _write(tmp_path, "AXIOMS.md", "AX")
+    _write(tmp_path, "PREAMBLE.md", "FW-INTERNALS")
+    clear_cache()
+    project = session_preamble(tmp_path, framework=False)
+    framework = session_preamble(tmp_path, framework=True)
+    assert "AX" in project and "FW-INTERNALS" not in project  # project: no leak
+    assert "AX" in framework and "FW-INTERNALS" in framework  # framework: both
+
+
+# --- against the real repo ---------------------------------------------------
+
+
+def test_real_repo_project_scope_hides_framework_internals() -> None:
+    """The shipped axioms carry the rules but not the architecture map."""
     repo_root = Path(__file__).resolve().parents[1]
     clear_cache()
-    preamble = build_preamble(repo_root)
-    # The real repo ships alignment/PREAMBLE.md — a non-empty kinox summary.
-    assert preamble
-    assert "kinox" in preamble.lower()
+    project = session_preamble(repo_root, framework=False)
+    framework = session_preamble(repo_root, framework=True)
+    assert project and "Rule Zero" in project  # the rules reach a project
+    assert "Architecture map" not in project  # framework internals do not
+    assert "Architecture map" in framework  # but the framework scope sees them

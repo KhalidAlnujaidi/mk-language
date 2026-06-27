@@ -1,16 +1,21 @@
-"""Compile the kinox project environment + axioms into an agent system preamble.
+"""Compile the agent session preamble — scope-aware.
 
-A single canonical file (``alignment/PREAMBLE.md``) is the sole source.  It is a
-lean, hand-curated summary in which each fact appears exactly once — no
-duplication, no 5-file concatenation, no hard truncation.
+There are two scopes, and each is told only what it should know:
 
-The full source documents (``CONSTITUTION.md``, ``vision.md``, ``BRAIN.md``,
-``README.md``) remain as human reference and can be read on demand via tools.
-The preamble is the *starting context*, not a substitute for those files.
+* **Project scope** receives the **operating axioms** alone (``alignment/AXIOMS.md``)
+  — the rules it must follow, with nothing about the framework that runs it. A
+  project is not aware of the framework scope; it only follows the axioms
+  pre-injected into it.
+* **Framework scope** (working *on* kinox) receives the axioms **plus** the
+  framework internals (``alignment/PREAMBLE.md``) — kinox's own structure.
 
-The result is cached after first computation (the source file does not change
-mid-session) to avoid re-reading on every turn.  A missing file is skipped
-silently (fail-soft — a minimal checkout still works).
+Each fact appears exactly once: the axioms live in one file, the framework
+internals in another, and the framework preamble is their concatenation. Deeper
+detail lives in the source documents (CONSTITUTION.md, vision.md, BRAIN.md) and
+is read on demand.
+
+Results are cached after first computation (the source files do not change
+mid-session). A missing file is skipped silently (fail-soft).
 """
 
 from __future__ import annotations
@@ -18,52 +23,70 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-#: The single canonical preamble source.  Each fact appears exactly once here;
-#: the full detail lives in CONSTITUTION.md / vision.md / BRAIN.md / README.md
-#: and can be read on demand.
-_PREAMBLE_FILE = "alignment/PREAMBLE.md"
+#: Universal governing axioms — injected into EVERY scope.
+_AXIOMS_FILE = "alignment/AXIOMS.md"
+
+#: Framework internals — injected only in framework scope, after the axioms.
+_FRAMEWORK_FILE = "alignment/PREAMBLE.md"
 
 #: Maximum preamble length in characters — a safety net, not the primary size
-#: control (the file itself is authored to ~3k).  Only triggers if someone
-#: bloats the file.
+#: control (the files are authored lean). Only triggers if someone bloats them.
 _MAX_PREAMBLE = 8_000
+
+
+def _read(root: str | Path, rel: str) -> str:
+    """Read ``root/rel`` stripped, or ``""`` if missing/unreadable (fail-soft)."""
+    try:
+        return (Path(root) / rel).read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+
+def _capped(body: str) -> str:
+    """Truncate *body* to the safety-net length, with a marker."""
+    if len(body) > _MAX_PREAMBLE:
+        return body[:_MAX_PREAMBLE].rstrip() + "\n\n…(truncated)"
+    return body
+
+
+@lru_cache(maxsize=8)
+def build_axioms(root: str | Path) -> str:
+    """The operating axioms — the preamble for a **project** scope.
+
+    Returns the contents of ``alignment/AXIOMS.md`` (the rules every agent
+    follows), or ``""`` if absent. This is *all* a project session is told about
+    how it is governed — never the framework's structure. Cached per *root*.
+    """
+    return _capped(_read(root, _AXIOMS_FILE))
 
 
 @lru_cache(maxsize=8)
 def build_preamble(root: str | Path) -> str:
-    """Read the canonical preamble file and return it as a system-prompt string.
+    """The **framework**-scope preamble: axioms + framework internals.
 
-    Returns a markdown block suitable for prepending to a system prompt.
-    A missing file returns ``""`` (fail-soft).  The result is cached per *root*
-    so repeated calls in the same session are free.
-
-    Parameters
-    ----------
-    root:
-        The kinox repository root (the directory that *contains*
-        ``alignment/``).
-
-    Returns
-    -------
-    str
-        The preamble text, or ``""`` when the file was not found.
+    Concatenates ``alignment/AXIOMS.md`` and ``alignment/PREAMBLE.md`` so an agent
+    working *on* kinox knows both the rules and kinox's own structure. If only one
+    file is present, returns just that one; ``""`` if neither. Cached per *root*.
     """
-    path = Path(root) / _PREAMBLE_FILE
-    try:
-        body = path.read_text(encoding="utf-8").strip()
-    except (OSError, UnicodeDecodeError):
+    axioms = _read(root, _AXIOMS_FILE)
+    framework = _read(root, _FRAMEWORK_FILE)
+    parts = [p for p in (axioms, framework) if p]
+    if not parts:
         return ""
-    if not body:
-        return ""
-    if len(body) > _MAX_PREAMBLE:
-        body = body[:_MAX_PREAMBLE].rstrip() + "\n\n…(truncated)"
-    return body
+    return _capped("\n\n---\n\n".join(parts))
+
+
+def session_preamble(root: str | Path, *, framework: bool) -> str:
+    """The preamble for a session: framework scope gets internals, project doesn't.
+
+    *framework* True → :func:`build_preamble` (axioms + internals); False →
+    :func:`build_axioms` (axioms only). This is the single switch that keeps a
+    project unaware of the framework scope.
+    """
+    return build_preamble(root) if framework else build_axioms(root)
 
 
 def clear_cache() -> None:
-    """Clear the preamble cache.
-
-    Useful in tests when the filesystem is mutated between assertions, or when
-    a long-running daemon picks up new project files.
-    """
+    """Clear the preamble caches (tests / long-running daemons picking up edits)."""
+    build_axioms.cache_clear()
     build_preamble.cache_clear()

@@ -627,19 +627,33 @@ def _process_turn(raw: str, session: ChatSession, console: object) -> None:
 
 
 
-def _session_preamble(kinox_root: Path) -> str:
-    """Compile the kinox environment + axioms into an agent preamble.
+def _is_framework_scope(kinox_root: Path, scope: Path) -> bool:
+    """True when the session scope IS the framework repo root (admin core scope).
 
-    Every agent turn is pre-injected with the project's immutable core
-    (CONSTITUTION), the agent-harness map (BRAIN), alignment context, the
-    vision, and the README — so the model knows what kinox is, how it is
-    structured, and what rules govern it from turn one. Cached per root.
-    Fails soft: returns '' if no environment files are found.
+    Any other scope — a project under ``projects/`` or an external directory — is
+    a project scope. The discriminator is exact identity with the repo root, so a
+    project can never be mistaken for the framework.
     """
     try:
-        from products.agent.environment import build_preamble
+        return scope.resolve() == kinox_root.resolve()
+    except OSError:
+        return False
 
-        return build_preamble(kinox_root)
+
+def _session_preamble(kinox_root: Path, scope: Path) -> str:
+    """Compile the scope-appropriate preamble for a session, pre-injected at turn one.
+
+    A **framework**-scope session (working on kinox) gets the axioms plus the
+    framework internals; a **project** session gets the axioms alone — it is told
+    the rules it must follow, never the structure of the framework that runs it.
+    Cached per root. Fails soft: returns '' if no alignment files are found.
+    """
+    try:
+        from products.agent.environment import session_preamble
+
+        return session_preamble(
+            kinox_root, framework=_is_framework_scope(kinox_root, scope)
+        )
     except Exception:
         return ""
 
@@ -725,7 +739,7 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
                 registry=registry,
                 sink=session.sink,
                 task_id=uuid.uuid4().hex[:12],
-                preamble=_session_preamble(kinox_root),
+                preamble=_session_preamble(kinox_root, session.cwd),
                 history=list(session.history),
                 guard=project_root_guard(session.cwd),
                 fallback=local_tier,
@@ -887,7 +901,7 @@ def _run_parallel_turn(
 
     steps_q: deque[tuple[str, object]] = deque()
     base_id = uuid.uuid4().hex[:12]
-    preamble = _session_preamble(kinox_root)
+    preamble = _session_preamble(kinox_root, root)
     max_turns = int(os.environ.get("KINOX_MAX_TURNS", "30"))
 
     def make_run() -> object:

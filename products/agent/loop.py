@@ -40,9 +40,10 @@ CallFactory = Callable[[list[dict[str, object]]], Call]
 #: Returning a string BLOCKS the call (fail-CLOSED, thesis #2); ``None`` allows it.
 Guard = Callable[[str, str], "str | None"]
 
-#: Operational instructions for the agent.  Identity ("what kinox is") and
-#: axioms live in the preamble (alignment/PREAMBLE.md via build_preamble) so they
-#: are not restated here — no duplication.
+#: Operational instructions for the agent.  The governing axioms (and, in
+#: framework scope, kinox's internals) are injected as the preamble — axioms from
+#: alignment/AXIOMS.md, framework internals from alignment/PREAMBLE.md — so they
+#: are not restated here.  No duplication.
 AGENT_SYSTEM_PROMPT = (
     "Accomplish the user's task by calling tools, observing results, and "
     "continuing until the task is done. Prefer find_skill BEFORE unfamiliar "
