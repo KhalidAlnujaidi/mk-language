@@ -1,16 +1,21 @@
-"""Startup git-sync: fetch + notify, and a safe `kx update` (design 2026-06-23).
+"""Startup git-sync: fetch + notify, a safe `kx update`, and launch-time
+self-upgrade (design 2026-06-23, auto-update 2026-06-27).
 
 The framework checks GitHub on entry and tells you where you stand relative to
 ``origin/main`` — it never blind-pulls. `update()` fast-forwards ONLY when you're
 behind AND the tree is clean AND it's a fast-forward; otherwise it reports and
-leaves the tree untouched. All git access goes through an injectable ``runner``
-so the logic is testable offline.
+leaves the tree untouched. `auto_update()` is the launch-time variant: it
+fast-forwards the *checked-out* branch to its own upstream under the same safety
+rules, so every `kx` invocation runs the latest code (kx loads straight from the
+working tree). All git access goes through an injectable ``runner`` so the logic
+is testable offline.
 """
 
 from __future__ import annotations
 
 import subprocess
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 #: Run a git subcommand (args after `git`), return (exit_code, stdout).
@@ -91,3 +96,79 @@ def update(*, runner: GitRunner = _real_runner) -> str:
     if rc == 0:
         return f"kx update: pulled {behind} commit(s) (fast-forward)"
     return f"kx update: fast-forward failed (diverged?) — resolve manually:\n{out}"
+
+
+@dataclass(frozen=True)
+class SyncOutcome:
+    """Result of a launch-time auto-update.
+
+    ``changed`` says whether the working tree actually moved (so the caller can
+    reload to run the new code); ``line`` is the one-line banner to show.
+    """
+
+    changed: bool
+    line: str
+
+
+def current_branch(*, runner: GitRunner = _real_runner) -> str | None:
+    """The checked-out branch name, or None when detached / on error."""
+    rc, out = runner(["rev-parse", "--abbrev-ref", "HEAD"])
+    name = out.strip()
+    if rc != 0 or not name or name == "HEAD":  # error or detached HEAD
+        return None
+    return name
+
+
+def upstream(*, runner: GitRunner = _real_runner) -> str | None:
+    """The current branch's upstream (e.g. ``origin/main``), or None if unset."""
+    rc, out = runner(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
+    name = out.strip()
+    return name if rc == 0 and name else None
+
+
+def auto_update(*, runner: GitRunner = _real_runner) -> SyncOutcome:
+    """Launch-time self-upgrade: fast-forward the checked-out branch to upstream.
+
+    Fetches the current branch's upstream, then fast-forwards ONLY when behind,
+    clean, and a true fast-forward — never a merge or rebase, so committed or
+    in-progress work is never lost or rewritten. Returns ``changed=True`` when
+    the tree actually moved (the caller should then reload). Fail-soft: any
+    unexpected git state leaves the tree untouched and is reported, never raised.
+    """
+    branch = current_branch(runner=runner)
+    up = upstream(runner=runner)
+    if branch is None or up is None:
+        return SyncOutcome(
+            False, "kinox sync: detached HEAD or no upstream — skipping auto-update"
+        )
+    remote, _, remote_branch = up.partition("/")
+    if not remote_branch:  # malformed upstream ref
+        return SyncOutcome(False, "kinox sync: can't parse upstream — skipping")
+    runner(["fetch", remote, remote_branch])
+    rc, out = runner(["rev-list", "--left-right", "--count", "@{u}...HEAD"])
+    parts = out.split()
+    if rc != 0 or len(parts) != 2 or not all(p.isdigit() for p in parts):
+        return SyncOutcome(
+            False, "kinox sync: couldn't compare with upstream (offline?) — continuing"
+        )
+    behind, ahead = int(parts[0]), int(parts[1])
+    if behind == 0:
+        tail = f" ({ahead} ahead, unpushed)" if ahead else ""
+        return SyncOutcome(False, f"kinox sync: up to date with {up} ✓" + tail)
+    if not _is_clean(runner=runner):
+        return SyncOutcome(
+            False,
+            f"kinox sync: {behind} behind {up}, but the working tree is dirty"
+            " — skipping auto-update (commit/stash, then `kx update`)",
+        )
+    rc, _ = runner(["merge", "--ff-only", "@{u}"])
+    if rc == 0:
+        return SyncOutcome(
+            True,
+            f"kinox sync: upgraded — fast-forwarded {behind} commit(s) from {up} ✓",
+        )
+    return SyncOutcome(
+        False,
+        f"kinox sync: {behind} behind {up} but not a fast-forward (diverged)"
+        " — run `kx update` or resolve manually",
+    )
