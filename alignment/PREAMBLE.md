@@ -29,6 +29,18 @@ stays dependency-light — reuse there means vendoring a minimal piece.
    the agent just did, that diff is training signal. Capture structurally, feed
    through an eval harness.
 
+## Parallel agents — independent, never collapsed
+
+When a job fans out to two or more agents at once, each owns a **disjoint slice**
+and the boundary is enforced: an agent writes only within its slice; a write —
+direct or through the shell — into another agent's slice is refused (fail-CLOSED),
+and the partition is proven disjoint *before any agent spawns*. So there is
+**nothing to collapse and nothing to override** — no agent shadows another, no
+silent merge of two results. Reads may overlap (observing can't override); only
+writes are partitioned. Mechanism: `products/agent/coordinator.py`
+(`assert_disjoint` · `ownership_guard` · `run_parallel`). Scope is the `root` you
+partition — one project (`/par`) or the whole workspace (`/parf`).
+
 ## Architecture map (key files)
 
 | Concern | File · symbol |
