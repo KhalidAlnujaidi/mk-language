@@ -16,6 +16,7 @@ from kernel.metrics import MetricsSink
 from rich.console import Console
 from rich.table import Table
 
+from products.dashboard import config as dash_config
 from products.dashboard import statusline
 from products.dashboard.aggregate import Summary, summarize
 
@@ -90,14 +91,36 @@ def build_summary(path: Path) -> Summary:
     return summarize(MetricsSink(path).read_all())
 
 
+def _resolve_chips() -> tuple[str, ...]:  # pragma: no cover - thin file/env shell
+    """Resolve the status-line chips from the layered config + KINOX_PROFILE.
+
+    Global (~/.kinox/config.toml) is overlaid by a per-project (./.kinox/
+    config.toml); the active profile comes from ``KINOX_PROFILE``. Any read error
+    degrades to the default chips (fail-soft)."""
+    import os
+
+    def _read(p: Path) -> str | None:
+        try:
+            return p.read_text() if p.exists() else None
+        except OSError:
+            return None
+
+    global_text = _read(Path.home() / ".kinox" / "config.toml")
+    project_text = _read(Path(".kinox") / "config.toml")
+    return dash_config.load_status_chips(
+        global_text, project_text, profile=os.environ.get("KINOX_PROFILE")
+    )
+
+
 def main(argv: list[str] | None = None) -> None:  # pragma: no cover - thin shell
     args = sys.argv[1:] if argv is None else argv
     path = Path(args[0]) if args else Path.home() / ".kinox" / "broker-events.jsonl"
     events = MetricsSink(path).read_all()
     console = Console()
     # The status line is the fast-path glance (CodeWhale Tier-2); the table is the
-    # detail. Both read the same events — one pass, no double I/O.
-    console.print(f"[dim]{statusline.render(events)}[/dim]")
+    # detail. Both read the same events — one pass, no double I/O. Chip selection
+    # is config-driven (global + project overlay + KINOX_PROFILE).
+    console.print(f"[dim]{statusline.render(events, chips=_resolve_chips())}[/dim]")
     console.print(render(summarize(events)))
 
 
