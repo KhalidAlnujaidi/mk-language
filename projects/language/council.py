@@ -51,13 +51,29 @@ def dump(section: str, body: str = "") -> None:
         fh.flush()
         os.fsync(fh.fileno())
 
-# Five distinct architecture families — the diversity IS the experiment.
-ROSTER: tuple[str, ...] = (
+# Five distinct architecture families — the diversity IS the experiment. The
+# council runs on local Ollama (small, free) by default, or — via
+# COUNCIL_BACKEND=openrouter — on five distinct FRONTIER architectures through
+# OpenRouter's single OpenAI-compatible endpoint. Same five-family diversity,
+# scaled up to break a plateau the 7–8B local models can't (e.g. mkdir-move).
+OLLAMA_ROSTER: tuple[str, ...] = (
     "qwen3:8b",        # Qwen3   — Alibaba
     "gemma4:latest",   # Gemma   — Google
     "llama3:latest",   # Llama   — Meta
     "deepseek-r1:8b",  # DeepSeek
     "mistral:7b",      # Mistral
+)
+OPENROUTER_ROSTER: tuple[str, ...] = (
+    "anthropic/claude-sonnet-4",    # Anthropic
+    "openai/gpt-4o",                # OpenAI
+    "deepseek/deepseek-r1",         # DeepSeek (reasoner)
+    "qwen/qwen-2.5-72b-instruct",   # Alibaba Qwen
+    "mistralai/mistral-large",      # Mistral
+)
+
+BACKEND = os.environ.get("COUNCIL_BACKEND", "ollama").lower()
+ROSTER: tuple[str, ...] = (
+    OPENROUTER_ROSTER if BACKEND == "openrouter" else OLLAMA_ROSTER
 )
 
 PROPOSE_TEMP = 0.9   # diversity in generation
@@ -65,8 +81,68 @@ VOTE_TEMP = 0.2      # consistency in judgment
 TIMEOUT_S = 240.0
 KEEP_ALIVE = "8m"
 SPEC_CTX_CAP = 7000  # chars of spec fed back into prompts
-MAX_ROUNDS = 400     # overnight safety backstop
+MAX_ROUNDS = int(os.environ.get("COUNCIL_MAX_ROUNDS", "400"))  # absolute round cap (overnight backstop; lower it for paid backends)
 PLATEAU_PATIENCE = 6  # build rounds with no capability gain → trigger a fresh start
+FAILURE_MEMORY = 3   # recent FAILED attempts (code+error) fed back into each build round
+ATTEMPTS = HERE / "attempts.jsonl"  # append-only ledger of failed attempts on the active target
+
+
+def record_attempts(
+    round_index: int, target: str, scored: list[dict[str, object]]
+) -> None:
+    """Persist the strongest proposals that FAILED the active target this round — the
+    code AND the exact error it produced. This is the missing memory: a fresh start can
+    now read WHAT was already tried and WHY it failed, instead of re-deriving the same
+    dead end blind. Append-only — a stop loses nothing."""
+    if not target:
+        return
+    failed = [
+        s for s in scored
+        if target not in s["passing"] and str(s.get("details", {}).get(target, ""))
+    ]
+    if not failed:
+        return
+    # Keep only the strongest near-misses (highest overall score) — the most instructive
+    # failures, and it bounds the ledger to a couple of entries per round.
+    failed.sort(key=lambda s: int(s["n"]), reverse=True)
+    with ATTEMPTS.open("a", encoding="utf-8") as fh:
+        for s in failed[:2]:
+            fh.write(json.dumps({
+                "round": round_index,
+                "target": target,
+                "n": int(s["n"]),
+                "error": str(s.get("details", {}).get(target, ""))[:200],
+                "code": str(s["code"]),
+            }) + "\n")
+
+
+def recent_failures(target: str, n: int) -> list[dict]:
+    """The last `n` DISTINCT failed approaches at `target` (newest first), deduped by
+    code so the council sees variety, not the same dead end repeated back at it."""
+    if n <= 0 or not ATTEMPTS.exists():
+        return []
+    rows: list[dict] = []
+    for line in ATTEMPTS.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if row.get("target") == target:
+            rows.append(row)
+    seen: set[str] = set()
+    out: list[dict] = []
+    for row in reversed(rows):
+        key = str(row.get("code", ""))[:400]
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+        if len(out) >= n:
+            break
+    return out
 
 AXIOMS = """\
 1. MACHINE-INTERPRETABILITY FIRST. Prefer forms a machine parses and reasons about
@@ -114,32 +190,71 @@ STAGES: tuple[tuple[str, str], ...] = (
 
 # --- model client ------------------------------------------------------------
 
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_MAX_TOKENS = 8192  # generous — interpreter source must not truncate
+
+
+def _openrouter_key() -> str:
+    """Bearer key from the environment, falling back to the gitignored
+    ``~/.config/free-claude-code/.env``. Never hardcoded, never committed — and by
+    reading the file (not a CLI arg) the key stays out of the process listing."""
+    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if key:
+        return key
+    env = Path.home() / ".config" / "free-claude-code" / ".env"
+    try:
+        for line in env.read_text(encoding="utf-8").splitlines():
+            if line.startswith("OPENROUTER_API_KEY") and "=" in line:
+                return line.split("=", 1)[1].strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return ""
+
 
 def chat(model: str, system: str, user: str, *, temperature: float, tag: str = "") -> str:
-    """One sync chat completion via Ollama native API. Fail-soft: returns "" after
+    """One sync chat completion. Routes to Ollama's native API (local default) or,
+    when COUNCIL_BACKEND=openrouter, to OpenRouter's OpenAI-compatible endpoint —
+    same five-family council, scaled to frontier models. Fail-soft: returns "" after
     retries so a flaky model forfeits the round rather than crashing the night.
 
     Records the prompt and the FULL raw reply (reasoning included) to the dump
     before returning the cleaned answer the spec/voting use — so nothing the model
     thought is ever lost, even though <think> blocks are stripped downstream.
     """
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        "stream": False,
-        "keep_alive": KEEP_ALIVE,
-        "options": {"temperature": temperature},
-    }
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+    if BACKEND == "openrouter":
+        url = OPENROUTER_URL
+        headers = {"Authorization": f"Bearer {_openrouter_key()}"}
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": OPENROUTER_MAX_TOKENS,
+        }
+    else:
+        url = OLLAMA
+        headers = {}
+        payload = {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "keep_alive": KEEP_ALIVE,
+            "options": {"temperature": temperature},
+        }
     dump(f"PROMPT model={model} tag={tag} temp={temperature}",
          f"--- system ---\n{system}\n--- user ---\n{user}")
     for attempt in range(3):
         try:
-            r = httpx.post(OLLAMA, json=payload, timeout=TIMEOUT_S)
+            r = httpx.post(url, json=payload, headers=headers, timeout=TIMEOUT_S)
             r.raise_for_status()
-            raw = (r.json().get("message", {}).get("content") or "").strip()
+            data = r.json()
+            if BACKEND == "openrouter":
+                raw = (data["choices"][0]["message"].get("content") or "").strip()
+            else:
+                raw = (data.get("message", {}).get("content") or "").strip()
             dump(f"RAW REPLY model={model} tag={tag} attempt={attempt}",
                  raw or "(empty)")
             # Strip <think>…</think> reasoning (deepseek-r1, qwen3) for downstream
@@ -363,14 +478,108 @@ Intent vocabulary you must support (exact phrasings the conformance suite uses):
 Output ONE ```python code block — the full runnable file defining top-level `run(source)` —
 and NOTHING else (no usage example, no second block)."""
 
+# --- v03: the TERMINAL backend — one-to-one English -> executable shell command ----
+# v02 ran intents directly in Python. v03 narrows to the "terminal level": the language
+# TRANSLATES each intent into a real POSIX shell command, and the harness RUNS that
+# command. The architecture mandated here is the AIOS+CoRE cheat code's Axiom 2 — parse
+# English to a target-independent graph (ASG), THEN emit the shell; never English -> code
+# string. Same 11 intents + same expected outputs as v02 (a known-good target), so only
+# the verification surface changes: we grade the EMITTED SHELL'S output, not Python.
+INTERP_CONTRACT_V3 = """\
+Write a COMPLETE, self-contained Python 3 program — a TRANSLATOR that turns our
+natural-language intent program into a real POSIX shell script. This is the terminal
+level of the language: a one-to-one English -> executable-command translation.
+
+ARCHITECTURE (mandatory — from the AIOS + CoRE corpus):
+- Do NOT translate English straight to a shell string. First PARSE each line into a small
+  structured intent node (an operation + its arguments — an Abstract Syntax Graph node),
+  THEN EMIT the shell command for that node. Parse -> graph -> emit. The graph is the
+  point: it is target-independent, so a Python backend can reuse it later.
+
+HARD CONTRACT (your code is rejected if you break this):
+- Define a function named EXACTLY `translate` at the TOP LEVEL. Signature: translate(source).
+- `source` is an intent program: ONE intent per line, in the vocabulary below.
+- RETURN a single string: a POSIX /bin/sh script that, run in an empty working directory,
+  performs the intents and prints the observable results in order, one per line.
+- The harness RUNS your returned script with `sh` in a fresh sandbox dir and checks its
+  STDOUT. You are graded on the SCRIPT'S OUTPUT, not on your Python.
+- Use ONLY relative paths. NEVER absolute paths, NEVER `sudo`, NEVER network access,
+  touch NOTHING outside the working directory.
+- SAFETY, fail-CLOSED (the AIOS Access-Manager rule): an irreversible intent (delete,
+  overwrite) WITHOUT the word `confirm` must be REFUSED — the emitted script prints
+  `REFUSED` and does NOT perform it.
+
+Intent vocabulary and the EXACT observable output each must produce:
+  create file NAME with content "TEXT"   -> (no output)
+  read file NAME                         -> print the file's text
+  append "TEXT" to NAME                  -> add TEXT as a new line (no output)
+  count lines in NAME                    -> print the integer line count
+  copy NAME to NAME2                     -> (no output)
+  make directory NAME                    -> (no output)
+  move NAME to DEST                       -> (no output)
+  list files            (or)  list files in DIR
+      -> print names sorted, space-separated; print "(empty)" if none
+  find files containing "TEXT"
+      -> print matching filenames sorted, space-separated; "(none)" if none
+  delete NAME            (or)  delete NAME confirm
+      -> without `confirm`: print REFUSED and keep the file; with `confirm`: remove it
+  if NAME exists then INTENT otherwise INTENT   -> run exactly one branch
+
+Output ONE ```python code block — the full runnable file defining top-level
+`translate(source)` — and NOTHING else (no usage example, no second block)."""
+
+# --- version registry: what each version did / is doing (read by the dashboard) ----
+GOAL_V2 = "nl-os-abstraction-layer-v1"
+GOAL_V3 = "nl-terminal-translator-v3"
+
+LANG_VERSIONS: tuple[dict[str, str], ...] = (
+    {"id": "v01", "name": "First council language", "goal": "(scheme-style)",
+     "status": "archived",
+     "did": "An S-expression language designed by anonymous Borda consensus on prose. "
+            "Hit the Axiom-4 wall — design-by-vote isn't executable — and was reframed."},
+    {"id": "v02", "name": "NL→OS direct interpreter", "goal": GOAL_V2,
+     "status": "complete · 11/11",
+     "did": "A Python interpreter that runs 11 natural-language intents directly as "
+            "sandboxed OS operations. The frontier council broke the 119-round 10→11 "
+            "plateau and reached 11/11."},
+    {"id": "v03", "name": "NL→terminal translator", "goal": GOAL_V3,
+     "status": "active",
+     "did": "One-to-one English→shell: parse each intent into an ASG, EMIT the real "
+            "terminal command, and the harness runs it. Same 11 intents, now produced "
+            "as executable commands. Terminal level first; a Python-emitting level next."},
+)
+
+# Active version (env-selected; default v2 keeps the completed run reproducible).
+LANG_VERSION = os.environ.get("KINOX_LANG_VERSION", "v2").lower()
+if LANG_VERSION in ("v3", "v03"):
+    INTERP_CONTRACT = INTERP_CONTRACT_V3
+    ACTIVE_GOAL = GOAL_V3
+    VERIFY_MODE = "shell"
+else:
+    ACTIVE_GOAL = GOAL_V2
+    VERIFY_MODE = "python"
+
+
+def write_versions(current_goal: str) -> None:
+    """Persist the version timeline + which one is current, for the dashboard."""
+    data = {
+        "current_goal": current_goal,
+        "current": next((v["id"] for v in LANG_VERSIONS
+                         if v["goal"] == current_goal), "?"),
+        "versions": list(LANG_VERSIONS),
+    }
+    (HERE / "versions.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
 SANDBOX = HERE / "_sandbox_run.py"
+SHELL_SANDBOX = HERE / "_sandbox_shell.py"  # v03 terminal backend runner
 
 
 def _normalize(s: str) -> str:
     return " ".join(s.split())
 
 
-_ENTRY_NAMES = ("run", "main", "interpret", "interpreter", "evaluate",
+_ENTRY_NAMES = ("run", "translate", "main", "interpret", "interpreter", "evaluate",
                 "execute", "repl", "run_interpreter", "run_program")
 
 
@@ -397,12 +606,17 @@ def extract_code(text: str) -> str:
 
 
 def score_interpreter(
-    src: str, suite: tuple[tuple[str, str, str], ...]
+    src: str, suite: tuple[tuple[str, str, str], ...], mode: str = VERIFY_MODE
 ) -> tuple[list[str], dict[str, str]]:
-    """Ground truth: execute a candidate interpreter against the conformance suite in
-    an isolated subprocess (wall-clock timeout + the runner's CPU/mem rlimits). Returns
+    """Ground truth: execute a candidate against the conformance suite in an isolated
+    subprocess (wall-clock timeout + the runner's CPU/mem rlimits). Returns
     (names_passed, per-capability detail). This is the verifier — it never trusts a
-    model's claim that something is 'optimal'; it runs the code and checks the output."""
+    model's claim that something is 'optimal'; it runs the code and checks the output.
+
+    ``mode='python'`` (v02) runs the interpreter's ``run(source)`` directly;
+    ``mode='shell'`` (v03 terminal backend) calls ``translate(source)`` to get a shell
+    script and runs THAT — so the verified artifact is the emitted terminal command."""
+    runner = SHELL_SANDBOX if mode == "shell" else SANDBOX
     passing: list[str] = []
     details: dict[str, str] = {}
     if not src.strip():
@@ -419,7 +633,7 @@ def score_interpreter(
             work = tempfile.mkdtemp(prefix="oslang_")
             try:
                 proc = subprocess.run(
-                    [sys.executable, str(SANDBOX), interp_path],
+                    [sys.executable, str(runner), interp_path],
                     input=program,
                     capture_output=True,
                     text=True,
@@ -466,6 +680,22 @@ def gather_interpreters(
         f"INSTITUTIONAL MEMORY — what the council has already proven works "
         f"(anonymous, no identities):\n{reference[-3000:]}\n\n" if reference else ""
     )
+    fails = recent_failures(next_failing, FAILURE_MEMORY) if next_failing else []
+    if fails:
+        blocks = "\n\n".join(
+            f"--- FAILED ATTEMPT (scored {f['n']}/{len(suite)}; error on `{next_failing}`: "
+            f"{f.get('error') or 'wrong output'}) ---\n"
+            f"```python\n{str(f.get('code', ''))[:1800]}\n```"
+            for f in fails
+        )
+        tried = (
+            f"ALREADY TRIED & FAILED on `{next_failing}` — {len(fails)} prior interpreter "
+            f"attempts, each shown with the EXACT error it produced. These approaches are "
+            f"PROVEN DEAD ENDS: do NOT reproduce their structure. Read each error, diagnose "
+            f"the root cause, and take a STRUCTURALLY DIFFERENT path:\n{blocks}\n\n"
+        )
+    else:
+        tried = ""
     if fresh_start and incumbent_src:
         cur = (
             f"THE COUNCIL HAS PLATEAUED at {len(proven)}/{len(suite)} — many rounds with "
@@ -500,7 +730,7 @@ def gather_interpreters(
         f"{spec[-SPEC_CTX_CAP:]}\n\n"
         f"{mem}"
         f"CONFORMANCE SUITE — your interpreter must reproduce each expected output:\n"
-        f"{suite_txt}\n\n{cur}\n\n{INTERP_CONTRACT}"
+        f"{suite_txt}\n\n{cur}\n\n{tried}{INTERP_CONTRACT}"
     )
     out: list[tuple[str, str]] = []
     for model in ROSTER:
@@ -569,13 +799,19 @@ def run_build_round(
     for author, code in props:
         passing, details = score_interpreter(code, suite)
         scored.append(
-            {"author": author, "code": code, "passing": passing, "n": len(passing)}
+            {"author": author, "code": code, "passing": passing,
+             "n": len(passing), "details": details}
         )
         dump(
             f"BUILD eval model={author} round={index} mode={title}",
             f"score={len(passing)}/{len(suite)} passing={passing}\n"
             + "\n".join(f"{k}: {v[:200]}" for k, v in details.items()),
         )
+
+    # Record this round's strongest failures on the active target so future rounds can
+    # read what was already tried (closes the blind-restart loop).
+    target = next((n for n, _, _ in suite if n not in incumbent_passing), "")
+    record_attempts(index, target, scored)
 
     inc_n = len(incumbent_passing)
     log.options = [

@@ -21,8 +21,10 @@ from pathlib import Path
 from types import FrameType
 
 from council import (
+    ACTIVE_GOAL,
     AXIOMS,
     CONFORMANCE,
+    LANG_VERSIONS,
     MAX_ROUNDS,
     PLATEAU_PATIENCE,
     ROSTER,
@@ -35,6 +37,7 @@ from council import (
     gather_proposals,
     run_build_round,
     run_consensus,
+    write_versions,
 )
 
 # Graceful stop: a signal (Ctrl-C / kill / kill -TERM) sets a flag; the current
@@ -60,10 +63,11 @@ ROUNDS = HERE / "rounds"
 PROGRESS = HERE / "PROGRESS.md"
 CHEATCODE = HERE / "cheatcode_aios_nl_os.md"
 
-# The current build target. When state.goal differs (e.g. resuming a run that was
-# building the old Scheme language), the build phase resets the incumbent and memory
-# and starts this goal fresh — the in-place reframe, without losing the prior record.
-GOAL = "nl-os-abstraction-layer-v1"
+# The current build target, chosen by the active language version (KINOX_LANG_VERSION).
+# When state.goal differs (e.g. resuming after a version bump), the build phase archives
+# the prior version's artifacts and starts this goal fresh — the in-place reframe,
+# carrying the anonymized memory forward without losing the prior record.
+GOAL = ACTIVE_GOAL
 
 
 def scope_text() -> str:
@@ -188,8 +192,9 @@ def main() -> None:
     state = State.load(STATE)
     if not TRANSCRIPT.exists():
         TRANSCRIPT.write_text("# Council transcript\n", encoding="utf-8")
-    print(f"resuming at round {state.round}, phase {state.phase}", flush=True)
-    dump("RUN START", f"round={state.round} phase={state.phase} roster={ROSTER}")
+    write_versions(GOAL)
+    print(f"resuming at round {state.round}, phase {state.phase}, goal {GOAL}", flush=True)
+    dump("RUN START", f"round={state.round} phase={state.phase} goal={GOAL} roster={ROSTER}")
 
     while state.round < MAX_ROUNDS:
         if STOP.exists() or _STOP["flag"]:
@@ -218,10 +223,14 @@ def main() -> None:
             # progress log + interpreter) so nothing is lost.
             if state.goal != GOAL:
                 dump("GOAL SWITCH", f"{state.goal or '(scheme)'} -> {GOAL}")
+                # Version-stamp the outgoing artifacts so each version's record is kept
+                # (e.g. interpreter.v02.py), not overwritten by a single .prev slot.
+                out_ver = next((v["id"] for v in LANG_VERSIONS
+                                if v["goal"] == state.goal), "prev")
                 for old in ("PROGRESS.md", "interpreter.py", "CAPABILITIES.md"):
                     p = HERE / old
                     if p.exists():
-                        p.replace(HERE / f"{p.stem}.prev{p.suffix}")
+                        p.replace(HERE / f"{p.stem}.{out_ver}{p.suffix}")
                 state.incumbent_src = ""
                 state.incumbent_passing = []
                 state.stall_count = 0

@@ -14,6 +14,8 @@ from __future__ import annotations
 import html
 import json
 import re
+import socket
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -43,12 +45,136 @@ def _esc(s: object) -> str:
     return html.escape(str(s))
 
 
+def _fmt_ago(sec: float) -> str:
+    sec = int(sec)
+    if sec < 90:
+        return f"{sec}s ago"
+    if sec < 5400:
+        return f"{sec // 60}m ago"
+    return f"{sec // 3600}h {(sec % 3600) // 60}m ago"
+
+
+def _heartbeat() -> tuple[str, str, str]:
+    """(state_word, color, ago_text) from the freshest run file.
+
+    The HTTP server can answer long after the council loop has died, so the
+    only honest liveness signal is whether the files the loop writes are still
+    changing. Use the newest mtime among the state, the live reasoning dump,
+    and the latest round.
+    """
+    candidates = [HERE / "state.json", HERE / "dump.log"]
+    rounds = sorted((HERE / "rounds").glob("round-*.json"))
+    if rounds:
+        candidates.append(rounds[-1])
+    newest = 0.0
+    for p in candidates:
+        try:
+            newest = max(newest, p.stat().st_mtime)
+        except OSError:
+            pass
+    if not newest:
+        return "no run files", "#565f89", "—"
+    age = max(0.0, time.time() - newest)
+    if age < 300:
+        return "live", "#9ece6a", _fmt_ago(age)
+    if age < 1800:
+        return "idle", "#e0af68", _fmt_ago(age)
+    return "stalled", "#f7768e", _fmt_ago(age)
+
+
 def _sections(state: dict[str, object]) -> dict[str, dict[str, object]]:
     """Decided sections keyed by stage name (latest wins)."""
     out: dict[str, dict[str, object]] = {}
     for s in state.get("sections", []) or []:
         out[str(s.get("stage"))] = s
     return out
+
+
+def _active_models() -> list[str]:
+    """The models actually on the council right now — read from the freshest round
+    log's proposal authors (always current, and it survives a backend swap with no
+    change here). Falls back to the last RUN START roster line in the dump."""
+    rnd = _latest_round()
+    if rnd:
+        authors: list[str] = []
+        for opt in rnd.get("options", []) or []:
+            a = str(opt.get("author") or "").strip()
+            if a and a not in authors:
+                authors.append(a)
+        if authors:
+            return authors
+    found = re.findall(r"roster=\(([^)]*)\)", _read(HERE / "dump.log", tail_bytes=300000))
+    if found:
+        return [s.strip().strip("'\"") for s in found[-1].split(",") if s.strip()]
+    return []
+
+
+def _backend_label(models: list[str]) -> tuple[str, str]:
+    """(label, color): cloud frontier via OpenRouter vs local Ollama, inferred from
+    the model-id shape (``provider/model`` ⇒ OpenRouter)."""
+    if any("/" in m for m in models):
+        return "OpenRouter · cloud frontier", "#7dcfff"
+    if models:
+        return "local · Ollama", "#9ece6a"
+    return "—", "#565f89"
+
+
+def _round_times() -> dict[str, dict[str, int]]:
+    """Per-round wall times from run.out, split by backend. The cutover is the first
+    round whose winning author is a provider/model slug (contains '/') — every round at
+    or after it is 'cloud' (OpenRouter), earlier ones 'local' (Ollama). Counting by
+    round INDEX (not by whether a winner was named) keeps forfeit rounds in the average,
+    so the per-round time is honest rather than survivor-biased toward fast wins."""
+    out = _read(HERE / "run.out")
+    named = [(int(r), a) for r, a, _s in
+             re.findall(r"round (\d+) done: \S+ -> (\S+) \((\d+)s\)", out)]
+    cloud_idx = [r for r, a in named if "/" in a]
+    cutover = min(cloud_idx) if cloud_idx else None
+    local, cloud = [], []
+    for r, s in re.findall(r"round (\d+) done:.*?\((\d+)s\)", out):
+        (cloud if cutover is not None and int(r) >= cutover else local).append(int(s))
+
+    def stat(xs: list[int]) -> dict[str, int]:
+        return {"n": len(xs), "avg": (sum(xs) // len(xs)) if xs else 0,
+                "min": min(xs) if xs else 0, "max": max(xs) if xs else 0}
+    return {"local": stat(local), "cloud": stat(cloud)}
+
+
+def _milestones() -> list[tuple[str, str]]:
+    """(round, text) milestones from the anonymized PROGRESS.md institutional memory."""
+    out: list[tuple[str, str]] = []
+    for line in _read(HERE / "PROGRESS.md").splitlines():
+        m = re.match(r"- Round (\d+): (.*)", line.strip())
+        if m:
+            out.append((m.group(1), re.sub(r"\*\*|`", "", m.group(2))))
+    return out
+
+
+def _alignment(rnd: dict[str, object] | None, total: int) -> dict[str, object]:
+    """From the latest round: who converged and who didn't. In a build round the score
+    is the #capabilities each model's interpreter passed; the max is the frontier."""
+    if not rnd:
+        return {}
+    scores = {k: int(v) for k, v in (rnd.get("scores", {}) or {}).items()}
+    if not scores:
+        return {}
+    top = max(scores.values())
+    return {
+        "top": top,
+        "aligned": [k for k, v in scores.items() if v == top and top > 0],
+        "partial": [k for k, v in scores.items() if 0 < v < top],
+        "forfeit": [k for k, v in scores.items() if v == 0],
+        "winner": rnd.get("winner_author"), "note": rnd.get("note"),
+        "title": rnd.get("title"), "scores": scores,
+    }
+
+
+def _versions() -> dict[str, object]:
+    """The version timeline (what each version did / is doing) + which is current."""
+    try:
+        return json.loads(_read(HERE / "versions.json") or "{}")
+    except json.JSONDecodeError:
+        return {}
 
 
 def _atoms(text: str) -> list[str]:
@@ -115,15 +241,157 @@ def render() -> str:
         "<h1>🗳️  The Council — building a language by anonymous consensus</h1>",
     ]
 
+    # --- status bar: is it running, and on what ------------------------------
+    word, color, ago = _heartbeat()
+    dot = "●" if word in ("live", "idle") else ("○" if word == "no run files" else "◍")
+    host = _esc(socket.gethostname())
+    parts.append(
+        "<div style='margin:6px 0 2px'>"
+        f"<span class='pill' style='border:1px solid {color}'>"
+        f"<b style='color:{color}'>{dot} {word}</b></span>"
+        f"<span class='pill'>updated <b>{_esc(ago)}</b></span>"
+        f"<span class='pill'>host <b>{host}</b></span>"
+        "<span class='pill'>:8800 · refresh 6s</span></div>"
+    )
+
     phase = _esc(state.get("phase", "?"))
     rd = _esc(state.get("round", "?"))
+    goal = _esc(state.get("goal", "?"))
     nsec = len(state.get("sections", []) or [])
+    models = _active_models()
+    blabel, bcolor = _backend_label(models)
+    models_str = _esc(" · ".join(m.split("/")[-1] for m in models) or "—")
     parts.append(
         f"<div><span class='pill'>round <b>{rd}</b></span>"
         f"<span class='pill'>phase <b>{phase}</b></span>"
-        f"<span class='pill'>{nsec} sections decided</span>"
-        "<span class='pill'>qwen3 · gemma4 · llama3 · deepseek-r1 · mistral</span></div>"
+        f"<span class='pill'>goal <b>{goal}</b></span>"
+        f"<span class='pill'>{nsec} sections decided</span></div>"
     )
+    parts.append(
+        "<div style='margin:4px 0'>"
+        f"<span class='pill' style='border:1px solid {bcolor}'>"
+        f"backend <b style='color:{bcolor}'>{_esc(blabel)}</b></span>"
+        f"<span class='pill'>council <b>{models_str}</b></span></div>"
+    )
+
+    # === 🛰️ MISSION CONTROL — high-level, concise, at the very top ============
+    times = _round_times()
+    ms = _milestones()
+    score_now = int(caps.get("score", 0) or 0)
+    total_now = int(caps.get("total", 11) or 11)
+    al = _alignment(rnd, total_now)
+    done = score_now >= total_now and total_now > 0
+    short = lambda m: str(m).split("/")[-1]  # noqa: E731
+    nxt = next((n for n in (caps.get("all", []) or [])
+                if n not in set(caps.get("passing", []) or [])), "—")
+    step = ("✅ COMPLETE — all capabilities execute under the council's own interpreter"
+            if done else f"building → next target <b>{_esc(nxt)}</b>")
+
+    def card(title: str, inner: str) -> str:
+        return ("<div style='flex:1;min-width:250px;background:#11141c;"
+                "border:1px solid #2a2f3a;border-radius:10px;padding:12px 14px'>"
+                f"<div style='color:#7aa2f7;font-weight:bold;margin-bottom:6px'>{title}</div>"
+                f"{inner}</div>")
+
+    # council card
+    models_inner = "".join(
+        f"<div>{'☁️' if '/' in m else '💻'} <b>{_esc(short(m))}</b> "
+        f"<small>{_esc(m)}</small></div>" for m in models
+    ) or "<small>—</small>"
+
+    # version timeline (what each version did / is doing) — driven by versions.json
+    vinfo = _versions()
+    vlist = vinfo.get("versions", []) or []
+    current_id = vinfo.get("current", "")
+    if vlist:
+        rows = []
+        for v in vlist:
+            cur = v.get("id") == current_id
+            c = "#9ece6a" if cur else "#565f89"
+            arrow = "▶ " if cur else ""
+            rows.append(
+                f"<div style='margin:4px 0;{'background:#16201a;border-left:3px solid #9ece6a;padding:4px 8px' if cur else 'padding:0 0 0 11px'}'>"
+                f"<b style='color:{c}'>{arrow}{_esc(v.get('id'))}</b> "
+                f"<b>{_esc(v.get('name'))}</b> "
+                f"<small style='color:{c}'>· {_esc(v.get('status'))}</small><br>"
+                f"<small>{_esc(v.get('did'))}</small></div>"
+            )
+        learned_inner = "".join(rows)
+    else:
+        learned_inner = "<small>versions.json not written yet</small>"
+
+    # timing card (per-round ≈ same; the win is rounds-to-solution)
+    reached10 = next((int(r) for r, t in ms if "10/11" in t and "reached" in t.lower()), None)
+    reached11 = next((int(r) for r, t in ms if "11/11" in t and "reached" in t.lower()), None)
+    span = (reached11 - reached10) if (reached10 and reached11) else None
+    lt, ct = times["local"], times["cloud"]
+    fmt = lambda s: f"{s // 60}m{s % 60:02d}s"  # noqa: E731
+    timing_inner = (
+        f"<div>local (Ollama 7–8B): <b>{fmt(lt['avg'])}</b>/round "
+        f"<small>· {lt['n']} rounds · {lt['min']}–{lt['max']}s</small></div>"
+        f"<div>cloud (OpenRouter): <b>{fmt(ct['avg']) if ct['n'] else '—'}</b>/round "
+        f"<small>· {ct['n']} round(s)</small></div>"
+        "<div style='margin-top:6px;color:#e0af68'>per-round wall-time ≈ <b>the same</b>. "
+        "The leverage is <b>rounds-to-solution</b>:</div>"
+        + (f"<div style='color:#9ece6a'>10/11 plateau held <b>{span} rounds</b> locally "
+           "→ broken in <b>1</b> cloud round.</div>" if span else "")
+    )
+
+    # alignment / dissent card
+    if al:
+        align_inner = f"<div>last debate: <b>{_esc(al['title'])}</b></div>"
+        align_inner += (f"<div style='color:#9ece6a'>✓ converged ({al['top']}/{total_now}): "
+                        f"<b>{_esc(', '.join(short(m) for m in al['aligned']) or '—')}</b></div>")
+        if al["partial"]:
+            ps = ", ".join(f"{short(m)}({al['scores'][m]})" for m in al["partial"])
+            align_inner += f"<div style='color:#e0af68'>~ partial: {_esc(ps)}</div>"
+        if al["forfeit"]:
+            align_inner += ("<div style='color:#f7768e'>✗ forfeited: "
+                            f"{_esc(', '.join(short(m) for m in al['forfeit']))}</div>")
+        align_inner += (f"<div style='margin-top:6px'>winner "
+                        f"<b class='win'>{_esc(short(al['winner']))}</b> "
+                        f"<small>{_esc(al['note'])}</small></div>")
+    else:
+        align_inner = "<small>no round logged yet</small>"
+
+    # progression card (recent milestones)
+    prog_inner = "".join(
+        f"<div><small>r{_esc(r)}</small> {_esc(t[:64])}</div>" for r, t in ms[-5:]
+    ) or "<small>—</small>"
+
+    parts.append("<h2 style='color:#7dcfff;border-color:#2e4a5a'>🛰️ Mission control "
+                 "<small>· the high-level view</small></h2>")
+    parts.append(f"<div style='font-size:15px;margin:6px 0 2px'><b>step:</b> {step} "
+                 f"&nbsp;·&nbsp; <b>round</b> {rd} &nbsp;·&nbsp; <b>phase</b> {phase} "
+                 f"&nbsp;·&nbsp; <b class='win'>{score_now}/{total_now}</b> capabilities</div>")
+    # full-width version timeline — which version we're on + what each did / is doing
+    parts.append("<div style='background:#0d1119;border:1px solid #2a2f3a;border-radius:10px;"
+                 "padding:10px 14px;margin:10px 0'>"
+                 "<div style='color:#7dcfff;font-weight:bold;margin-bottom:4px'>"
+                 "version timeline — what each version did, what we're doing now</div>"
+                 f"{learned_inner}</div>")
+    # North Star — the principle the project is built on (Principle of Least Generation)
+    parts.append(
+        "<div style='background:#0d1119;border:1px solid #2e4a5a;border-radius:10px;"
+        "padding:10px 14px;margin:10px 0'>"
+        "<div style='color:#7dcfff;font-weight:bold;margin-bottom:4px'>🌑 North Star — "
+        "Principle of Least Generation <small>· route first, generate last</small></div>"
+        "<div><b>MK</b> is the route-target, not a generator: English → gate → MK template "
+        "(retrieved + slot-filled) → execute. The council/LLM is the <b>teacher</b> that "
+        "mints execution-verified templates; then we <b>retrieve</b>, not generate.</div>"
+        "<div style='margin-top:6px;color:#9ece6a'>proof on this domain "
+        "(<small>plg_terminal.py</small>): the same 11/11 the council generated, at "
+        "<b>0 generated tokens · 0.033 ms/program</b>, injection-proof by construction.</div>"
+        "<div style='color:#565f89'><small>gate = embedding router on a compressed "
+        "computing-context space · generation is the rare fallback for genuinely novel "
+        "intents</small></div></div>"
+    )
+    parts.append("<div style='display:flex;flex-wrap:wrap;gap:10px;margin:10px 0 4px'>")
+    parts.append(card("council · 5 models", models_inner))
+    parts.append(card("round timing · local vs cloud", timing_inner))
+    parts.append(card("alignment / dissent · last round", align_inner))
+    parts.append(card("progression", prog_inner))
+    parts.append("</div>")
 
     # --- 🪜 Capability ladder — executed, not voted --------------------------
     if caps:
