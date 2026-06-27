@@ -44,7 +44,10 @@ def _verdict(
     3. ``improved``      — pass count increased, fails stable or down
     4. ``unchanged``     — no movement
     """
-    if after.failed > before.failed:
+    # A hard regression is either more failures OR the same count with a different
+    # task failing (a previously-passing task that now fails) — the swap the raw
+    # count misses.
+    if after.failed > before.failed or (set(after.failed_ids) - set(before.failed_ids)):
         return "regressed"
     # Cheat #1: detect partial regression via score delta
     if before_score > 0 and after_score < before_score:
