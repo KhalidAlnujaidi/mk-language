@@ -18,8 +18,10 @@ from __future__ import annotations
 import tomllib
 from typing import cast
 
-#: The known groom stages, in their canonical default order.
-DEFAULT_ORDER: list[str] = ["redact", "expand", "context", "tag"]
+#: The known groom stages, in their canonical default order. ``deslop`` (the
+#: stop-slop flag stage) sits between ``context`` and the fuzzy ``tag`` step,
+#: matching products/groom/pipeline.py.
+DEFAULT_ORDER: list[str] = ["redact", "expand", "context", "deslop", "tag"]
 _KNOWN: frozenset[str] = frozenset(DEFAULT_ORDER)
 
 

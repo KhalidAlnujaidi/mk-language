@@ -107,6 +107,9 @@ _CHIPS: dict[str, Callable[[StatusModel], str]] = {
     "corrections": lambda m: f"{m.correction_rate:.0%} corr",
 }
 
+#: Every chip name that has a renderer — the contract a config validates against.
+KNOWN_CHIPS: frozenset[str] = frozenset(_CHIPS)
+
 #: Default chip order, left to right.
 DEFAULT_CHIPS: tuple[str, ...] = ("tier", "events", "tokens", "cost", "corrections")
 
