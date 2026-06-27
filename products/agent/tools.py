@@ -349,10 +349,17 @@ def write_tools(root: Path) -> list[Tool]:
 def bash_tool(root: Path, *, timeout_s: float = 30.0) -> Tool:
     """A guarded shell tool — the agent's hands. HIGH RISK.
 
-    Runs in *root* with a timeout. This is the tool a pre-dispatch guard (thesis
-    #2, fail-CLOSED) should gate hardest; the loop passes every call through its
-    guard before this handler ever runs.
+    Runs in *root* with a timeout. Two layers of containment, defense-in-depth:
+    a lexical pre-check (`_bash_escape_reason`, fail-CLOSED) that refuses obvious
+    escapes, and — when the kernel supports it — a **Landlock** sandbox on the
+    child that *physically* forbids writes outside the scope root (plus shared
+    scratch), so a write that fools the lexical check (``$VAR``/``$(...)``
+    indirection) is still denied by the OS. Landlock-absent systems fall back to
+    the lexical layer alone (fail-soft at setup).
     """
+    from products.agent.sandbox import write_jail_preexec
+
+    preexec = write_jail_preexec(root)  # None when Landlock is unavailable
 
     def run_bash(args: dict[str, object]) -> str:
         command = str(args.get("command", "")).strip()
@@ -374,6 +381,7 @@ def bash_tool(root: Path, *, timeout_s: float = 30.0) -> Tool:
                 capture_output=True,
                 text=True,
                 timeout=timeout_s,
+                preexec_fn=preexec,  # Landlock write-jail (None → lexical only)
             )
         except subprocess.TimeoutExpired:
             return f"(error: command timed out after {timeout_s}s)"
