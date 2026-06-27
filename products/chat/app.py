@@ -1041,27 +1041,30 @@ def _format_tool_step(name: str, detail: str, verbose: bool) -> str:
 
 def _strip_reasoning(text: str) -> str:
     """Drop ``<think>``/``<thinking>`` blocks so reasoning models (deepseek-r1
-    fallback) never leak their scratchpad into the rendered answer."""
-    import re
+    fallback) never leak their scratchpad into the rendered answer. The canonical
+    implementation lives in the pure output model (products/chat/output.py)."""
+    from products.chat.output import strip_reasoning
 
-    return re.sub(
-        r"<think(?:ing)?>.*?</think(?:ing)?>\s*",
-        "",
-        text,
-        flags=re.DOTALL | re.IGNORECASE,
-    ).strip()
+    return strip_reasoning(text)
 
 
 def _render_summary(
     result: object, console: object, *, tools: int, elapsed: float
 ) -> None:
-    """Frame the final answer in a panel with a status footer (stopped · turns ·
-    tools · elapsed). Falls back to plain print if rich.Panel is unavailable."""
-    body = _strip_reasoning(result.final_text)
+    """Render the run as a GENERATED view (vision §5.2 Layer 3): the markdown
+    answer framed in a panel with a status + per-tool footer composed from the
+    run's structure, and — under KINOX_VERBOSE — a generated trace tree of what
+    the agent did. Falls back to plain print if rich is unavailable."""
+    from products.chat.output import build_run_view
+
+    view = build_run_view(result, tools=tools, elapsed_s=elapsed)
     Markdown = _import_rich_markdown()
-    renderable = Markdown(body, code_theme="monokai") if Markdown else body
-    footer = f"{result.stopped} · {result.turns} turns · {tools} tools · {elapsed:.1f}s"
-    ok = result.stopped == "complete"
+    renderable = (
+        Markdown(view.answer, code_theme="monokai") if Markdown else view.answer
+    )
+    subtitle = view.footer
+    if view.tool_summary:
+        subtitle = f"{view.tool_summary}  ·  {view.footer}"
     try:
         from rich.panel import Panel
 
@@ -1070,15 +1073,52 @@ def _render_summary(
                 renderable,
                 title="[bold]kinox[/bold]",
                 title_align="left",
-                subtitle=f"[dim]{footer}[/dim]",
+                subtitle=f"[dim]{subtitle}[/dim]",
                 subtitle_align="right",
-                border_style="green" if ok else "red",
+                border_style="green" if view.ok else "red",
                 padding=(1, 2),
             )
         )
     except Exception:
         _render_response(result.final_text, console)
-        console.print(f"[dim]{'✓' if ok else '✗'} {footer}[/dim]")
+        console.print(f"[dim]{'✓' if view.ok else '✗'} {subtitle}[/dim]")
+
+    # The generated trace recap: a tree of what the agent did, composed from the
+    # run's steps. Verbose-only — the live trace already showed it once; this is
+    # the structured post-run view. Fail-soft (never breaks the answer above).
+    verbose = os.environ.get("KINOX_VERBOSE", "0").lower() in ("1", "on", "true", "yes")
+    if verbose and view.steps:
+        _render_trace_tree(view, console)
+
+
+def _render_trace_tree(view: object, console: object) -> None:
+    """Render the run's step trace as a rich Tree using the brand glyphs; plain
+    fallback. Generative output — the tree is composed from the RunView's steps."""
+    from products import theme
+
+    def _glyph(kind: str, name: str) -> str:
+        if kind == "blocked":
+            return theme.status_glyph("blocked")
+        if kind == "final":
+            return theme.status_glyph("ok")
+        return theme.tool_glyph(name)
+
+    try:
+        from rich.tree import Tree
+
+        tree = Tree(f"[bold]{theme.WORDMARK_COMPACT}[/bold]  [dim]{view.footer}[/dim]")
+        for step in view.steps:
+            color = theme.tool_color(step.name)
+            label = step.name or "answer"
+            detail = f"  [dim]{step.detail}[/dim]" if step.detail else ""
+            tree.add(
+                f"{_glyph(step.kind, step.name)} "
+                f"[{color}]{label}[/{color}]{detail}"
+            )
+        console.print(tree)
+    except Exception:
+        for step in view.steps:
+            console.print(f"  {_glyph(step.kind, step.name)} {step.name or 'answer'}")
 
 
 def _render_response(text: str, console: object) -> None:
