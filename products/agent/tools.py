@@ -30,7 +30,11 @@ from typing import TYPE_CHECKING
 
 from kernel.jsonutil import as_dict
 
-from products.capabilities.registry import MCP_SERVER, CapabilityRegistry
+from products.capabilities.registry import (
+    MCP_SERVER,
+    Capability,
+    CapabilityRegistry,
+)
 
 if TYPE_CHECKING:
     from daemon.mcp import MCPServer
@@ -452,7 +456,7 @@ def skill_tools(registry: CapabilityRegistry) -> list[Tool]:
             return "(error: empty query)"
         query = raw.lower()
         q_tokens = _skill_tokens(query)
-        scored: list[tuple[int, object]] = []
+        scored: list[tuple[int, Capability]] = []
         for c in caps:
             score = len(q_tokens & _skill_tokens(f"{c.name} {c.description}"))
             if query in c.name.lower() or query in c.description.lower():
@@ -461,7 +465,7 @@ def skill_tools(registry: CapabilityRegistry) -> list[Tool]:
                 scored.append((score, c))
         if not scored:
             return f"(no capability matches {raw!r} among {len(caps)} entries)"
-        scored.sort(key=lambda sc: (-sc[0], sc[1].name))  # type: ignore[attr-defined]
+        scored.sort(key=lambda sc: (-sc[0], sc[1].name))
         hits = [c for _, c in scored]
         lines = [f"- [{c.kind}] {c.name}: {c.description[:140]}" for c in hits[:20]]
         more = f"\n…and {len(hits) - 20} more" if len(hits) > 20 else ""

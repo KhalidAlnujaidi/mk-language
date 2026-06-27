@@ -68,11 +68,10 @@ def _read_key(name: str, args_json: str) -> str | None:
     if name not in _IDEMPOTENT_READS:
         return None
     try:
-        args = json.loads(args_json) if args_json else {}
+        parsed: object = json.loads(args_json) if args_json else {}
     except json.JSONDecodeError:
         return None
-    if not isinstance(args, dict):
-        return None
+    args = as_dict(parsed)  # untyped JSON → dict[str, object] (non-dict → {})
     if name in ("read_file", "list_dir"):
         return f"{name}:{str(args.get('path', '')).strip()}"
     if name == "find_skill":

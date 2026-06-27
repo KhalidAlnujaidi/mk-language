@@ -10,10 +10,15 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
+import pytest
+from kernel.contracts import Tier
+from kernel.metrics import MetricsSink
 from products.agent import ToolRegistry
+from products.agent.loop import AgentResult
 from products.evolve import Challenge, evolve_once
+from products.evolve.loop import default_score, model_propose
 
 _T = TypeVar("_T")
 
@@ -163,3 +168,69 @@ def test_rejected_candidate_never_touches_live_corpus(tmp_path: Path) -> None:
     )
     # Nothing written — isolation held; only KEPT skills reach the live corpus.
     assert list(accept.iterdir()) == []
+
+
+# --- eval-fidelity: the scored agent runs under real project-scope governance ---
+
+
+def _root_with_axioms(tmp_path: Path, marker: str) -> Path:
+    """A root whose alignment/AXIOMS.md carries *marker* so a preamble built from
+    it is identifiable when captured."""
+    (tmp_path / "alignment").mkdir()
+    (tmp_path / "alignment" / "AXIOMS.md").write_text(
+        f"# Operating axioms\n\n{marker}\n", encoding="utf-8"
+    )
+    return tmp_path
+
+
+def _capture_run_agent(
+    monkeypatch: pytest.MonkeyPatch, answer: str
+) -> dict[str, Any]:
+    """Replace ``run_agent`` in the evolve loop with a spy that records its kwargs
+    and returns a fixed answer — no model, no network."""
+    seen: dict[str, Any] = {}
+
+    async def fake_run_agent(_task: str, **kwargs: Any) -> AgentResult:
+        seen.update(kwargs)
+        return AgentResult(final_text=answer)
+
+    monkeypatch.setattr("products.evolve.loop.run_agent", fake_run_agent)
+    return seen
+
+
+def test_default_score_injects_axioms_preamble(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The scored agent must carry the operating axioms, exactly as a real
+    # project-scope session does — otherwise the fitness signal is unfaithful.
+    root = _root_with_axioms(tmp_path, "AXIOM-MARKER-SCORE")
+    seen = _capture_run_agent(monkeypatch, answer="closed")
+    ok = _run(
+        default_score(
+            Challenge(id="c", prompt="open or closed?", expect=r"closed"),
+            ToolRegistry(),
+            tier=Tier.model("m", where="local", backend="ollama"),
+            sink=MetricsSink(Path("/dev/null")),
+            root=root,
+        )
+    )
+    assert ok is True
+    assert "AXIOM-MARKER-SCORE" in seen["preamble"]
+
+
+def test_model_propose_injects_axioms_preamble(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The generator runs under the same project-scope governance as scoring.
+    root = _root_with_axioms(tmp_path, "AXIOM-MARKER-PROPOSE")
+    seen = _capture_run_agent(monkeypatch, answer="the answer body")
+    name, content = _run(
+        model_propose(
+            Challenge(id="c", prompt="teach it", expect="x"),
+            tier=Tier.model("m", where="local", backend="ollama"),
+            sink=MetricsSink(Path("/dev/null")),
+            root=root,
+        )
+    )
+    assert name == "evolved-c" and "the answer body" in content
+    assert "AXIOM-MARKER-PROPOSE" in seen["preamble"]

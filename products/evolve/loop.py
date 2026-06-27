@@ -36,6 +36,7 @@ from products.agent import (
     project_root_guard,
     run_agent,
 )
+from products.agent.environment import build_axioms
 from products.agent.loop import AGENT_SYSTEM_PROMPT
 from products.capabilities.registry import CapabilityRegistry, load_skills
 from products.evolve.challenge import Challenge, passed
@@ -93,13 +94,23 @@ async def default_score(
     root: Path,
     max_turns: int = 5,
 ) -> bool:
-    """Run the agent on the challenge and check the answer against ground truth."""
+    """Run the agent on the challenge and check the answer against ground truth.
+
+    The agent is scored under the **same governance a real project-scope session
+    carries**: the operating axioms (``build_axioms`` — axioms only, never the
+    framework internals) are injected as its preamble. Without this the loop would
+    measure a counterfactual agent that never exists in production and "evolve"
+    skills to re-teach axiom-level facts every real agent already knows — an
+    unfaithful fitness signal. Knowledge genuinely missing from the axioms (e.g. a
+    framework internal) is exactly what stays a failing target worth evolving.
+    """
     result = await run_agent(
         challenge.prompt,
         tier=tier,
         registry=registry,
         sink=sink,
         task_id=f"eval-{challenge.id}-{uuid.uuid4().hex[:6]}",
+        preamble=build_axioms(root),
         max_turns=max_turns,
         guard=project_root_guard(root),
     )
@@ -136,6 +147,7 @@ async def model_propose(
         sink=sink,
         task_id=f"propose-{challenge.id}-{uuid.uuid4().hex[:6]}",
         system_prompt=AGENT_SYSTEM_PROMPT,
+        preamble=build_axioms(root),  # same project-scope governance as scoring
         max_turns=2,
     )
     body = result.final_text.strip()

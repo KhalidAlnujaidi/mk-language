@@ -125,7 +125,7 @@ def wordmark(*, gradient: bool = True, width: int | None = None) -> str:
         return f"[bold {PRIMARY}]{WORDMARK_COMPACT}[/]"
     if no_color() or not gradient:
         return "\n".join(f"[bold {PRIMARY}]{line}[/]" for line in WORDMARK)
-    rows = []
+    rows: list[str] = []
     for i, line in enumerate(WORDMARK):
         rows.append(f"[{GRADIENT[i % len(GRADIENT)]}]{line}[/]")
     return "\n".join(rows)
@@ -189,8 +189,11 @@ def bar(value: float | int | None, vmax: float | int | None, width: int = 10) ->
     return s.ljust(width, pad)
 
 
-def spark(values: list[float | int], width: int | None = None) -> str:
-    """Unicode sparkline for a sequence. Empty/zero → flat baseline."""
+def spark(values: list[float | int | None], width: int | None = None) -> str:
+    """Unicode sparkline for a sequence. Empty/zero → flat baseline.
+
+    ``None`` entries (gaps in a series) are dropped before scaling.
+    """
     vals = [v for v in values if v is not None]
     if not vals:
         return ""
