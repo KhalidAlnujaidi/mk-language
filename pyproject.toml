@@ -40,6 +40,14 @@ tui = [
     "questionary>=2.0",
     "rich>=15.0.0",
 ]
+# Observability (vision §7): a single OpenTelemetry trace across groom → route →
+# agent → broker. Optional — the kernel keeps a no-op tracer when this is absent
+# (KINOX_OTEL unset), so a plain install runs unchanged. Outer-layer only; the
+# OTel binding lives in products/telemetry and is NEVER imported from kernel/.
+otel = [
+    "opentelemetry-sdk>=1.20",
+    "opentelemetry-exporter-otlp-proto-http>=1.20",
+]
 
 [dependency-groups]
 dev = [

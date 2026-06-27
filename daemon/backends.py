@@ -26,6 +26,7 @@ import httpx
 from kernel.contracts import Tier
 from kernel.jsonutil import as_dict, as_int
 from kernel.manifest import local_backend_urls
+from kernel.tracing import span
 
 from daemon.exec import BackendError, BackendResponse, Call, Messages
 
@@ -139,19 +140,25 @@ async def openai_compatible_call(
     if tools:
         payload["tools"] = tools
     headers = {"Authorization": f"Bearer {auth_token}"} if auth_token else None
-    try:
-        async with httpx.AsyncClient(
-            base_url=base_url, timeout=timeout, transport=transport, headers=headers
-        ) as client:
-            resp = await client.post("/chat/completions", json=payload)
-            if resp.status_code >= 500:
-                raise BackendError(f"backend {resp.status_code}", retryable=True)
-            resp.raise_for_status()
-            data: dict[str, object] = resp.json()
-    except BackendError:
-        raise
-    except httpx.HTTPError as exc:
-        raise BackendError(f"backend transport: {exc}", retryable=True) from exc
+    # The leaf "backend.call" span of the end-to-end trace (vision §7): the actual
+    # model HTTP call, where real latency lives. A no-op unless a tracer is set.
+    with span(
+        "backend.call",
+        {"kinox.backend": tier.backend or "", "kinox.model": tier.model_name or ""},
+    ):
+        try:
+            async with httpx.AsyncClient(
+                base_url=base_url, timeout=timeout, transport=transport, headers=headers
+            ) as client:
+                resp = await client.post("/chat/completions", json=payload)
+                if resp.status_code >= 500:
+                    raise BackendError(f"backend {resp.status_code}", retryable=True)
+                resp.raise_for_status()
+                data: dict[str, object] = resp.json()
+        except BackendError:
+            raise
+        except httpx.HTTPError as exc:
+            raise BackendError(f"backend transport: {exc}", retryable=True) from exc
 
     raw_choices = data.get("choices")
     if not isinstance(raw_choices, list) or not raw_choices:

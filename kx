@@ -354,4 +354,12 @@ if __name__ == "__main__":
     _load_env()  # secrets from ~/.kinox/env (e.g. ZAI_API_KEY) → os.environ
     _ensure_venv()  # ensure outer-layer deps (rich/questionary) are importable
     _auto_update()  # self-upgrade: ff the checked-out branch to upstream, reload
+    try:
+        # Observability (vision §7): activate the single end-to-end trace when
+        # KINOX_OTEL=1 and the otel extra is installed. No-op + fail-soft otherwise.
+        from products.telemetry import init_tracing
+
+        init_tracing()
+    except Exception:  # noqa: BLE001 — telemetry must never block the launch
+        pass
     raise SystemExit(main(sys.argv[1:]))

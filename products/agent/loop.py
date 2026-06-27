@@ -29,6 +29,7 @@ from daemon.exec import BackendError, Call, ChainExhausted, Messages, execute
 from kernel.contracts import EventRecord, Tier
 from kernel.jsonutil import as_dict
 from kernel.metrics import MetricsSink
+from kernel.tracing import span
 
 from products.agent.budget import TokenBudget
 from products.agent.tools import ToolRegistry
@@ -297,178 +298,186 @@ async def run_agent(
     # exhausted budget stops the run *before* spending another expensive call.
     spent_tokens = 0
 
-    for turn in range(max_turns):
-        if token_budget is not None and token_budget.exhausted(spent_tokens):
-            # Fail-soft early exit (vision §9): return what we have, don't raise.
-            # Checked before the turn counter so result.turns reflects *completed*
-            # turns, and before execute() so no further call is spent.
-            result.stopped = "budget"
-            if not result.final_text:
-                result.final_text = (
-                    f"(stopped: token budget of {token_budget.limit} reached after "
-                    f"{result.turns} turns / {spent_tokens} tokens — raise the "
-                    "budget or narrow the task)"
-                )
-            return result
-        result.turns = turn + 1
-        try:
-            exec_result = await execute(
-                chain,
-                messages,
-                call=factory(schema),
-                task_id=f"{task_id}-t{turn}",
-                kind="agent",
-            )
-        except ChainExhausted as exc:
-            # Honest observability (vision §4.6): the failure boundary is logged
-            # too, so the metrics log never has a silent gap.
-            sink.record(exc.event)
-            result.final_text = "(model unavailable: fallback chain exhausted)"
-            result.stopped = "error"
-            return result
-        except BackendError as exc:
-            result.final_text = f"(model unavailable: {exc})"
-            result.stopped = "error"
-            return result
-
-        # Every model turn is one boundary record (kind="agent").
-        sink.record(exec_result.event)
-        # Accrue this turn's tokens toward the budget (honest: counts may be None
-        # when a backend did not report them — treat missing as zero, never guess).
-        spent_tokens += (exec_result.event.tokens_in or 0) + (
-            exec_result.event.tokens_out or 0
-        )
-        tool_calls = exec_result.tool_calls
-        if not tool_calls:
-            # Plain-text answer → the task is done.
-            result.final_text = exec_result.content
-            result.stopped = "complete"
-            step = AgentStep("final", "", exec_result.content)
-            result.steps.append(step)
-            if on_step is not None:
-                on_step(step)
-            return result
-
-        # The model asked for tools. Record the assistant turn (OpenAI requires
-        # the tool_calls message to precede the tool results), then dispatch.
-        messages.append(
-            {
-                "role": "assistant",
-                "content": exec_result.content or "",
-                "tool_calls": tool_calls,
-            }
-        )
-        for tc in tool_calls:
-            fn = as_dict(tc.get("function"))
-            name = str(fn.get("name", ""))
-            raw_args = fn.get("arguments")
-            args_json = raw_args if isinstance(raw_args, str) else "{}"
-
-            started = time.perf_counter()
-            denial = guard(name, args_json) if guard is not None else None
-            if denial is not None:
-                observation = f"(blocked by guard: {denial})"
-                step = AgentStep("blocked", name, denial)
-                kind = f"agent_tool_blocked:{name}"
-            else:
-                read_key = _read_key(name, args_json)
-                if read_key is not None and read_key in seen_reads:
-                    # Already retrieved this run → don't re-inject the payload.
-                    observation = (
-                        f"(already retrieved by an earlier {name} call this run — "
-                        "result unchanged, omitted to preserve context)"
+    # The "agent.run" span of the end-to-end trace (vision §7): one per run, with
+    # a child per model turn (broker.execute) and per tool (agent.tool). A no-op
+    # unless a tracer is installed, so this never changes the loop's behaviour.
+    with span("agent.run", {"kinox.task_id": task_id}):
+        for turn in range(max_turns):
+            if token_budget is not None and token_budget.exhausted(spent_tokens):
+                # Fail-soft early exit (vision §9): return what we have, don't raise.
+                # Checked before the turn counter so result.turns reflects *completed*
+                # turns, and before execute() so no further call is spent.
+                result.stopped = "budget"
+                if not result.final_text:
+                    result.final_text = (
+                        f"(stopped: token budget of {token_budget.limit} reached after "
+                        f"{result.turns} turns / {spent_tokens} tokens — raise the "
+                        "budget or narrow the task)"
                     )
-                    step = AgentStep("tool", name, args_json)
-                    kind = f"agent_tool_cached:{name}"
-                else:
-                    observation = registry.dispatch(name, args_json)
-                    if read_key is not None:
-                        seen_reads[read_key] = turn
-                    step = AgentStep("tool", name, args_json)
-                    kind = f"agent_tool:{name}"
-            ctx_chars += len(str(observation))
-            # Every agent action is a boundary record — the auditable action log
-            # (vision §4.6). Tool dispatch is deterministic, so tier reflects that.
-            sink.record(
-                EventRecord(
+                return result
+            result.turns = turn + 1
+            try:
+                exec_result = await execute(
+                    chain,
+                    messages,
+                    call=factory(schema),
                     task_id=f"{task_id}-t{turn}",
-                    kind=kind,
-                    tier="deterministic",
-                    latency_ms=(time.perf_counter() - started) * 1000.0,
+                    kind="agent",
                 )
-            )
-            result.steps.append(step)
-            if on_step is not None:
-                on_step(step)
-
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": str(tc.get("id", "")),
-                    "content": str(observation),
-                }
-            )
-
-            # Logical gate: did this action make progress, or is the agent stuck?
-            outcome = f"{name}\x00{args_json}\x00{observation}"
-            outcome_counts[outcome] = outcome_counts.get(outcome, 0) + 1
-            blocked_streak = blocked_streak + 1 if denial is not None else 0
-            # No-write-progress: count edit attempts that fail, reset on a success.
-            # Non-edit calls (reads, searches) leave the streak untouched, so a
-            # failing edit looped with re-reads still accumulates (the edit-thrash
-            # case) while read-heavy work never trips it.
-            if _is_edit_attempt(name, args_json):
-                if _edit_failed(name, str(observation)):
-                    edit_fail_streak += 1
-                else:
-                    edit_fail_streak = 0
-            stuck: str | None = None
-            if outcome_counts[outcome] >= stall_repeats:
-                stuck = (
-                    f"the same action ({name}) produced the same result "
-                    f"{outcome_counts[outcome]}× — no progress, looping"
-                )
-            elif blocked_streak >= stall_blocks:
-                stuck = (
-                    f"{blocked_streak} tool calls in a row were refused — the "
-                    "approach is not working in this scope"
-                )
-            elif edit_fail_streak >= stall_edit_fails:
-                stuck = (
-                    f"{edit_fail_streak} edit attempts failed without a successful "
-                    "write — the change is not taking; narrow it or check the target"
-                )
-            if stuck is not None:
-                result.stopped = "stuck"
-                result.final_text = (
-                    f"(stopped: {stuck}. Change approach or narrow the task — this "
-                    "is a no-progress gate, not a turn-count cap.)"
-                )
+            except ChainExhausted as exc:
+                # Honest observability (vision §4.6): the failure boundary is logged
+                # too, so the metrics log never has a silent gap.
+                sink.record(exc.event)
+                result.final_text = "(model unavailable: fallback chain exhausted)"
+                result.stopped = "error"
+                return result
+            except BackendError as exc:
+                result.final_text = f"(model unavailable: {exc})"
+                result.stopped = "error"
                 return result
 
-        # Once the gathered context grows large, nudge the model to converge —
-        # exactly once, so it costs ~one line and never nags. This governs context
-        # rot (too much accumulated, signal lost) without a hard tool-call cap.
-        if not nudged and ctx_chars >= context_soft_chars:
-            nudged = True
+            # Every model turn is one boundary record (kind="agent").
+            sink.record(exec_result.event)
+            # Accrue this turn's tokens toward the budget (honest: counts may be None
+            # when a backend did not report them — treat missing as zero, never guess).
+            spent_tokens += (exec_result.event.tokens_in or 0) + (
+                exec_result.event.tokens_out or 0
+            )
+            tool_calls = exec_result.tool_calls
+            if not tool_calls:
+                # Plain-text answer → the task is done.
+                result.final_text = exec_result.content
+                result.stopped = "complete"
+                step = AgentStep("final", "", exec_result.content)
+                result.steps.append(step)
+                if on_step is not None:
+                    on_step(step)
+                return result
+
+            # The model asked for tools. Record the assistant turn (OpenAI requires
+            # the tool_calls message to precede the tool results), then dispatch.
             messages.append(
                 {
-                    "role": "system",
-                    "content": (
-                        f"[context budget] You have gathered ~{ctx_chars} "
-                        f"characters of tool output over {turn + 1} turns — "
-                        "substantial. Stop gathering and act on what you have, or "
-                        "give your final answer, unless a specific identified gap "
-                        "remains. Do not re-read files you have already seen."
-                    ),
+                    "role": "assistant",
+                    "content": exec_result.content or "",
+                    "tool_calls": tool_calls,
                 }
             )
+            for tc in tool_calls:
+                fn = as_dict(tc.get("function"))
+                name = str(fn.get("name", ""))
+                raw_args = fn.get("arguments")
+                args_json = raw_args if isinstance(raw_args, str) else "{}"
 
-    # Turn budget exhausted without a final answer → stop (fail-CLOSED).
-    result.stopped = "max_turns"
-    if not result.final_text:
-        result.final_text = (
-            f"(stopped after {max_turns} turns without completing — "
-            "the task may need more turns or a narrower scope)"
-        )
-    return result
+                started = time.perf_counter()
+                denial = guard(name, args_json) if guard is not None else None
+                if denial is not None:
+                    observation = f"(blocked by guard: {denial})"
+                    step = AgentStep("blocked", name, denial)
+                    kind = f"agent_tool_blocked:{name}"
+                else:
+                    read_key = _read_key(name, args_json)
+                    if read_key is not None and read_key in seen_reads:
+                        # Already retrieved this run → don't re-inject the payload.
+                        observation = (
+                            f"(already retrieved by an earlier {name} call this run — "
+                            "result unchanged, omitted to preserve context)"
+                        )
+                        step = AgentStep("tool", name, args_json)
+                        kind = f"agent_tool_cached:{name}"
+                    else:
+                        # Leaf "agent.tool" span of the trace (vision §7): the actual
+                        # (deterministic) tool execution. No-op unless a tracer is set.
+                        with span(f"agent.tool:{name}"):
+                            observation = registry.dispatch(name, args_json)
+                        if read_key is not None:
+                            seen_reads[read_key] = turn
+                        step = AgentStep("tool", name, args_json)
+                        kind = f"agent_tool:{name}"
+                ctx_chars += len(str(observation))
+                # Every agent action is a boundary record — the auditable action log
+                # (vision §4.6). Tool dispatch is deterministic, so tier reflects that.
+                sink.record(
+                    EventRecord(
+                        task_id=f"{task_id}-t{turn}",
+                        kind=kind,
+                        tier="deterministic",
+                        latency_ms=(time.perf_counter() - started) * 1000.0,
+                    )
+                )
+                result.steps.append(step)
+                if on_step is not None:
+                    on_step(step)
+
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": str(tc.get("id", "")),
+                        "content": str(observation),
+                    }
+                )
+
+                # Logical gate: did this action make progress, or is the agent stuck?
+                outcome = f"{name}\x00{args_json}\x00{observation}"
+                outcome_counts[outcome] = outcome_counts.get(outcome, 0) + 1
+                blocked_streak = blocked_streak + 1 if denial is not None else 0
+                # No-write-progress: count edit attempts that fail, reset on a success.
+                # Non-edit calls (reads, searches) leave the streak untouched, so a
+                # failing edit looped with re-reads still accumulates (the edit-thrash
+                # case) while read-heavy work never trips it.
+                if _is_edit_attempt(name, args_json):
+                    if _edit_failed(name, str(observation)):
+                        edit_fail_streak += 1
+                    else:
+                        edit_fail_streak = 0
+                stuck: str | None = None
+                if outcome_counts[outcome] >= stall_repeats:
+                    stuck = (
+                        f"the same action ({name}) produced the same result "
+                        f"{outcome_counts[outcome]}× — no progress, looping"
+                    )
+                elif blocked_streak >= stall_blocks:
+                    stuck = (
+                        f"{blocked_streak} tool calls in a row were refused — the "
+                        "approach is not working in this scope"
+                    )
+                elif edit_fail_streak >= stall_edit_fails:
+                    stuck = (
+                        f"{edit_fail_streak} edit attempts failed without a "
+                        "successful write — the change is not taking; narrow it "
+                        "or check the target"
+                    )
+                if stuck is not None:
+                    result.stopped = "stuck"
+                    result.final_text = (
+                        f"(stopped: {stuck}. Change approach or narrow the task — this "
+                        "is a no-progress gate, not a turn-count cap.)"
+                    )
+                    return result
+
+            # Once the gathered context grows large, nudge the model to converge —
+            # exactly once, so it costs ~one line and never nags. This governs context
+            # rot (too much accumulated, signal lost) without a hard tool-call cap.
+            if not nudged and ctx_chars >= context_soft_chars:
+                nudged = True
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            f"[context budget] You have gathered ~{ctx_chars} "
+                            f"characters of tool output over {turn + 1} turns — "
+                            "substantial. Stop gathering and act on what you have, or "
+                            "give your final answer, unless a specific identified gap "
+                            "remains. Do not re-read files you have already seen."
+                        ),
+                    }
+                )
+
+        # Turn budget exhausted without a final answer → stop (fail-CLOSED).
+        result.stopped = "max_turns"
+        if not result.final_text:
+            result.final_text = (
+                f"(stopped after {max_turns} turns without completing — "
+                "the task may need more turns or a narrower scope)"
+            )
+        return result

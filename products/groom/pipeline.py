@@ -20,6 +20,7 @@ from pathlib import Path
 from kernel.contracts import Annotation, EventRecord, Tier
 from kernel.manifest import Manifest
 from kernel.metrics import MetricsSink
+from kernel.tracing import span
 
 from products.groom import tag as tagmod
 from products.groom.stages import context as context_stage
@@ -60,113 +61,117 @@ def groom(
     measured with ``time.perf_counter``.  ``tokens_exact=False`` on these
     boundary records (the offloaded model's own token usage is not yet folded in).
     """
-    lines: list[str] = []
+    # The "groom" span of the end-to-end trace (vision §7): wraps the whole
+    # pipeline. Per-stage latency is already in the JSONL EventRecords; a no-op
+    # unless a tracer is installed.
+    with span("groom", {"kinox.task_id": task_id}):
+        lines: list[str] = []
 
-    # ------------------------------------------------------------------
-    # Stage 1: redact
-    # ------------------------------------------------------------------
-    t0 = time.perf_counter()
-    redact_result = redact_stage.redact(prompt)
-    latency_redact = (time.perf_counter() - t0) * 1000.0
+        # ------------------------------------------------------------------
+        # Stage 1: redact
+        # ------------------------------------------------------------------
+        t0 = time.perf_counter()
+        redact_result = redact_stage.redact(prompt)
+        latency_redact = (time.perf_counter() - t0) * 1000.0
 
-    sink.record(
-        EventRecord(
-            task_id=task_id,
-            kind="redact",
-            tier=_DETERMINISTIC_TIER,
-            tokens_exact=False,
-            latency_ms=latency_redact,
+        sink.record(
+            EventRecord(
+                task_id=task_id,
+                kind="redact",
+                tier=_DETERMINISTIC_TIER,
+                tokens_exact=False,
+                latency_ms=latency_redact,
+            )
         )
-    )
 
-    # Carry the redacted text through the rest of the pipeline.
-    working_text = redact_result.text
+        # Carry the redacted text through the rest of the pipeline.
+        working_text = redact_result.text
 
-    if redact_result.found:
-        kinds_str = ", ".join(redact_result.found)
-        lines.append(f"groomed: redacted {kinds_str}")
+        if redact_result.found:
+            kinds_str = ", ".join(redact_result.found)
+            lines.append(f"groomed: redacted {kinds_str}")
 
-    # ------------------------------------------------------------------
-    # Stage 2: expand
-    # ------------------------------------------------------------------
-    t0 = time.perf_counter()
-    expand_result = expand_stage.expand(working_text, cwd=cwd)
-    latency_expand = (time.perf_counter() - t0) * 1000.0
+        # ------------------------------------------------------------------
+        # Stage 2: expand
+        # ------------------------------------------------------------------
+        t0 = time.perf_counter()
+        expand_result = expand_stage.expand(working_text, cwd=cwd)
+        latency_expand = (time.perf_counter() - t0) * 1000.0
 
-    sink.record(
-        EventRecord(
-            task_id=task_id,
-            kind="expand",
-            tier=_DETERMINISTIC_TIER,
-            tokens_exact=False,
-            latency_ms=latency_expand,
+        sink.record(
+            EventRecord(
+                task_id=task_id,
+                kind="expand",
+                tier=_DETERMINISTIC_TIER,
+                tokens_exact=False,
+                latency_ms=latency_expand,
+            )
         )
-    )
 
-    for note in expand_result.notes:
-        lines.append(note)
+        for note in expand_result.notes:
+            lines.append(note)
 
-    # ------------------------------------------------------------------
-    # Stage 3: context
-    # ------------------------------------------------------------------
-    t0 = time.perf_counter()
-    context_result = context_stage.gather(cwd)
-    latency_context = (time.perf_counter() - t0) * 1000.0
+        # ------------------------------------------------------------------
+        # Stage 3: context
+        # ------------------------------------------------------------------
+        t0 = time.perf_counter()
+        context_result = context_stage.gather(cwd)
+        latency_context = (time.perf_counter() - t0) * 1000.0
 
-    sink.record(
-        EventRecord(
-            task_id=task_id,
-            kind="context",
-            tier=_DETERMINISTIC_TIER,
-            tokens_exact=False,
-            latency_ms=latency_context,
+        sink.record(
+            EventRecord(
+                task_id=task_id,
+                kind="context",
+                tier=_DETERMINISTIC_TIER,
+                tokens_exact=False,
+                latency_ms=latency_context,
+            )
         )
-    )
 
-    for ctx_line in context_result.lines:
-        lines.append(ctx_line)
+        for ctx_line in context_result.lines:
+            lines.append(ctx_line)
 
-    # ------------------------------------------------------------------
-    # Stage 3b: deslop — flag LLM "slop" phrasing in the working text.
-    # SOFT (thesis #2): never rewrites the prompt, only annotates, so a false
-    # positive costs one harmless line and nothing more.
-    # ------------------------------------------------------------------
-    t0 = time.perf_counter()
-    slop_result = deslop_stage.find_slop(working_text)
-    latency_deslop = (time.perf_counter() - t0) * 1000.0
+        # ------------------------------------------------------------------
+        # Stage 3b: deslop — flag LLM "slop" phrasing in the working text.
+        # SOFT (thesis #2): never rewrites the prompt, only annotates, so a false
+        # positive costs one harmless line and nothing more.
+        # ------------------------------------------------------------------
+        t0 = time.perf_counter()
+        slop_result = deslop_stage.find_slop(working_text)
+        latency_deslop = (time.perf_counter() - t0) * 1000.0
 
-    sink.record(
-        EventRecord(
-            task_id=task_id,
-            kind="deslop",
-            tier=_DETERMINISTIC_TIER,
-            tokens_exact=False,
-            latency_ms=latency_deslop,
+        sink.record(
+            EventRecord(
+                task_id=task_id,
+                kind="deslop",
+                tier=_DETERMINISTIC_TIER,
+                tokens_exact=False,
+                latency_ms=latency_deslop,
+            )
         )
-    )
 
-    if not slop_result.clean:
-        lines.append("slop flagged: " + ", ".join(slop_result.found))
+        if not slop_result.clean:
+            lines.append("slop flagged: " + ", ".join(slop_result.found))
 
-    # ------------------------------------------------------------------
-    # Stage 4: tag (the ONE fuzzy step — router is real; offloads to a local
-    # model when model_tag is supplied, else deterministic keyword tags)
-    # ------------------------------------------------------------------
-    t0 = time.perf_counter()
-    tag_result = tagmod.tag(working_text, manifest, model_tag=model_tag)
-    latency_tag = (time.perf_counter() - t0) * 1000.0
+        # ------------------------------------------------------------------
+        # Stage 4: tag (the ONE fuzzy step — router is real; offloads to a local
+        # model when model_tag is supplied, else deterministic keyword tags)
+        # ------------------------------------------------------------------
+        t0 = time.perf_counter()
+        tag_result = tagmod.tag(working_text, manifest, model_tag=model_tag)
+        latency_tag = (time.perf_counter() - t0) * 1000.0
 
-    sink.record(
-        EventRecord(
-            task_id=task_id,
-            kind="tag",
-            tier=_tier_str(tag_result.tier),
-            tokens_exact=False,
-            latency_ms=latency_tag,
+        sink.record(
+            EventRecord(
+                task_id=task_id,
+                kind="tag",
+                tier=_tier_str(tag_result.tier),
+                tokens_exact=False,
+                latency_ms=latency_tag,
+            )
         )
-    )
 
-    if tag_result.tags:
-        lines.append("tags: " + ", ".join(tag_result.tags))
+        if tag_result.tags:
+            lines.append("tags: " + ", ".join(tag_result.tags))
 
-    return Annotation.passthrough(lines)
+        return Annotation.passthrough(lines)
