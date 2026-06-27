@@ -18,6 +18,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -59,3 +60,22 @@ def run_eval_set(path: str = "tests/eval") -> EvalReport:
         failed += int(s.get("failures", 0)) + int(s.get("errors", 0))
         skipped += int(s.get("skipped", 0))
     return EvalReport(total=total, passed=total - failed - skipped, failed=failed)
+
+
+def run_golden_eval(
+    tasks_dir: Path = Path("evals/tasks"), *, root: Path
+) -> EvalReport:
+    """Run the GOLDEN eval set (the declarative ``evals/tasks/*.json`` cases,
+    executed against the real components by :mod:`evals.execute`) and summarise
+    pass/fail counts as an :class:`EvalReport`.
+
+    Distinct from :func:`run_eval_set`, which runs the handwritten pytest suite in
+    ``tests/eval/``. This is the gate the evolution loop should consult — "did the
+    behavioral golden set still pass?" — now that the tasks are actually executed.
+    """
+    from evals.execute import run_golden_set
+
+    results = run_golden_set(tasks_dir, root=root)
+    total = len(results)
+    failed = sum(1 for r in results if not r.passed)
+    return EvalReport(total=total, passed=total - failed, failed=failed)
