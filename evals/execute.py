@@ -29,7 +29,7 @@ from pathlib import Path
 from daemon.outbox import Outbox
 from kernel.contracts import Determinism, Task, TaskKind, Tier
 from kernel.corrections import looks_like_correction
-from kernel.manifest import probe
+from kernel.manifest import LocalModel, Manifest, probe
 from kernel.metrics import MetricsSink
 from kernel.router import route
 from products.agent.command_safety import Level, assess
@@ -173,14 +173,38 @@ def _classify_kind(prompt: str) -> TaskKind:
     return TaskKind.TAG
 
 
+def _eval_manifest() -> Manifest:
+    """A FIXED host profile so routing is deterministic everywhere — CI included.
+
+    The router *logic* is the unit under test, not the host's installed models:
+    given a machine with a fitting local model and no cloud, a fuzzy task must
+    route ``local``; a ground-truth task must route ``deterministic``. Routing
+    through the live ``probe()`` would make the gate depend on whether the runner
+    happens to have Ollama installed (a CI runner has none → a false red). We pin
+    one small local model and cloud-off so ``route()`` is exercised on a known,
+    stable input — the real router, a deterministic question.
+    """
+    return Manifest(
+        cpu_count=4,
+        ram_gb=16.0,
+        gpu_vram_gb=24.0,
+        local_models=(LocalModel(name="eval-local-7b", vram_gb_required=8.0),),
+        cloud_available=False,
+    )
+
+
 def _tier_where(prompt: str) -> str:
-    """Route the prompt through the REAL router and report the tier location."""
+    """Route the prompt through the REAL router and report the tier location.
+
+    Routes against a fixed manifest (see :func:`_eval_manifest`) so the result is
+    a property of the router, not of the host's model inventory.
+    """
     kind = _classify_kind(prompt)
     if kind.determinism is Determinism.FUZZY:
         task = Task(kind=kind, budget_ms=TAG_BUDGET_MS)
     else:
         task = Task(kind=kind)
-    tier: Tier | None = route(task, probe())
+    tier: Tier | None = route(task, _eval_manifest())
     if tier is None:
         return "none"  # no model fits — honest, fails a "local"/"cloud" assertion
     if not tier.is_model:
