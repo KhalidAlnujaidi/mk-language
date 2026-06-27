@@ -1,0 +1,60 @@
+# Durable CPU-inference layer on the k3s worker nodes (node1/2/3).
+# One Ollama per worker, model cached on-node (survives restarts), one Service VIP.
+# Validated path: AVX2 llama.cpp, native tool_calls, ~16 tok/s/node (qwen2.5:3b).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kinox
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kinox-ollama
+  namespace: kinox
+spec:
+  selector:
+    matchLabels: { app: kinox-ollama }
+  template:
+    metadata:
+      labels: { app: kinox-ollama }
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - { key: kubernetes.io/hostname, operator: In, values: [node1, node2, node3] }
+      containers:
+      - name: ollama
+        image: ollama/ollama:latest
+        command: ["/bin/sh","-c"]
+        args:
+        - |
+          ollama serve >/tmp/serve.log 2>&1 &
+          sleep 8
+          ollama pull qwen2.5:3b || true
+          wait
+        ports: [{ containerPort: 11434 }]
+        readinessProbe:
+          httpGet: { path: /api/version, port: 11434 }
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        resources:
+          requests: { cpu: "1", memory: "1Gi" }
+          limits:   { cpu: "12", memory: "6Gi" }
+        volumeMounts:
+        - { name: models, mountPath: /root/.ollama }
+      volumes:
+      - name: models
+        hostPath: { path: /var/lib/kinox-ollama, type: DirectoryOrCreate }
+---
+# Load-balanced VIP across the 3 workers: kinox-ollama.kinox.svc:11434
+apiVersion: v1
+kind: Service
+metadata:
+  name: kinox-ollama
+  namespace: kinox
+spec:
+  selector: { app: kinox-ollama }
+  ports:
+  - { name: http, port: 11434, targetPort: 11434 }
