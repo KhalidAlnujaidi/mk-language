@@ -259,6 +259,11 @@ def load_task(path: Path) -> EvalTask:
         threshold_raw = adict.get("threshold")
         threshold: float | None = None
         if threshold_raw is not None:
+            if not isinstance(threshold_raw, (int, float, str)):
+                raise ValueError(
+                    f"Assertion {i} in {path}: threshold must be a number, "
+                    f"got {threshold_raw!r}"
+                )
             try:
                 threshold = float(threshold_raw)
             except (TypeError, ValueError) as exc:

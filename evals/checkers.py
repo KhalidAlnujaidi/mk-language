@@ -23,6 +23,9 @@ Usage::
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import cast
+
 from products.groom.stages.deslop import find_slop
 
 from evals.schema import Assertion, AssertionResult
@@ -43,7 +46,7 @@ def _stringify(value: object) -> str:
     ``str()``-ified.
     """
     if isinstance(value, list):
-        return "\n".join(str(v) for v in value)
+        return "\n".join(str(v) for v in cast("list[object]", value))
     return str(value)
 
 
@@ -164,7 +167,8 @@ def _check_schema(a: Assertion, actual: object) -> AssertionResult:
             score=0.0,
             reason=f"expected a dict/JSON object, got {type(actual).__name__}",
         )
-    missing = [k for k in required_keys if k not in actual]
+    actual_dict = cast("dict[str, object]", actual)
+    missing = [k for k in required_keys if k not in actual_dict]
     passed = len(missing) == 0
     total = len(required_keys)
     score = (total - len(missing)) / total if total > 0 else 1.0
@@ -173,7 +177,7 @@ def _check_schema(a: Assertion, actual: object) -> AssertionResult:
         target=a.target,
         passed=passed,
         expected=a.expected,
-        actual=str(sorted(actual.keys())),
+        actual=str(sorted(actual_dict.keys())),
         score=score,
         reason=(
             f"all {total} required keys present"
@@ -191,6 +195,8 @@ def _check_budget(a: Assertion, actual: object) -> AssertionResult:
     """
     try:
         ceiling = _parse_float(a.expected)
+        if not isinstance(actual, (int, float, str)):
+            raise TypeError(f"expected a number, got {type(actual).__name__}")
         value = float(actual)
     except (ValueError, TypeError) as exc:
         return AssertionResult(
@@ -237,7 +243,7 @@ def _check_tool_correctness(a: Assertion, actual: object) -> AssertionResult:
     if isinstance(actual, str):
         actual_set = {t.strip() for t in actual.split(",") if t.strip()}
     elif isinstance(actual, (list, tuple)):
-        actual_set = {str(t).strip() for t in actual}
+        actual_set = {str(t).strip() for t in cast("list[object]", actual)}
     else:
         actual_set = {str(actual).strip()}
 
@@ -268,6 +274,8 @@ def _check_step_efficiency(a: Assertion, actual: object) -> AssertionResult:
     """
     try:
         ceiling = int(a.expected.strip())
+        if not isinstance(actual, (int, float, str)):
+            raise TypeError(f"expected a number, got {type(actual).__name__}")
         count = int(actual)
     except (ValueError, TypeError) as exc:
         return AssertionResult(
@@ -374,7 +382,10 @@ def _check_slop(a: Assertion, actual: str) -> AssertionResult:
 # Each checker operates on a stringified actual value by default. Exception:
 # ``schema`` needs the raw dict, ``tool_correctness`` needs list/str, and
 # ``budget`` / ``step_efficiency`` need numeric values. Those accept `object`.
-_CHECKERS: dict[str, tuple] = {
+#: A checker takes the assertion + the observed value (str or raw) and judges it.
+_Checker = Callable[..., AssertionResult]
+
+_CHECKERS: dict[str, tuple[_Checker, bool]] = {
     # kind: (checker_fn, stringize_actual?)
     "contains":         (_check_contains, True),
     "not_contains":     (_check_not_contains, True),
