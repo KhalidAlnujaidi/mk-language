@@ -1,0 +1,78 @@
+{
+  "index": 10,
+  "title": "example-showcase",
+  "options": [
+    {
+      "label": "P1",
+      "author": "deepseek-r1:8b",
+      "text": "As a member of the chat, I can demonstrate a simple function that calculates the length of a list. This is a good example to show recursion and basic list operations in this language, using the primitives available (such as `eq?`, `car`, and `cdr`).\n\nHere's the code:\n\n```scheme\n(define (length lst) (if (eq? lst Nil) 0 (+ 1 (length (cdr lst)))))\n(length '(1 2 3))\n```\n\nThis program defines a recursive function `length` that calculates the number of elements in a list. It then applies this function to a list containing three elements. The result is 3.\n\nNote: In this language, the empty list is represented as `Nil`, and functions like `eq?` and `car` (or `cdr`) are used for list operations. The `define` form is available for defining functions. This code assumes that the empty list `Nil` is a special value from the evaluation rules. If `Nil` is not explicitly handled in the environment, it may need to be defined or assumed to be available. \n\nIf you'd like to see other examples or have a specific function in mind, let me know! \ud83d\ude0a"
+    },
+    {
+      "label": "P2",
+      "author": "qwen3:8b",
+      "text": "(define (map f lst)\n  (if (eq? lst '())\n      '()\n      (cons (f (car lst)) (map f (cdr lst)))))\n\n(define numbers '(1 2 3 4 5))\n(define squared-numbers (map (lambda (x) (* x x)) numbers))\n\n(display squared-numbers)"
+    },
+    {
+      "label": "P3",
+      "author": "llama3:latest",
+      "text": "```\n;; Define a simple Pair data structure (Key-Value) using the list primitives.\n(define (make-pair key value)\n  (cons key value))\n\n(define (get-key pair)\n  (car pair))\n\n(define (get-value pair)\n  (cdr pair))\n\n(define (set-value pair new-value)\n  (cons (get-key pair) new-value))\n\n;; Example Usage:\n(define user-record (make-pair \"user_id\" 101))\n(display \"Original Record: \")\n(display user-record) ; Expected output: (user_id 101)\n\n(display \"Retrieved Key: \")\n(display (get-key user-record)) ; Expected output: user_id\n(newline)\n\n(display \"Original Value: \")\n(display (get-value user-record)) ; Expected output: 101\n\n(newline)\n```\n\nThis program demonstrates the creation and manipulation of a simple Pair data structure, showcasing the language's support for functional programming."
+    },
+    {
+      "label": "P4",
+      "author": "gemma4:latest",
+      "text": "```scheme\n;; Example 3: Functional Mapping (Demonstrating Higher-Order Functions and Recursion)\n;; This example implements the 'map' function, which takes a function (F)\n;; and a list (L), applying F to every element of L and returning a new list.\n\n;; 1. map function definition:\n;; map :: (Function) -> (List) -> (List)\n(define (map func list)\n  (if (null? list) ; Assuming 'null?' checks for Nil/Empty list\n      ()\n      (cons (func (car list))\n            (map func (cdr list)))))\n\n;; 2. Example Transformation Functions:\n\n;; F1: Double a number\n(define (double n)\n  (* n 2))\n\n;; F2: Convert a number to a formatted string\n(define (number-to-string n)\n  (string-append \"Value: \" (number->string n))) ; Assuming a built-in number->string\n\n;; 3. Demonstration:\n\n(display \"--- Demonstrating Map ---\")\n(newline)\n\n;; Test Case 1: Mapping 'double' over a list of numbers\n(define numbers (list 1 2 3 4 5))\n(display \"Original Numbers: \")\n(display numbers) ; (1 2 3 4 5)\n(newline)\n\n(display \"Mapped (Doubled): \")\n(display (map double numbers)) ; Expected output: (2 4 6 8 10)\n(newline)\n\n\n;; Test Case 2: Mapping a string conversion function\n(define scores (list 10 20 30))\n(display \"Original Scores: \")\n(display scores)\n(newline)\n\n(display \"Mapped (Stringified): \")\n(display (map number-to-string scores))\n(newline)\n\n;; Test Case 3: Mapping an identity function (for completeness)\n(define identity-func lambda (x) x)\n(define original-list (list 'a 'b 'c))\n(display \"Mapped (Identity Check): \")\n(display (map identity-func original-list))\n(newline)\n```"
+    },
+    {
+      "label": "P5",
+      "author": "mistral:7b",
+      "text": "```scheme\n;; Program to calculate Fibonacci sequence up to a given number\n(define (fib n)\n  (if (zero? n)\n      n\n      (+ (fib (- n 1)) (fib (- n 2)))))\n\n;; Prints Fibonacci numbers up to the specified limit (n)\n(define (print-fibs limit)\n  (for-each (lambda (x) (display x) (newline))\n            (take (scan (lambda (a b) (if (< a limit) (+ a b) '()) (list 0 1)) (subtract limit 2))))\n  (newline))\n\n;; Main function that accepts user input and prints Fibonacci sequence\n(define (main)\n  (display \"Enter the number of terms in the Fibonacci sequence: \")\n  (let ((n (read)))\n    (print-fibs n)\n    (display \"The first \" n \" numbers in the Fibonacci sequence are:\" newline)))\n\n;; Execute main function\n(main)\n```\n\nThis example demonstrates the language's functional programming paradigm by using recursion and higher-order functions like `for-each`, `scan`, and `take`. It illustrates how to calculate Fibonacci numbers up to a specified number, allowing users to input their desired sequence length."
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P4",
+      "P1",
+      "P3",
+      "P2",
+      "P5"
+    ],
+    "gemma4:latest": [
+      "P4",
+      "P1",
+      "P2",
+      "P3",
+      "P5"
+    ],
+    "llama3:latest": [
+      "P4",
+      "P2",
+      "P3",
+      "P1",
+      "P5"
+    ],
+    "deepseek-r1:8b": [
+      "P1",
+      "P2",
+      "P4",
+      "P3",
+      "P5"
+    ],
+    "mistral:7b": [
+      "P4",
+      "P1",
+      "P5",
+      "P3",
+      "P2"
+    ]
+  },
+  "scores": {
+    "P1": 14,
+    "P2": 9,
+    "P3": 7,
+    "P4": 18,
+    "P5": 2
+  },
+  "winner_author": "gemma4:latest",
+  "winner_text": "```scheme\n;; Example 3: Functional Mapping (Demonstrating Higher-Order Functions and Recursion)\n;; This example implements the 'map' function, which takes a function (F)\n;; and a list (L), applying F to every element of L and returning a new list.\n\n;; 1. map function definition:\n;; map :: (Function) -> (List) -> (List)\n(define (map func list)\n  (if (null? list) ; Assuming 'null?' checks for Nil/Empty list\n      ()\n      (cons (func (car list))\n            (map func (cdr list)))))\n\n;; 2. Example Transformation Functions:\n\n;; F1: Double a number\n(define (double n)\n  (* n 2))\n\n;; F2: Convert a number to a formatted string\n(define (number-to-string n)\n  (string-append \"Value: \" (number->string n))) ; Assuming a built-in number->string\n\n;; 3. Demonstration:\n\n(display \"--- Demonstrating Map ---\")\n(newline)\n\n;; Test Case 1: Mapping 'double' over a list of numbers\n(define numbers (list 1 2 3 4 5))\n(display \"Original Numbers: \")\n(display numbers) ; (1 2 3 4 5)\n(newline)\n\n(display \"Mapped (Doubled): \")\n(display (map double numbers)) ; Expected output: (2 4 6 8 10)\n(newline)\n\n\n;; Test Case 2: Mapping a string conversion function\n(define scores (list 10 20 30))\n(display \"Original Scores: \")\n(display scores)\n(newline)\n\n(display \"Mapped (Stringified): \")\n(display (map number-to-string scores))\n(newline)\n\n;; Test Case 3: Mapping an identity function (for completeness)\n(define identity-func lambda (x) x)\n(define original-list (list 'a 'b 'c))\n(display \"Mapped (Identity Check): \")\n(display (map identity-func original-list))\n(newline)\n```",
+  "note": ""
+}

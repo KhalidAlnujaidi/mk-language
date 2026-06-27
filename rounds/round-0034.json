@@ -1,0 +1,89 @@
+{
+  "index": 34,
+  "title": "refine:builtins",
+  "options": [
+    {
+      "label": "P1",
+      "author": "llama3:latest",
+      "text": "**Core Primitives (Refined):**\n\n**Data Types:** Number, String, Boolean, List, Symbol, Nil.\n**Functions:** `lambda`, `car`, `cdr`, `null?`.\n**Operators & Control Flow:** `if`, `cond`, `and`, `or`, `quote`, `match` (pattern matching).\n**Built-in Functions:** `+`, `-`, `*`, `/`, `equal?`, `<=`, `>=`, `map`, `filter`.\n\n**Rationale for Optimality:**\n\n1.  **Minimal Core & Reuse (Axioms 2 & 5):** Introducing pattern matching (`match`) as a built-in enables concise and expressive code, while retaining fundamental list manipulation primitives (`car`, `cdr`) forces users to rely on foundational functional programming concepts.\n2.  **Completeness:** Retaining basic arithmetic built-ins (`+`, `-`, etc.) and adding `map` and `filter` functions ensures comprehensive mathematical and data processing capabilities, making the language more practical for various use cases.\n3.  **Practicality vs. Purity:** While maintaining the purely functional approach, the added `match` function allows for more expressive code without compromising core principles.\n\nThe refined proposal maintains the balance between mathematical power, functional rigor, and practical implementation overhead, ensuring a more comprehensive and efficient programming language."
+    },
+    {
+      "label": "P2",
+      "author": "gemma4:latest",
+      "text": "**Core Primitives (Refined):**\n**Data Types:** Number, String, Boolean, List, Symbol, Nil.\n**Functions:** `lambda`, `car`, `cdr`, `null?`, `map` (or equivalent list iteration primitive).\n**Operators & Control Flow:** `if`, `cond`, `and`, `or`, `quote`.\n**Built-in Functions:**\n1.  **Arithmetic Operation Application (`op-apply`):** A single built-in mechanism that accepts a function (representing the operation, e.g., addition) and its arguments, ensuring all mathematical operations flow through a single reduction rule, enhancing machine interpretability and composability.\n2.  **Equality (`equal?`):** Remains necessary for decidability and control flow.\n3.  **Comparison (`<=`, `>=`):** Remain necessary for control flow and numerical logic.\n\n**Rationale for Strict Improvement:**\n\nThe existing built-in list of arithmetic operators (`+`, `-`, `*`, `/`) violates the Minimal Core principle (Axiom 5) by creating five specialized, non-uniform built-ins. They are special cases of function application that should be treated uniformly.\n\nBy replacing them with a single `op-apply` primitive (or similar mechanism that signals the arithmetic nature of the function), we achieve:\n1.  **Minimal Core:** We reduce the set of specialized primitives from five to one, greatly simplifying the runtime dispatch mechanism.\n2.  **Reuse/Uniformity:** All arithmetic operations now reuse the single `op-apply` logic, rather than requiring the interpreter to handle five separate built-in forms.\n3.  **Machine Interpretability:** The interpreter's dispatch logic becomes cleaner, handling arithmetic as a distinct *type* of function application result rather than five separate opcode paths.\n\nThe built-ins `equal?`, `<=`, and `>=` are kept as they represent necessary, non-compositional comparisons required for control flow and decidability that cannot be trivially unified with general function application.\n\nThe resulting core is mathematically equivalent but structurally simpler, adhering more strictly to the spirit of a minimal, uniformly defined computational core."
+    },
+    {
+      "label": "P3",
+      "author": "deepseek-r1:8b",
+      "text": "Core Primitives (Refined):\n**Data Types:** Number, String, Boolean, List, Symbol, Nil.\n**Functions:** `lambda`, `quote`, `define`, `car`, `cdr`, `null?`.\n**Operators & Control Flow:** `if`, `equal?`, `<=`, `>=`.\n**Built-in Functions:** `+`, `-`, `*`, `/`."
+    },
+    {
+      "label": "P4",
+      "author": "mistral:7b",
+      "text": "Proposed refinement:\n\n**Core Primitives (Refined):**\n**Data Types:** Number, String, Boolean, List, Symbol, Nil, Error.\n**Functions:** `lambda`, `car`, `cdr`, `null?`, `error?`, `raise`.\n**Operators & Control Flow:** `if`, `cond`, `and`, `or`, `quote`.\n**Built-in Functions:** `+`, `-`, `*`, `/`, `equal?`, `<=`, `>=`, `min`, `max`.\n\n**Additional Built-ins:**\n1. **`length`**: Returns the length of a list\n2. **`append`**: Concatenates two lists, creating a new list without altering the original ones.\n3. **`list-map`**: Applies a given function to every element in a list and returns a new list containing the results.\n4. **`list-filter`**: Filters the elements of a list according to a given predicate and returns a new list containing the matching elements.\n5. **`define`**: Allows binding a symbol to an arbitrary value (mutable or immutable) within the current scope.\n6. **`let`**: Evaluates expressions in sequence, binding variables locally for each expression.\n7. **Exception handling:** Provides error checking and propagation through the `error?`, `raise`, and `handle-exception` functions.\n\n**Rationale for Refinement:**\n1. **Minimal Core & Reuse (Axioms 2 & 5):** Introducing list manipulation built-ins enhances functionality without sacrificing simplicity, allowing users to utilize higher-order functions conveniently.\n2. **Completeness:** Adding `length`, `append`, `list-map`, and `list-filter` further expands the language's capabilities for working with lists.\n3. **Practicality vs. Purity:** Incorporating mutable bindings through `define` and `let` allows for a practical balance between functional and imperative programming, making the language more versatile without compromising its core principles.\n4. **Error Handling (Axiom 1):** Exception handling enables machine-interpretability by providing an explicit way to signal, propagate, and handle errors.\n5. **Testability:** The new built-ins maintain testability as their behavior is still decidable from their text."
+    },
+    {
+      "label": "P5",
+      "author": "CURRENT",
+      "text": "The current proposal is optimal. No strictly better version can be derived without violating the principle of preserving established functionality (Axiom 3) or introducing unnecessary complexity (Axiom 5).\n\nThe refinement proposed is simply a restatement of the optimality argument, confirming the current structure meets all constraints.\n\n**Final Proposal Confirmation:**\n\n**Core Primitives (Refined):**\n**Data Types:** Number, String, Boolean, List, Symbol, Nil.\n**Functions:** `lambda`, `car`, `cdr`, `null?`.\n**Operators & Control Flow:** `if`, `cond`, `and`, `or`, `quote`.\n**Built-in Functions:** `+`, `-`, `*`, `/`, `equal?`, `<=`, `>=`.\n\n**Rationale for Optimality:**\n\n1.  **Minimal Core & Reuse (Axioms 2 & 5):** The exclusion of high-level list manipulators (`list-map`, `list-filter`, `list-append`) forces users to rely on fundamental list manipulation primitives (`car`, `cdr`, recursion) or standard higher-order functions, forcing adherence to foundational functional programming concepts.\n2.  **Completeness:** Retaining basic arithmetic built-ins (`+`, `-`, etc.) prevents the overhead of implementing fundamental mathematical operations repeatedly, while keeping them as built-ins keeps the language lightweight.\n3.  **Practicality vs. Purity:** While a purely functional approach would eliminate built-in arithmetic, retaining them maintains the practical usability demonstrated by the examples without sacrificing core principles.\n4.  **Redundancy Check:** The combination of `if/else` logic (via `if`) and arithmetic built-ins covers the necessary control flow and mathematical requirements efficiently.\n\nThe structure provides the necessary balance between mathematical power, functional rigor, and practical implementation overhead."
+    },
+    {
+      "label": "P6",
+      "author": "qwen3:8b",
+      "text": "The current builtins are not optimal. Adding `cons` as a core primitive is strictly better under Axiom 5 (Minimal Core) and Axiom 2 (Reuse). `cons` is fundamental for list construction and aligns with `car`/`cdr` as foundational list operations. Removing it forces users to reimplement list creation, violating reuse. Including `cons` maintains minimalism while enabling essential data structure manipulation. \n\n**Proposed Builtins (Improved):**  \n**Data Types:** Number, String, Boolean, List, Symbol, Nil.  \n**Functions:** `lambda`, `car`, `cdr`, `null?`, `cons`.  \n**Operators & Control Flow:** `if`, `cond`, `and`, `or`, `quote`.  \n**Built-in Functions:** `+`, `-`, `*`, `/`, `equal?`, `<=`, `>=`.  \n\n**Rationale for Optimality:**  \n1. **Minimal Core & Reuse:** `cons` enables list creation without requiring user-defined functions, aligning with `car`/`cdr` as foundational primitives.  \n2. **Completeness:** `cons` is essential for building lists, which are central to the language\u2019s design.  \n3. **Efficiency:** Including `cons` avoids redundancy in user-defined list operations, adhering to Axiom 2.  \n4. **Balance:** Retaining arithmetic and control flow primitives ensures practical usability without bloating the core.  \n\nThe revised set adheres strictly to the axioms by preserving minimalism while enabling essential operations."
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P2",
+      "P6",
+      "P3",
+      "P5",
+      "P1",
+      "P4"
+    ],
+    "gemma4:latest": [
+      "P2",
+      "P6",
+      "P3",
+      "P1",
+      "P5",
+      "P4"
+    ],
+    "llama3:latest": [
+      "P6",
+      "P5",
+      "P4",
+      "P3",
+      "P2",
+      "P1"
+    ],
+    "deepseek-r1:8b": [
+      "P2",
+      "P6",
+      "P1",
+      "P5",
+      "P3",
+      "P4"
+    ],
+    "mistral:7b": [
+      "P6",
+      "P1",
+      "P4",
+      "P2",
+      "P3",
+      "P5"
+    ]
+  },
+  "scores": {
+    "P1": 10,
+    "P2": 18,
+    "P3": 10,
+    "P4": 6,
+    "P5": 9,
+    "P6": 22
+  },
+  "winner_author": "qwen3:8b",
+  "winner_text": "The current builtins are not optimal. Adding `cons` as a core primitive is strictly better under Axiom 5 (Minimal Core) and Axiom 2 (Reuse). `cons` is fundamental for list construction and aligns with `car`/`cdr` as foundational list operations. Removing it forces users to reimplement list creation, violating reuse. Including `cons` maintains minimalism while enabling essential data structure manipulation. \n\n**Proposed Builtins (Improved):**  \n**Data Types:** Number, String, Boolean, List, Symbol, Nil.  \n**Functions:** `lambda`, `car`, `cdr`, `null?`, `cons`.  \n**Operators & Control Flow:** `if`, `cond`, `and`, `or`, `quote`.  \n**Built-in Functions:** `+`, `-`, `*`, `/`, `equal?`, `<=`, `>=`.  \n\n**Rationale for Optimality:**  \n1. **Minimal Core & Reuse:** `cons` enables list creation without requiring user-defined functions, aligning with `car`/`cdr` as foundational primitives.  \n2. **Completeness:** `cons` is essential for building lists, which are central to the language\u2019s design.  \n3. **Efficiency:** Including `cons` avoids redundancy in user-defined list operations, adhering to Axiom 2.  \n4. **Balance:** Retaining arithmetic and control flow primitives ensures practical usability without bloating the core.  \n\nThe revised set adheres strictly to the axioms by preserving minimalism while enabling essential operations.",
+  "note": ""
+}

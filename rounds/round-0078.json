@@ -1,0 +1,36 @@
+{
+  "index": 78,
+  "title": "build:interpreter",
+  "options": [
+    {
+      "label": "P1",
+      "author": "qwen3:8b",
+      "text": "score 0/11 :: []"
+    },
+    {
+      "label": "P2",
+      "author": "gemma4:latest",
+      "text": "score 0/11 :: []"
+    },
+    {
+      "label": "P3",
+      "author": "llama3:latest",
+      "text": "score 1/11 :: ['list-dir']"
+    },
+    {
+      "label": "P4",
+      "author": "mistral:7b",
+      "text": "score 0/11 :: []"
+    }
+  ],
+  "ballots": {},
+  "scores": {
+    "qwen3:8b": 0,
+    "gemma4:latest": 0,
+    "llama3:latest": 1,
+    "mistral:7b": 0
+  },
+  "winner_author": "llama3:latest",
+  "winner_text": "import os\n\ndef run(source):\n    # Intent parser and dispatcher\n    def parse_intent(intent):\n        if 'create' in intent:\n            return {'type': 'create', 'name': intent.split(' ')[2], 'content': ' '.join(intent.split(' ')[3:])}\n        elif 'read' in intent:\n            return {'type': 'read', 'name': intent.split(' ')[2]}\n        elif 'append' in intent:\n            return {'type': 'append', 'name': intent.split(' ')[2], 'text': ' '.join(intent.split(' ')[3:])}\n        elif 'count' in intent:\n            return {'type': 'count', 'name': intent.split(' ')[2]}\n        elif 'copy' in intent:\n            return {'type': 'copy', 'source': intent.split(' ')[2], 'dest': intent.split(' ')[4]}\n        elif 'make directory' in intent:\n            return {'type': 'mkdir', 'name': intent.split(' ')[3]}\n        elif 'move' in intent:\n            return {'type': 'move', 'source': intent.split(' ')[2], 'dest': intent.split(' ')[3]}\n        elif 'list files' in intent or 'list files in' in intent:\n            if 'in' in intent:\n                dir_name = intent.split(' ')[5]\n            else:\n                dir_name = ''\n            return {'type': 'ls', 'dir': dir_name}\n        elif 'find files containing' in intent:\n            return {'type': 'find', 'text': ' '.join(intent.split(' ')[4:])}\n        elif 'delete' in intent:\n            if 'confirm' not in intent:\n                return {'type': 'refuse', 'name': intent.split(' ')[2]}\n            else:\n                return {'type': 'rm', 'name': intent.split(' ')[2]}\n        elif 'if' in intent:\n            file_name = intent.split(' ')[3]\n            if 'exists' in intent:\n                return {'type': 'test', 'file': file_name, 'then': intent.split(' ')[5], 'otherwise': intent.split(' ')[7]}\n            else:\n                raise ValueError(\"Invalid intent\")\n\n    # Intent execution loop\n    for intent in source.split('\\n'):\n        if not intent.strip():\n            continue\n\n        action = parse_intent(intent)\n        if action['type'] == 'create':\n            with open(action['name'], 'w') as f:\n                f.write(action['content'])\n        elif action['type'] == 'read':\n            with open(action['name']) as f:\n                print(f.read())\n        elif action['type'] == 'append':\n            with open(action['name'], 'a') as f:\n                f.write(action['text'] + '\\n')\n        elif action['type'] == 'count':\n            with open(action['name']) as f:\n                print(len(f.readlines()))\n        elif action['type'] == 'copy':\n            os.replace(os.path.join('.', action['source']), os.path.join('.', action['dest']))\n        elif action['type'] == 'mkdir':\n            os.makedirs(action['name'])\n        elif action['type'] == 'move':\n            os.replace(os.path.join('.', action['source']), os.path.join('.', action['dest']))\n        elif action['type'] == 'ls':\n            if action['dir']:\n                print(*os.listdir(action['dir']), sep=' ')\n            else:\n                print(*os.listdir('.'), sep=' ')\n        elif action['type'] == 'find':\n            for file in os.listdir('.'):\n                if action['text'] in open(file).read():\n                    print(file)\n        elif action['type'] == 'refuse':\n            print('REFUSED')\n        elif action['type'] == 'rm':\n            os.remove(action['name'])\n        elif action['type'] == 'test':\n            if os.path.exists(action['file']):\n                run({'create file {}: \"made\"'.format(action['file'])})\n            else:\n                run({'create file {}: \"made\"'.format(action['file'])})\n\nif __name__ == \"__main__\":\n    # Conformance suite test\n    with open('conformance_suite.txt', 'r') as f:\n        intents = [line.strip() for line in f.readlines()]\n\n    run('\\n'.join(intents))",
+  "note": "adopted: 0 -> 1/11"
+}

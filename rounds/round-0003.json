@@ -1,0 +1,78 @@
+{
+  "index": 3,
+  "title": "lexical-grammar",
+  "options": [
+    {
+      "label": "P1",
+      "author": "mistral:7b",
+      "text": "Lexical Grammar Proposal:\n\nTokens:\n1. Symbols (Operators, Keywords, Punctuation) - Identified by a set of predefined characters with specific meanings, such as `+`, `-`, `*`, `/`, `(`, `)`, `{`, `}`, `[`, `]`, `,`, `;`.\n\n2. Literals - Represent fixed values that can be assigned to variables or used directly in expressions. Examples include:\n   a. Numerics (Integers, Floating-point numbers) - Formatted as decimal, binary, hexadecimal, or octal integers, and floating-point numbers using standard notation (e.g., `123`, `0xABCD`, `0b1011`).\n   b. Strings - Enclosed in single quotes (`'`) or double quotes (`\"`) with escape sequences for special characters (e.g., `'Hello World!'`, `\"This is a \\\\n new line\"`).\n\n3. Identifiers - Names given to variables, functions, or user-defined types. Composed of letters (both uppercase and lowercase), digits, and underscores (_). Identifiers should not start with a digit and are case sensitive (e.g., `myVariable`, `FunctionName`).\n\n4. Comments - Designated to provide explanatory information or ignore sections in the code. Single-line comments begin with two forward slashes (`//`) followed by any text, while multi-line comments start with `/*` and end with `*/`. The contents of comments are ignored during parsing and evaluation.\n\nExample:\n```\n(+ 1 (* 2 3))  ; This is a single-line comment\n(define myFunction (lambda (x) (+ x 5)))  ; A user-defined function\n/* This\n   is\n   a multi-line\n   comment */\n(println \"Hello, World!\")  ; An expression that prints a string to standard output"
+    },
+    {
+      "label": "P2",
+      "author": "gemma4:latest",
+      "text": "**Tokens:**\n*   `IDENTIFIER`: A sequence of letters (a-z, A-Z) and digits (0-9), starting with a letter.\n*   `LPAREN`: `(`\n*   `RPAREN`: `)`\n*   `COLON`: `:`\n*   `COMMA`: `,`\n*   `DOT`: `.`\n\n**Literals:**\n*   `NUMBER`: One or more digits (0-9), optionally including a single decimal point (e.g., `123`, `4.5`). Must be parsed as a floating-point or integer type.\n*   `STRING`: A sequence of characters enclosed in double quotes (`\"`). The content may include escaped quotes (`\\\"`) and other standard escape sequences.\n\n**Comments:**\n*   `COMMENT`: Any sequence of characters starting with a recognized comment marker (e.g., `--` or `#`) until the end of the line. Comments are discarded during parsing.\n\n**Whitespace:**\n*   Whitespace (spaces, tabs, newlines) are delimiters and are consumed but do not generate tokens. Multiple whitespace characters are treated as a single separator."
+    },
+    {
+      "label": "P3",
+      "author": "qwen3:8b",
+      "text": "Tokens:  \n- **Parentheses**: `(` and `)`  \n- **Identifier**: `[a-zA-Z_][a-zA-Z0-9_]*`  \n- **Literal**:  \n  - Number: `[0-9]+`  \n  - String: `\"([^\"\\\\]|\\\\.|\\\\n\\\\r\\\\t)*\"`  \n  - Boolean: `true` / `false`  \n- **Comment**: `;.*?` (non-capturing, end-of-line optional)  \n\nWhitespace is ignored. All tokens are lexed in order, with comments treated as opaque metadata."
+    },
+    {
+      "label": "P4",
+      "author": "llama3:latest",
+      "text": "TOKENS:\n\n* `(` left parenthesis\n* `)` right parenthesis\n* `,` comma\n* `.` period (dot)\n\nLITERALS:\n\n* `true` boolean true\n* `false` boolean false\n* `0` integer zero\n* `1` integer one\n* `-` negative sign for numbers\n\nIDENTIFIERS:\n\n* [a-zA-Z][a-zA-Z0-9_]* any sequence of letters, digits, and underscores\n* `[0-9]` a single digit\n\nCOMMENTS:\n* `;` semicolon starts a line comment (truncates to end of line)\n* `(* ... *)` block comment (nested and recursive)"
+    },
+    {
+      "label": "P5",
+      "author": "deepseek-r1:8b",
+      "text": "```\n## Lexical Grammar\n\n### Tokens\n1.  `Number`: A sequence of digits, optionally containing a single decimal point (e.g., `42`, `-1.5`, `0.0`, `1/2`).\n2.  `String`: A sequence of zero or more characters enclosed in double quotes (`\"`).\n3.  `Symbol`: Any sequence of one or more characters excluding whitespace, double quotes (`\"`), and the token delimiters (space, tab, newline). Must not be a valid `Number` or `String` representation.\n4.  `Comment`: A line starting with `;` and continuing until the end of the line (not including the newline character).\n\n### Whitespace\nAny sequence of characters from the set: ` `, `\\t`, `\\n`. Whitespace separates tokens.\n\n### Examples\n*   `(+ 1 2)` is a list of tokens: `Symbol: '+'`, `Number: '1'`, `Number: '2'`.\n*   `(define foo \"bar\")` is a list of tokens: `Symbol: 'define'`, `Symbol: 'foo'`, `String: 'bar'`.\n*   `(if (> x 0) \"yes\" \"no\")` is a list of tokens: `Symbol: 'if'`, `Symbol: '>'`, `Symbol: 'x'`, `Number: '0'`, `String: 'yes'`, `String: 'no'`.\n*   `; This is a comment (+ 1 3)` contains: `Comment`, then a list of tokens `Symbol: '+'`, `Number: '1'`, `Number: '3'`.\n*   `(- 1/2 0.5)` contains: `Symbol: '-'`, `Number: '1/2'`, `Number: '0.5'` (assuming `1/2` is a ratio literal).\n*   `(define - my-function)` is allowed (a symbol named '-'). The meaning of `-` as a special symbol vs. a symbol is not lexically determined, but may be resolved later.\n```"
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P5",
+      "P3",
+      "P2",
+      "P1",
+      "P4"
+    ],
+    "gemma4:latest": [
+      "P3",
+      "P2",
+      "P5",
+      "P4",
+      "P1"
+    ],
+    "llama3:latest": [
+      "P1",
+      "P4",
+      "P5",
+      "P3",
+      "P2"
+    ],
+    "deepseek-r1:8b": [
+      "P2",
+      "P3",
+      "P1",
+      "P5",
+      "P4"
+    ],
+    "mistral:7b": [
+      "P1",
+      "P3",
+      "P5",
+      "P4",
+      "P2"
+    ]
+  },
+  "scores": {
+    "P1": 11,
+    "P2": 9,
+    "P3": 14,
+    "P4": 5,
+    "P5": 11
+  },
+  "winner_author": "qwen3:8b",
+  "winner_text": "Tokens:  \n- **Parentheses**: `(` and `)`  \n- **Identifier**: `[a-zA-Z_][a-zA-Z0-9_]*`  \n- **Literal**:  \n  - Number: `[0-9]+`  \n  - String: `\"([^\"\\\\]|\\\\.|\\\\n\\\\r\\\\t)*\"`  \n  - Boolean: `true` / `false`  \n- **Comment**: `;.*?` (non-capturing, end-of-line optional)  \n\nWhitespace is ignored. All tokens are lexed in order, with comments treated as opaque metadata.",
+  "note": ""
+}

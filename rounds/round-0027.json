@@ -1,0 +1,82 @@
+{
+  "index": 27,
+  "title": "refine:builtins",
+  "options": [
+    {
+      "label": "P1",
+      "author": "deepseek-r1:8b",
+      "text": "The current builtins proposal is already optimal. It adheres strictly to the axioms by maintaining machine-interpretable primitives, reusing existing constructs like `cons` and `car`, not breaking existing functionality by removing mutable operations, ensuring everything is testable with pure functions, and keeping the core minimal with primitives like `lambda`, `if`, `car`, `cdr`, `cons`, and `null?`. Adding new primitives or changing the approach would violate one or more axioms by introducing unnecessary complexity or ambiguity, and no strictly better version exists without compromising these principles."
+    },
+    {
+      "label": "P2",
+      "author": "gemma4:latest",
+      "text": "### Core Primitives (Refined)\n\n**Data Types:**\n*   **Number:** Floating-point numbers.\n*   **String:** Sequences of characters.\n*   **Boolean:** `true` or `false`.\n*   **List:** Ordered collections of elements (e.g., `(1 2 3)`).\n*   **Symbol:** Unique identifiers (e.g., `:name`).\n*   **Nil:** Represents the empty list (`()` or `nil`).\n\n**Functions:**\n*   **`lambda`**: Anonymous function creator.\n*   **`apply`**: Applies a list of arguments to a function (for generality).\n*   **`car`**: Returns the first element of a list.\n*   **`cdr`**: Returns the rest of a list (the tail).\n\n**Core Structure/Control Flow:**\n*   **`if`**: Conditional execution (`(if <test> <then> <else>)`).\n*   **`cond`**: Multi-way branching (superior to nested `if`s).\n\n**Core Data Manipulation:**\n*   **`cons`**: Conses an element onto the front of a list (equivalent to `(cons <element> <list>)`).\n*   **`append`**: Concatenates two lists.\n\n**Built-in Primitives (Primitives are low-level, fundamental operations):**\n*   `eq?`: Checks equality.\n*   `number?`: Checks if an element is a number.\n*   `symbol?`: Checks if an element is a symbol.\n\n**Justification for Changes:**\nThe original proposal was too high-level and mixed core data structures (`cons`, `car`, `cdr`, `append`) with control flow (`if`, `cond`) and high-level library functions (`list-map`, etc.). A truly minimal, foundational language design (like Lisp/Scheme) abstracts computation over fundamental building blocks. By reducing the primitives to core list manipulation and control structures, we adhere more closely to the goal of building from fundamental concepts, making the system more robust and conceptually pure for advanced construction. The built-in list functions (`map`, `filter`, `reduce`) are then built *upon* these minimal primitives, rather than being listed as primitives themselves."
+    },
+    {
+      "label": "P3",
+      "author": "llama3:latest",
+      "text": "### Core Primitives (Revised)\n\n**Data Types:**\n*   **Number:** Floating-point numbers.\n*   **String:** Sequences of characters.\n*   **Boolean:** `true` or `false`.\n*   **List:** Ordered collections of elements (e.g., `(1 2 3)`).\n*   **Symbol:** Unique identifiers (e.g., `:name`).\n*   **Nil:** Represents the empty list (`()` or `nil`).\n\n**Functions:**\n*   **`lambda`**: Anonymous function constructor (e.g., `(lambda (x) (* x 2))`).\n*   **`apply`**: Applies a function to one or more arguments (e.g., `(apply my-func (arg1 arg2))`).\n*   **`car`**: Returns the first element of a list (the head).\n*   **`cdr`**: Returns the remainder of a list (the tail).\n*   **`cons`**: Constructs a new list by prepending an element to an existing list (e.g., `(cons 1 (cons 2 nil))` results in `(1 2)`).\n*   **`null?`**: Tests if a list is empty (`(null? nil)` is `true`).\n*   **`map`**: Applies a function to every element in a list and returns a new list.\n*   **`filter`**: Returns a new list containing only elements for which a predicate function returns true.\n\n**Operators & Control Flow:**\n*   **`if`**: Conditional branching (e.g., `(if condition then-clause else-clause)`).\n*   **`cond`**: Multi-condition branching (e.g., `(cond ((= x 1) result1) ((= x 2) result2) (else default-result))`).\n*   **`and`**: Logical AND (returns the first false element or nil).\n*   **`or`**: Logical OR (returns the first true element or nil).\n*   **`quote`**: Prevents immediate evaluation of an expression.\n\n**Built-in Functions:**\n*   **`+`, `-`, `*`, `/`**: Basic arithmetic operations.\n*   **`equal?`**: Compares two values for equality.\n*   **`<=`, `>=`**: Comparison operators.\n\n### Summary of Removal/Refinement Rationale\n\n| Original Primitive | Status | Rationale |\n| :--- | :--- | :--- |\n| `cons!` | **Removed** | Replaced by the pure function `cons`. Prevents accidental state mutation. |\n| `set` | **Removed/Implied** | Assuming functional focus, state mutation via assignment is discouraged. State changes should be managed by returning new values or through explicit state monad concepts (if required by the domain). |\n| `null?` | **Standardized** | Used instead of ad-hoc checks on list structure. |\n\nThis revised set of primitives adheres strictly to the axioms, providing a more consistent and predictable set of core primitives. The addition of `map` and `filter` functions enhances the functional programming capabilities while eliminating the need for explicit mutation."
+    },
+    {
+      "label": "P4",
+      "author": "mistral:7b",
+      "text": "Removing the imperative constructs `set` and `cons!` further emphasizes functional purity in the language design. Instead of assuming state mutation through assignment, encourage the use of functional programming principles to manage data states where necessary. The following changes are proposed:\n\n1. Keep only the pure function `cons` for list prepending as it aligns with the functional nature of other primitives.\n2. Introduce an immutable `set!` function that returns a new value and leaves the original one unchanged, promoting the use of explicit state management:\n\n```scheme\n(define (set-value pair key value)\n  (cons key (cons value nil))) ; Assuming 'nil' represents an empty list for pairs\n```\n3. Use `null?` or ad-hoc checks for emptiness in lists to ensure consistency and ease of understanding.\n4. Introduce a `list-update!` function that takes a list, an index, and a new value and returns the updated list with minimal changes:\n\n```scheme\n(define (list-update! list idx value)\n  (if (= idx 0)\n      (cons value (cdr list))\n      (cons (car list) (list-update! (cdr list) (- idx 1) value))))\n```\n\nThis ensures the core primitives strictly follow the given axioms while providing consistent, predictable, and robust functionality for handling mutable data structures.\n\n### Core Primitives (Refined)\n\n**Data Types:**\n*   **Number:** Floating-point numbers.\n*   **String:** Sequences of characters.\n*   **Boolean:** `true` or `false`.\n*   **List:** Ordered collections of elements (e.g., `(1 2 3)`).\n*   **Symbol:** Unique identifiers (e.g., `:name`).\n*   **Nil:** Represents the empty list (`()` or `nil`).\n*   **Pair:** Key-value data structure represented as a list (Key -> Value).\n\n**Functions:**\n*   **`lambda`**: Anonymous function constructor.\n*   **`apply`**: Applies a function to one or more arguments.\n*   **`car`**, **`cdr`**: Returns the head and tail of a list, respectively.\n*   **`cons`**: Constructs a new list by prepending an element to an existing list.\n*   **`null?`**: Tests if a list is empty.\n*   **`list-append`**: Concatenates two lists.\n*   **`set!`**: Assigns a new value to a variable without modifying the original one.\n*   **`list-update!`**: Updates the value at a specific index in a list while returning the updated list.\n\n**Operators & Control Flow:**\n*   **`if`**, **`cond`**: Conditional branching and multi-condition branching, respectively.\n*   **`and`**, **`or`**: Logical AND, OR operations (returning values rather than side effects).\n*   **`quote`**: Prevents immediate evaluation of an expression.\n\n**Built-in Functions:**\n*   **`+`, `-`, `*`, `/`**: Basic arithmetic operations.\n*   **`equal?`**: Compares two values for equality.\n*   **`<=`, `>=`**: Comparison operators.\n*   **`list-map`**: Applies a function to every element in a list and returns a new list.\n*   **`list-filter`**: Returns a new list containing only elements for which a predicate function returns true."
+    },
+    {
+      "label": "P5",
+      "author": "CURRENT",
+      "text": "The current set of primitives mixes functional programming constructs with explicit, imperative mutation (`cons!`, `set`). To create a more consistent, predictable, and robust set of core primitives\u2014while assuming a general preference for functional purity where possible\u2014we should eliminate the explicit mutable operations and rely on functional construction.\n\n**Proposed Changes:**\n\n1.  **Remove `cons!`:** This imperative constructor clashes with the functional nature of the other primitives. We should rely on the pure function `cons`.\n2.  **Keep `cons`:** This represents the pure, functional operation of prepending an element to a list.\n3.  **Standardize List Check:** Use `null?` for general emptiness checks, as it is more general than just checking the head of a list.\n\nHere is the refined set of primitives:\n\n### Core Primitives (Refined)\n\n**Data Types:**\n*   **Number:** Floating-point numbers.\n*   **String:** Sequences of characters.\n*   **Boolean:** `true` or `false`.\n*   **List:** Ordered collections of elements (e.g., `(1 2 3)`).\n*   **Symbol:** Unique identifiers (e.g., `:name`).\n*   **Nil:** Represents the empty list (`()` or `nil`).\n\n**Functions:**\n*   **`lambda`**: Anonymous function constructor (e.g., `(lambda (x) (* x 2))`).\n*   **`apply`**: Applies a function to one or more arguments (e.g., `(apply my-func (arg1 arg2))`).\n*   **`car`**: Returns the first element of a list (the head).\n*   **`cdr`**: Returns the remainder of a list (the tail).\n*   **`cons`**: Constructs a new list by prepending an element to an existing list (e.g., `(cons 1 (cons 2 nil))` results in `(1 2)`).\n*   **`null?`**: Tests if a list is empty (`(null? nil)` is `true`).\n*   **`list-append`**: Concatenates two lists (e.g., `(list-append (1 2) (3 4))` results in `(1 2 3 4)`).\n\n**Operators & Control Flow:**\n*   **`if`**: Conditional branching (e.g., `(if condition then-clause else-clause)`).\n*   **`cond`**: Multi-condition branching (e.g., `(cond ((= x 1) result1) ((= x 2) result2) (else default-result))`).\n*   **`and`**: Logical AND (returns the first false element or nil).\n*   **`or`**: Logical OR (returns the first true element or nil).\n*   **`quote`**: Prevents immediate evaluation of an expression.\n\n**Built-in Functions:**\n*   **`+`, `-`, `*`, `/`**: Basic arithmetic operations.\n*   **`equal?`**: Compares two values for equality.\n*   **`<=`, `>=`**: Comparison operators.\n*   **`list-map`**: Applies a function to every element in a list and returns a new list.\n*   **`list-filter`**: Returns a new list containing only elements for which a predicate function returns true.\n\n### Summary of Removal/Refinement Rationale\n\n| Original Primitive | Status | Rationale |\n| :--- | :--- | :--- |\n| `cons!` | **Removed** | Replaced by the pure function `cons`. Prevents accidental state mutation. |\n| `set` | **Removed/Implied** | Assuming functional focus, state mutation via assignment is discouraged. State changes should be managed by returning new values or through explicit state monad concepts (if required by the domain). |\n| `null?` | **Standardized** | Used instead of ad-hoc checks on list structure. |\n| `list-append` | **Added/Refined** | Provides a standard, non-destructive way to concatenate lists, complementing `cons`. |"
+    },
+    {
+      "label": "P6",
+      "author": "qwen3:8b",
+      "text": "The current builtins are already optimal under the axioms, but with minor refinements to ensure minimal core and testability. Key improvements include:\n\n1. **Remove `list-append`**: Redundant as users can concatenate lists via `cons` and recursion.  \n2. **Remove `list-map` and `list-filter`**: These can be implemented using recursion and `cons`, reducing core primitives.  \n3. **Retain `apply`**: Useful for function application, but optional.  \n4. **Standardize `null?`**: Ensures consistent list emptiness checks.  \n\n### Final Proposal\n**Core Primitives (Refined):**  \n**Data Types:** Number, String, Boolean, List, Symbol, Nil.  \n**Functions:** `lambda`, `car`, `cdr`, `null?`.  \n**Operators & Control Flow:** `if`, `cond`, `and`, `or`, `quote`.  \n**Built-in Functions:** `+`, `-`, `*`, `/`, `equal?`, `<=`, `>=`.  \n\n**Rationale:**  \n- **Minimal Core:** Removes `list-append`, `list-map`, `list-filter` to reduce primitives.  \n- **Testability:** All operations are composable via `car`, `cdr`, `cons`, and recursion.  \n- **Consistency:** `null?` standardizes list checks, avoiding ad-hoc logic.  \n- **Reusability:** Higher-order functions like `map`/`filter` are user-defined, adhering to the \"reuse\" axiom.  \n\nNo further changes are strictly necessary."
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P6",
+      "P5",
+      "P2",
+      "P3",
+      "P4",
+      "P1"
+    ],
+    "gemma4:latest": [],
+    "llama3:latest": [
+      "P1",
+      "P6",
+      "P5",
+      "P4",
+      "P2",
+      "P3"
+    ],
+    "deepseek-r1:8b": [
+      "P6",
+      "P5",
+      "P2",
+      "P1",
+      "P3",
+      "P4"
+    ],
+    "mistral:7b": [
+      "P1",
+      "P5",
+      "P2",
+      "P6",
+      "P4",
+      "P3"
+    ]
+  },
+  "scores": {
+    "P1": 12,
+    "P2": 10,
+    "P3": 3,
+    "P4": 4,
+    "P5": 15,
+    "P6": 16
+  },
+  "winner_author": "qwen3:8b",
+  "winner_text": "The current builtins are already optimal under the axioms, but with minor refinements to ensure minimal core and testability. Key improvements include:\n\n1. **Remove `list-append`**: Redundant as users can concatenate lists via `cons` and recursion.  \n2. **Remove `list-map` and `list-filter`**: These can be implemented using recursion and `cons`, reducing core primitives.  \n3. **Retain `apply`**: Useful for function application, but optional.  \n4. **Standardize `null?`**: Ensures consistent list emptiness checks.  \n\n### Final Proposal\n**Core Primitives (Refined):**  \n**Data Types:** Number, String, Boolean, List, Symbol, Nil.  \n**Functions:** `lambda`, `car`, `cdr`, `null?`.  \n**Operators & Control Flow:** `if`, `cond`, `and`, `or`, `quote`.  \n**Built-in Functions:** `+`, `-`, `*`, `/`, `equal?`, `<=`, `>=`.  \n\n**Rationale:**  \n- **Minimal Core:** Removes `list-append`, `list-map`, `list-filter` to reduce primitives.  \n- **Testability:** All operations are composable via `car`, `cdr`, `cons`, and recursion.  \n- **Consistency:** `null?` standardizes list checks, avoiding ad-hoc logic.  \n- **Reusability:** Higher-order functions like `map`/`filter` are user-defined, adhering to the \"reuse\" axiom.  \n\nNo further changes are strictly necessary.",
+  "note": ""
+}

@@ -1,0 +1,89 @@
+{
+  "index": 38,
+  "title": "refine:example-data",
+  "options": [
+    {
+      "label": "P1",
+      "author": "gemma4:latest",
+      "text": "```scheme\n;; Define a simple Pair data structure (Key-Value) using the list primitives.\n;; A pair is represented as the list (Key Value).\n\n;; 1. Constructor (Implicitly done via cons, demonstrating minimal overhead)\n;; (Note: Direct use of (cons key value) is preferred over a wrapper function)\n\n;; 2. Accessor: Retrieves the Key from a pair\n(define (get-key pair)\n  (car pair))\n\n;; 3. Accessor: Retrieves the Value from a pair\n(define (get-value pair)\n  (cdr pair))\n\n;; 4. Update Operation: Returns a *new* Pair with the updated value.\n;; This respects immutability by constructing a new list using cons.\n(define (set-value pair new-value)\n  (cons (get-key pair) new-value))\n\n;; Example Usage:\n;; Initialize the user record directly using the core primitive 'cons'.\n(define user-record (cons \"user_id\" 101))\n\n(display \"Original Record: \")\n(display user-record) ; Expected output: (user_id 101)\n(newline)\n\n(display \"Retrieved Key: \")\n(display (get-key user-record)) ; Expected output: user_id\n(newline)\n\n(display \"Original Value: \")\n(display (get-value user-record)) ; Expected output: 101\n(newline)\n\n;; Update the record value\n(define updated-record (set-value user-record 202))\n(display \"Updated Record: \")\n(display updated-record) ; Expected output: (user_id 202)\n\n;; Demonstrate immutability: original record remains unchanged\n(display \"Original Record (Check): \")\n(display user-record) ; Expected output: (user_id 101)\n(newline)\n```"
+    },
+    {
+      "label": "P2",
+      "author": "deepseek-r1:8b",
+      "text": "```scheme\n;; Define a simple Pair data structure using the list primitives.\n\n;; Example Usage:\n(define user-record (cons \"user_id\" 101))\n(display \"Original Record: \")\n(display user-record) ; Expected output: (user_id . 101)\n(newline)\n\n(display \"Retrieved Key: \")\n(display (car user-record)) ; Expected output: user_id\n(newline)\n\n(display \"Original Value: \")\n(display (cdr user-record)) ; Expected output: 101\n(newline)\n\n;; Update the record value by creating a new pair\n(define updated-record (cons (car user-record) 202))\n(display \"Updated Record: \")\n(display updated-record) ; Expected output: (user_id . 202)\n\n;; Demonstrate immutability: original record remains unchanged\n(display \"Original Record (Check): \")\n(display user-record) ; Expected output: (user_id . 101)\n(newline)\n```"
+    },
+    {
+      "label": "P3",
+      "author": "mistral:7b",
+      "text": "The updated \"example-data\" implementation adheres to the Axioms:\n\n```scheme\n;; Define a simple Pair data structure (Key-Value) using the list primitives.\n;; A pair is represented as the list (key . value).\n\n;; 1. Constructor: Creates a Pair (Key -> Value)\n(define (make-pair key value)\n  (list key value))\n\n;; 2. Accessor: Retrieves the Key from a pair\n(define (get-key pair)\n  (car pair))\n\n;; 3. Accessor: Retrieves the Value from a pair\n(define (get-value pair)\n  (cadr pair))\n\n;; 4. Update Operation: Returns a *new* Pair with the updated value.\n;; This respects immutability by constructing a new list.\n(define (set-value pair key value)\n  (list key value))\n\n;; Example Usage:\n(define user-record (make-pair \"user_id\" 101))\n(display \"Original Record: \")\n(display user-record) ; Expected output: (user_id 101)\n(newline)\n\n(display \"Retrieved Key: \")\n(display (get-key user-record)) ; Expected output: user_id\n(newline)\n\n(display \"Original Value: \")\n(display (get-value user-record)) ; Expected output: 101\n(newline)\n\n;; Update the record value\n(define updated-record (set-value user-record \"user_id\" 202))\n(display \"Updated Record: \")\n(display updated-record) ; Expected output: (user_id 202)\n\n;; Demonstrate immutability: original record remains unchanged\n(display \"Original Record (Check): \")\n(display user-record) ; Expected output: (user_id 101)\n(newline)\n```\n\nThe proposed solution uses a proper list syntax for key-value pairs, adhering to Axiom 2 (**Reuse, Don't Reinvent**), as the built-in `list` function is more concise and testable compared to manual cons usage. This version aligns with Minimal Core (Axiom 5) by maintaining simplicity and functional programming principles, ensuring everything remains machine-interpretable."
+    },
+    {
+      "label": "P4",
+      "author": "llama3:latest",
+      "text": "**Optimized Example Data**\n\n```scheme\n;; Define a simple Pair data structure (Key-Value) using the list primitives.\n;; A pair is represented as the list (Key Value).\n\n(define-record-type pair make-pair record?\n\n  :constructor ((make-pair key value)\n    (cons (list key value)))\n\n  :accessor (get-key get-value)\n\n  :mutator (update-pair pair new-value\n    (cons (car pair) new-value)))\n\n;; Example Usage:\n(define user-record (make-pair \"user_id\" 101))\n(display \"Original Record: \")\n(display user-record)\n(newline)\n\n(display \"Retrieved Key: \")\n(display (get-key user-record))\n(newline)\n\n(display \"Original Value: \")\n(display (get-value user-record))\n(newline)\n\n;; Update the record value\n(define updated-record (update-pair user-record 202))\n(display \"Updated Record: \")\n(display updated-record)\n(newline)\n\n;; Demonstrate immutability: original record remains unchanged\n(display \"Original Record (Check): \")\n(display user-record)\n(newline)\n```\n\nThis optimized version adheres to the axioms:\n\n1. **Machine-Interpretable:** The proposal uses list primitives and defines a `record-type` with explicit constructors, accessors, and mutators for improved machine-interpretable code.\n2. **Reuse:** The revised code reuses existing list primitives (`cons`, `car`, and `cdr`) instead of introducing new, redundant constructs.\n3. **No Mutation:** The `update-pair` function preserves immutability by constructing a new pair with the updated value rather than modifying the original record.\n4. **Testability:** Each operation (constructor, accessor, and mutator) is deterministic and verifiable, ensuring testable code.\n5. **Minimal Core:** By leveraging existing list primitives and minimizing the introduction of new constructs, this proposal respects the Minimal Core principle."
+    },
+    {
+      "label": "P5",
+      "author": "CURRENT",
+      "text": "```scheme\n;; Define a simple Pair data structure (Key-Value) using the list primitives.\n;; A pair is represented as the list (Key Value).\n\n;; 1. Constructor: Creates a Pair (Key -> Value)\n(define (make-pair key value)\n  (cons key value))\n\n;; 2. Accessor: Retrieves the Key from a pair\n(define (get-key pair)\n  (car pair))\n\n;; 3. Accessor: Retrieves the Value from a pair\n(define (get-value pair)\n  (cdr pair))\n\n;; 4. Update Operation: Returns a *new* Pair with the updated value.\n;; This respects immutability by constructing a new list.\n(define (set-value pair new-value)\n  (cons (get-key pair) new-value))\n\n;; Example Usage:\n(define user-record (make-pair \"user_id\" 101))\n(display \"Original Record: \")\n(display user-record) ; Expected output: (user_id 101)\n(newline)\n\n(display \"Retrieved Key: \")\n(display (get-key user-record)) ; Expected output: user_id\n(newline)\n\n(display \"Original Value: \")\n(display (get-value user-record)) ; Expected output: 101\n(newline)\n\n;; Update the record value\n(define updated-record (set-value user-record 202))\n(display \"Updated Record: \")\n(display updated-record) ; Expected output: (user_id 202)\n\n;; Demonstrate immutability: original record remains unchanged\n(display \"Original Record (Check): \")\n(display user-record) ; Expected output: (user_id 101)\n(newline)\n```"
+    },
+    {
+      "label": "P6",
+      "author": "qwen3:8b",
+      "text": "```scheme\n;; Define a Pair data structure using list primitives (Key Value)\n;; Access via car/cdr, update via cons (immutable)\n\n;; Example Usage:\n(define user-record (cons \"user_id\" 101))\n(display \"Original Record: \") (display user-record) ; (user_id 101)\n(newline)\n\n(display \"Retrieved Key: \") (display (car user-record)) ; user_id\n(newline)\n\n(display \"Original Value: \") (display (cdr user-record)) ; 101\n(newline)\n\n;; Update via cons (new list, original unchanged)\n(define updated-record (cons (car user-record) 202))\n(display \"Updated Record: \") (display updated-record) ; (user_id 202)\n(newline)\n\n;; Demonstrate immutability\n(display \"Original Record (Check): \") (display user-record) ; (user_id 101)\n(newline)\n```"
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P6",
+      "P5",
+      "P1",
+      "P2",
+      "P3",
+      "P4"
+    ],
+    "gemma4:latest": [
+      "P2",
+      "P6",
+      "P5",
+      "P1",
+      "P3",
+      "P4"
+    ],
+    "llama3:latest": [
+      "P3",
+      "P4",
+      "P1",
+      "P5",
+      "P2",
+      "P6"
+    ],
+    "deepseek-r1:8b": [
+      "P6",
+      "P2",
+      "P1",
+      "P5",
+      "P3",
+      "P4"
+    ],
+    "mistral:7b": [
+      "P3",
+      "P4",
+      "P1",
+      "P2",
+      "P6",
+      "P5"
+    ]
+  },
+  "scores": {
+    "P1": 14,
+    "P2": 14,
+    "P3": 13,
+    "P4": 8,
+    "P5": 11,
+    "P6": 15
+  },
+  "winner_author": "qwen3:8b",
+  "winner_text": "```scheme\n;; Define a Pair data structure using list primitives (Key Value)\n;; Access via car/cdr, update via cons (immutable)\n\n;; Example Usage:\n(define user-record (cons \"user_id\" 101))\n(display \"Original Record: \") (display user-record) ; (user_id 101)\n(newline)\n\n(display \"Retrieved Key: \") (display (car user-record)) ; user_id\n(newline)\n\n(display \"Original Value: \") (display (cdr user-record)) ; 101\n(newline)\n\n;; Update via cons (new list, original unchanged)\n(define updated-record (cons (car user-record) 202))\n(display \"Updated Record: \") (display updated-record) ; (user_id 202)\n(newline)\n\n;; Demonstrate immutability\n(display \"Original Record (Check): \") (display user-record) ; (user_id 101)\n(newline)\n```",
+  "note": ""
+}

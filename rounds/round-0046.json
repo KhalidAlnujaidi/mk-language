@@ -1,0 +1,89 @@
+{
+  "index": 46,
+  "title": "refine:design-goals",
+  "options": [
+    {
+      "label": "P1",
+      "author": "llama3:latest",
+      "text": "**Proposal:**\n\n1. **Formal Semantics:** Adopt a formal semantics that ensures machine-interpretable constructs and unambiguous evaluation rules.\n2. **Primitive Reduction:** Minimize primitives by composing existing mechanisms, avoiding redundancy and unnecessary complexity.\n3. **Reuse Optimization:** Prioritize reusing established reduction rules over introducing new specialized mechanisms unless strictly necessary.\n4. **Deterministic Evaluation:** Ensure every construct yields a deterministic, traceable result from its input text.\n5. **Stability Maintenance:** Maintain the current status quo unless a change is provably strictly better, ensuring non-regression and stability.\n\n**Rationale:**\n\n* The formal semantics proposal maintains machine-interpretable constructs, aligning with Axiom 1.\n* Primitive reduction ensures minimalism, adhering to Axiom 5.\n* Reuse optimization prioritizes established mechanisms, following Axiom 2.\n* Deterministic evaluation guarantees predictable results, complying with Axiom 4.\n* Stability maintenance maintains the status quo unless a change is strictly better, ensuring non-regression and stability, as per Axioms 3 and 2."
+    },
+    {
+      "label": "P2",
+      "author": "gemma4:latest",
+      "text": "1. **MACHINE-INTERPRETABILITY:** The language must define primitives and constructs based on forms that possess unambiguous, formal semantics executable by a state machine, not merely forms that exhibit desirable syntactic patterns for human composition.\n2. **COMPOSITIONALITY (REUSE):** No feature shall be introduced if the same functionality can be derived by combining existing primitives and established evaluation rules.\n3. **STABILITY (NON-REGRESSION):** Any proposed modification must demonstrate a strictly superior operational semantics compared to the established status quo; deviation is prohibited unless mandated by overwhelming improvement.\n4. **DECIDABILITY (TESTABILITY):** The resulting system must guarantee that the evaluation result for any valid textual input can be determined through a finite, traceable sequence of reduction steps.\n5. **MINIMALISM:** The core set of primitives must be limited to the absolute minimum required to express all necessary computation; complexity must be built solely through the composition of these primitives."
+    },
+    {
+      "label": "P3",
+      "author": "qwen3:8b",
+      "text": "1. **Operational Semantics:** All syntax is parsed into a canonical AST with unambiguous evaluation rules derived from the core list evaluation (B.2) and built-in primitives (cons, car, cdr), ensuring no human-readable ambiguity (Axiom 1).  \n2. **Primitive Minimality:** The core primitives (cons, car, cdr, null?, lambda, if) are essential and non-overlapping; all complexity arises from their composition, avoiding specialized mechanisms (Axiom 5).  \n3. **Structural Reuse:** Every construct is the simplest existing primitive solving its problem; no new primitives are introduced unless strictly necessary to avoid redundancy (Axiom 2).  \n4. **Determinism:** All reductions are fully specified by the initial axioms, producing decidable, traceable results from input text (Axiom 4).  \n5. **Non-Regression:** Changes are provably strictly better, preserving all existing reduction rules and ensuring backward compatibility (Axiom 3)."
+    },
+    {
+      "label": "P4",
+      "author": "CURRENT",
+      "text": "1. **Operational Semantics:** Prioritize forms that possess formal, unambiguous machine-parseable semantics over human readability (Axiom 1).\n2. **Primitive Minimality:** Adhere strictly to the smallest possible set of primitives; all complexity must arise from composition (Axiom 5).\n3. **Structural Reuse:** Only adopt a construct if it is the simplest existing primitive that solves the problem; do not invent specialized mechanisms (Axiom 2).\n4. **Determinism:** Every operational rule must yield a decidable, traceable result from its input text (Axiom 4).\n5. **Non-Regression:** Changes must be provably strictly better than the current status quo; maintain all established reduction rules unless strictly necessary (Axiom 3)."
+    },
+    {
+      "label": "P5",
+      "author": "mistral:7b",
+      "text": "Operational Semantics: Prefer unambiguous and machine-parseable forms over human readability (Axiom 1). Maintain explicit evaluation steps for deterministic behavior (Axiom 4).\n\nPrimitive Minimality: Adhere to the minimal core, ensuring fewer primitives are composed rather than many features being special-cased (Axiom 5). Avoid redundancy by leveraging existing constructs (Axiom 2).\n\nStructural Reuse: Favor established primitives for any given problem. Introduce new primitives only when there is no simpler existing primitive that can solve the problem (Axiom 2).\n\nDeterminism: Every reduction rule must yield a decidable, traceable result from its input text, ensuring testability and consistency (Axiom 4).\n\nNon-Regression: Changes should be provably strictly better than the current status quo; maintain all established reduction rules unless they contradict the other axioms or are replaced by a clearly superior alternative (Axiom 3)."
+    },
+    {
+      "label": "P6",
+      "author": "deepseek-r1:8b",
+      "text": "1. **Machine-Interpretable Semantics:** Prioritize constructs with formal, unambiguous evaluation rules that can be parsed and reasoned about by machines, avoiding ambiguity (Axiom 1).\n\n2. **Primitive Economy:** Use the smallest set of primitives, with all features derived through composition, to eliminate redundancy (Axioms 2 and 5).\n\n3. **Deterministic Execution:** Ensure all operational rules yield decidable, traceable results from input text, enabling verifiable behavior (Axiom 4).\n\n4. **Stable Core:** Only approve changes that are provably strictly better than current state, preserving established functionality (Axiom 3)."
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P2",
+      "P4",
+      "P3",
+      "P5",
+      "P6",
+      "P1"
+    ],
+    "gemma4:latest": [
+      "P6",
+      "P2",
+      "P4",
+      "P1",
+      "P5",
+      "P3"
+    ],
+    "llama3:latest": [
+      "P1",
+      "P2",
+      "P3",
+      "P4",
+      "P5",
+      "P6"
+    ],
+    "deepseek-r1:8b": [
+      "P1",
+      "P2",
+      "P3",
+      "P4",
+      "P5",
+      "P6"
+    ],
+    "mistral:7b": [
+      "P3",
+      "P1",
+      "P2",
+      "P4",
+      "P5",
+      "P6"
+    ]
+  },
+  "scores": {
+    "P1": 16,
+    "P2": 20,
+    "P3": 14,
+    "P4": 13,
+    "P5": 6,
+    "P6": 6
+  },
+  "winner_author": "gemma4:latest",
+  "winner_text": "1. **MACHINE-INTERPRETABILITY:** The language must define primitives and constructs based on forms that possess unambiguous, formal semantics executable by a state machine, not merely forms that exhibit desirable syntactic patterns for human composition.\n2. **COMPOSITIONALITY (REUSE):** No feature shall be introduced if the same functionality can be derived by combining existing primitives and established evaluation rules.\n3. **STABILITY (NON-REGRESSION):** Any proposed modification must demonstrate a strictly superior operational semantics compared to the established status quo; deviation is prohibited unless mandated by overwhelming improvement.\n4. **DECIDABILITY (TESTABILITY):** The resulting system must guarantee that the evaluation result for any valid textual input can be determined through a finite, traceable sequence of reduction steps.\n5. **MINIMALISM:** The core set of primitives must be limited to the absolute minimum required to express all necessary computation; complexity must be built solely through the composition of these primitives.",
+  "note": ""
+}

@@ -1,0 +1,89 @@
+{
+  "index": 48,
+  "title": "refine:design-goals",
+  "options": [
+    {
+      "label": "P1",
+      "author": "deepseek-r1:8b",
+      "text": "1. **MACHINE-INTERPRETABILITY FIRST:** All constructs must have formal, unambiguous semantics executable by a machine, with evaluation rules (e.g., reduction steps) prioritized over human readability.  \n2. **REUSE, DON'T REINVENT:** No primitive constructs are added unless necessary; all features are derived from a minimal set of primitives and evaluation rules.  \n3. **DON'T BREAK WHAT WORKS:** Changes are adopted only if they strictly improve semantics; existing behavior is preserved unless a compelling benefit is demonstrated.  \n4. **EVERYTHING IS TESTABLE:** Every construct must have a verifiable, deterministic meaning, ensuring program behaviors are decidable via finite reductions.  \n5. **MINIMAL CORE:** The core consists of the absolute minimum primitives required for computation, with complexity derived solely from their composition."
+    },
+    {
+      "label": "P2",
+      "author": "mistral:7b",
+      "text": "1. **MACHINE-INTERPRETABILITY:** All constructs must have clear, unambiguous formal semantics executable by a machine, prioritizing parsing and reasoning over human readability, while minimizing the potential for logical ambiguity.\n2. **REUSE & COMPOSITIONALITY:** New features are added only if they can be derived from existing primitives and evaluation rules, ensuring minimal redundancy, maximized reuse, and compositional structure.\n3. **STABILITY:** Modifications are only adopted if they strictly improve operational semantics or user experience; existing behavior is preserved unless mandated by a compelling benefit under the other axioms.\n4. **DECIDABILITY & TESTABILITY:** Every construct must have a deterministic, checkable meaning, ensuring all program behaviors are decidable through finite reduction steps and can be easily tested.\n5. **MINIMALISM:** The core primitives are the absolute minimum required for computation; complexity emerges solely from their composition and user-defined abstractions. Additionally, maintain purity by avoiding mutation where possible."
+    },
+    {
+      "label": "P3",
+      "author": "qwen3:8b",
+      "text": "1. **MACHINE-INTERPRETABILITY:** All constructs must have unambiguous semantics formalized via environment and closure evaluation, ensuring executable parsing and reasoning without human readability compromises.  \n2. **COMPOSITIONALITY:** Every feature must derive from closures and environments, avoiding redundant primitives and ensuring all behavior emerges from core evaluation rules.  \n3. **STABILITY:** Modifications are adopted only if they strictly improve operational semantics; existing behavior is preserved unless mandated by a strictly better alternative under the axioms.  \n4. **DECIDABILITY:** All constructs must have deterministic, checkable meanings resolvable via finite environment and closure evaluation steps, ensuring fully testable program behavior.  \n5. **MINIMALISM:** Core primitives are the absolute minimum required for computation via closure and environment mechanics, with no special-casing or redundant constructs."
+    },
+    {
+      "label": "P4",
+      "author": "gemma4:latest",
+      "text": "1. **MACHINE-INTERPRETABILITY (Unambiguous Semantics):** All constructs must possess a formal, machine-executable semantics. Human readability is secondary to unambiguous parsing and deterministic evaluation.\n2. **Compositionality (Mandatory Reuse):** No feature shall be implemented as a primitive if its functionality can be derived by composing existing primitives and adherence to defined evaluation rules.\n3. **Semantic Monotonicity (Preservation of Semantics):** Changes are prohibited unless they provide a strictly provable improvement to the operational semantics; the status quo is maintained when ambiguity or loss of functionality is risked.\n4. **Total Decidability:** Every program construct and evaluation path must be guaranteed to terminate or halt with a predictable, decidable result.\n5. **Minimalism (Primitive Core):** The primitive set must be the smallest possible foundation required for universal computation, with all complexity arising strictly from the composition of these primitives."
+    },
+    {
+      "label": "P5",
+      "author": "CURRENT",
+      "text": "1. **MACHINE-INTERPRETABILITY:** All constructs must have unambiguous, formal semantics executable by a machine, prioritizing parsing and reasoning over human readability.  \n2. **COMPOSITIONALITY:** No feature is introduced unless it can be derived from existing primitives and evaluation rules, ensuring reuse and avoiding redundancy.  \n3. **STABILITY:** Modifications are only adopted if they strictly improve operational semantics; existing behavior is preserved unless mandated by a compelling benefit.  \n4. **DECIDABILITY:** Every construct must have a deterministic, checkable meaning, ensuring all program behaviors are decidable through finite reduction steps.  \n5. **MINIMALISM:** The core primitives are the absolute minimum required for computation, with complexity emerging solely from their composition."
+    },
+    {
+      "label": "P6",
+      "author": "llama3:latest",
+      "text": "**Revised Design Goals:**\n\n1. **MACHINE-INTERPRETABILITY:** All constructs must have explicit, formal semantics executable by a machine, prioritizing parsing and reasoning over human readability.\n2. **FUNDAMENTALITY:** No feature is introduced unless it can be derived from the most primitive evaluation rules, ensuring reuse and avoiding redundancy.\n3. **STABILITY & PREDICTABILITY:** Modifications are only adopted if they strictly improve operational semantics while maintaining determinism; existing behavior is preserved unless mandated by a compelling benefit.\n4. **DECIDABILITY & AUDITABILITY:** Every construct must have a deterministic, checkable meaning, ensuring all program behaviors are decidable through finite reduction steps and transparently auditible for debugging.\n5. **MINIMALISM & COHERENCE:** The core primitives are the absolute minimum required for computation, with complexity emerging solely from their coherent composition; avoiding redundancy and preserving simplicity.\n\n**Rationale:**\n\nThe revised goals further emphasize machine-interpretable semantics while introducing fundamentality to ensure that all constructs can be derived from primitive evaluation rules. Stability and predictability guarantee determinism in operational semantics, allowing for efficient debugging and auditing. Minimalism and coherence prioritize the absolute minimum required for computation, eliminating redundancy and ensuring simplicity."
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P4",
+      "P6",
+      "P2",
+      "P1",
+      "P5",
+      "P3"
+    ],
+    "gemma4:latest": [
+      "P6",
+      "P4",
+      "P1",
+      "P5",
+      "P3",
+      "P2"
+    ],
+    "llama3:latest": [
+      "P6",
+      "P5",
+      "P4",
+      "P3",
+      "P2",
+      "P1"
+    ],
+    "deepseek-r1:8b": [
+      "P5",
+      "P6",
+      "P4",
+      "P1",
+      "P2",
+      "P3"
+    ],
+    "mistral:7b": [
+      "P6",
+      "P5",
+      "P4",
+      "P1",
+      "P2",
+      "P3"
+    ]
+  },
+  "scores": {
+    "P1": 9,
+    "P2": 6,
+    "P3": 3,
+    "P4": 18,
+    "P5": 16,
+    "P6": 23
+  },
+  "winner_author": "llama3:latest",
+  "winner_text": "**Revised Design Goals:**\n\n1. **MACHINE-INTERPRETABILITY:** All constructs must have explicit, formal semantics executable by a machine, prioritizing parsing and reasoning over human readability.\n2. **FUNDAMENTALITY:** No feature is introduced unless it can be derived from the most primitive evaluation rules, ensuring reuse and avoiding redundancy.\n3. **STABILITY & PREDICTABILITY:** Modifications are only adopted if they strictly improve operational semantics while maintaining determinism; existing behavior is preserved unless mandated by a compelling benefit.\n4. **DECIDABILITY & AUDITABILITY:** Every construct must have a deterministic, checkable meaning, ensuring all program behaviors are decidable through finite reduction steps and transparently auditible for debugging.\n5. **MINIMALISM & COHERENCE:** The core primitives are the absolute minimum required for computation, with complexity emerging solely from their coherent composition; avoiding redundancy and preserving simplicity.\n\n**Rationale:**\n\nThe revised goals further emphasize machine-interpretable semantics while introducing fundamentality to ensure that all constructs can be derived from primitive evaluation rules. Stability and predictability guarantee determinism in operational semantics, allowing for efficient debugging and auditing. Minimalism and coherence prioritize the absolute minimum required for computation, eliminating redundancy and ensuring simplicity.",
+  "note": ""
+}

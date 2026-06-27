@@ -1,0 +1,78 @@
+{
+  "index": 9,
+  "title": "example-data",
+  "options": [
+    {
+      "label": "P1",
+      "author": "llama3:latest",
+      "text": "Here's an example of defining a small data structure and operations on it:\n\n```scheme\n(define-struct Point (x y))\n\n(define-struct Vector ((start Point) (end Point)))\n\n(define (vec-length v)\n  (+ (abs (- (vector-end-x v) (vector-start-x v)))\n     (abs (- (vector-end-y v) (vector-start-y v)))))\n\n(define (vec-mag v)\n  (sqrt (+ (sqr (abs (- (vector-end-x v) (vector-start-x v))))\n           (sqr (abs (- (vector-end-y v) (vector-start-y v)))))))\n\n(define-struct Circle ((center Point) (radius Number)))\n\n(define (circle-perimeter c)\n  (* 2 pi (circle-radius c)))\n\n(define (circle-area c)\n  (* pi (expt (circle-radius c) 2)))\n```\n\nThis example defines a simple data structure for points, vectors, and circles. It also includes some basic operations on these data structures: calculating the length and magnitude of vectors, as well as the perimeter and area of circles."
+    },
+    {
+      "label": "P2",
+      "author": "deepseek-r1:8b",
+      "text": "(define (make-point x y)\n  (cons x y))\n\n(define (x point) (car point))\n(define (y point) (cdr point))\n\n(define (distance-from-origin point)\n  (sqrt (+ (square (x point)) (square (y point)))))\n\n(define (distance-between point1 point2)\n  (sqrt (+ (square (- (x point1) (x point2))) (square (- (y point1) (y point2))))))\n\n(define p1 (make-point 3 4))\n(define p2 (make-point 0 0))\n\n(distance-from-origin p1)  ; 5\n(distance-between p1 p2)   ; 5"
+    },
+    {
+      "label": "P3",
+      "author": "mistral:7b",
+      "text": "```scheme\n; Define a simple list data structure with append (cons) and length operations\n(define empty-list '())\n\n(define (make-list values)\n  (if (null? values)\n      empty-list\n      (cons (car values) (make-list (cdr values)))))\n\n(define (append-list l1 l2)\n  (if (empty-list? l1)\n      l2\n      (cons (car l1) (append-list (cdr l1) l2))))\n\n(define (length-list list)\n  (if (empty-list? list)\n      0\n      (+ 1 (length-list (cdr list)))))\n\n; Example usage: create and manipulate a list of numbers\n(display (make-list '(1 2 3 4))) ; Output: (1 2 3 4)\n(display (append-list '(5 6) '(7 8))) ; Output: (5 6 7 8)\n(display (length-list '(a b c d e f g h))) ; Output: 8\n```"
+    },
+    {
+      "label": "P4",
+      "author": "qwen3:8b",
+      "text": "```\n(define (make-tree val left right)\n  (list val left right))\n\n(define (tree-value tree)\n  (car tree))\n\n(define (tree-left tree)\n  (cadr tree))\n\n(define (tree-right tree)\n  (caddr tree))\n\n(define (count-nodes tree)\n  (if (eq? tree '())\n      0\n      (+ 1 (count-nodes (tree-left tree)) (count-nodes (tree-right tree)))))\n\n(define my-tree (make-tree 1 (make-tree 2 '() '()) (make-tree 3 '() '())))\n(count-nodes my-tree)  ; evaluates to 3\n```"
+    },
+    {
+      "label": "P5",
+      "author": "gemma4:latest",
+      "text": "```scheme\n;; Define a simple Pair data structure (Key-Value) using the list primitives.\n;; A pair is represented as the list (Key Value).\n\n;; 1. Constructor: Creates a Pair (Key -> Value)\n(define (make-pair key value)\n  (cons key value))\n\n;; 2. Accessor: Retrieves the Key from a pair\n(define (get-key pair)\n  (car pair))\n\n;; 3. Accessor: Retrieves the Value from a pair\n(define (get-value pair)\n  (cdr pair))\n\n;; 4. Update Operation: Returns a *new* Pair with the updated value.\n;; This respects immutability by constructing a new list.\n(define (set-value pair new-value)\n  (cons (get-key pair) new-value))\n\n;; Example Usage:\n(define user-record (make-pair \"user_id\" 101))\n(display \"Original Record: \")\n(display user-record) ; Expected output: (user_id 101)\n(newline)\n\n(display \"Retrieved Key: \")\n(display (get-key user-record)) ; Expected output: user_id\n(newline)\n\n(display \"Original Value: \")\n(display (get-value user-record)) ; Expected output: 101\n(newline)\n\n;; Update the record value\n(define updated-record (set-value user-record 202))\n(display \"Updated Record: \")\n(display updated-record) ; Expected output: (user_id 202)\n\n;; Demonstrate immutability: original record remains unchanged\n(display \"Original Record (Check): \")\n(display user-record) ; Expected output: (user_id 101)\n(newline)\n```"
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P2",
+      "P5",
+      "P1",
+      "P3",
+      "P4"
+    ],
+    "gemma4:latest": [
+      "P5",
+      "P4",
+      "P2",
+      "P1",
+      "P3"
+    ],
+    "llama3:latest": [
+      "P1",
+      "P5",
+      "P4",
+      "P3",
+      "P2"
+    ],
+    "deepseek-r1:8b": [
+      "P5",
+      "P4",
+      "P1",
+      "P2",
+      "P3"
+    ],
+    "mistral:7b": [
+      "P1",
+      "P5",
+      "P3",
+      "P4",
+      "P2"
+    ]
+  },
+  "scores": {
+    "P1": 13,
+    "P2": 7,
+    "P3": 4,
+    "P4": 9,
+    "P5": 17
+  },
+  "winner_author": "gemma4:latest",
+  "winner_text": "```scheme\n;; Define a simple Pair data structure (Key-Value) using the list primitives.\n;; A pair is represented as the list (Key Value).\n\n;; 1. Constructor: Creates a Pair (Key -> Value)\n(define (make-pair key value)\n  (cons key value))\n\n;; 2. Accessor: Retrieves the Key from a pair\n(define (get-key pair)\n  (car pair))\n\n;; 3. Accessor: Retrieves the Value from a pair\n(define (get-value pair)\n  (cdr pair))\n\n;; 4. Update Operation: Returns a *new* Pair with the updated value.\n;; This respects immutability by constructing a new list.\n(define (set-value pair new-value)\n  (cons (get-key pair) new-value))\n\n;; Example Usage:\n(define user-record (make-pair \"user_id\" 101))\n(display \"Original Record: \")\n(display user-record) ; Expected output: (user_id 101)\n(newline)\n\n(display \"Retrieved Key: \")\n(display (get-key user-record)) ; Expected output: user_id\n(newline)\n\n(display \"Original Value: \")\n(display (get-value user-record)) ; Expected output: 101\n(newline)\n\n;; Update the record value\n(define updated-record (set-value user-record 202))\n(display \"Updated Record: \")\n(display updated-record) ; Expected output: (user_id 202)\n\n;; Demonstrate immutability: original record remains unchanged\n(display \"Original Record (Check): \")\n(display user-record) ; Expected output: (user_id 101)\n(newline)\n```",
+  "note": ""
+}

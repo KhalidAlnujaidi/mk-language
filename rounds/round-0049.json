@@ -1,0 +1,89 @@
+{
+  "index": 49,
+  "title": "refine:design-goals",
+  "options": [
+    {
+      "label": "P1",
+      "author": "gemma4:latest",
+      "text": "**CORE MANDATES:**\n\n1. **OPERATIONAL SEMANTICS FIRST:** All language features must be defined by explicit, machine-executable reduction rules. Semantic structure must follow parse tree structure, prioritizing formal computation over superficial syntactic convenience.\n2. **COMPOSITIONAL REUSE:** No construct shall be introduced if its functionality can be derived by composing existing primitives. Solutions must strictly favor the simplest existing primitive capable of fulfilling the requirement.\n3. **NON-REGRESSION GUARANTEE:** Any proposed change or addition must demonstrate a provably superior operational behavior compared to the current established semantics. If the change does not strictly improve functionality, the existing rule set must remain in force.\n4. **DECIDABILITY & TRACEABILITY:** Every program state and every expression must possess a fully determined, finite evaluation path. The behavior must be completely traceable from the source text through the reduction steps.\n5. **PRIMITIVE MINIMALITY:** The language definition must consist only of the absolute fewest set of primitives required for universal computation. Complexity must emerge only from the structured composition of these foundational elements.\n\n**RATIONALE:**\n\nThis structure translates the philosophical axioms into concrete, actionable technical mandates. By using terms like \"Operational Semantics,\" \"Compositional Reuse,\" and \"Non-Regression Guarantee,\" the goals are framed as stringent, verifiable engineering constraints rather than descriptive principles. They eliminate redundancy while maintaining full coverage of the original five axioms."
+    },
+    {
+      "label": "P2",
+      "author": "llama3:latest",
+      "text": "**Revised Design Goals:**\n\n1. **MACHINE-INTERPRETABILITY FIRST:** Prioritize constructs that can be directly executed by a machine over those that require manual interpretation.\n2. **FUNDAMENTALITY BY PROXY:** Ensure fundamental constructs are present, but allow derived constructs to emerge from the interactions of these primitives, rather than requiring them to be strictly computable.\n3. **PREDICTABILITY & STABILITY:** Prioritize predictability and stability over simplicity, recognizing that some complexity may be necessary for realistic use cases.\n4. **DECIDABILITY & AUDITABILITY:** Maintain decidability and auditability through finite reduction steps and transparent debugging, but allow minor exceptions when justified by compelling benefits.\n5. **CORE PRIMITIVES:** Define core primitives as the smallest set of fundamental constructs required to build a meaningful language, rather than aiming for absolute minimalism.\n\n**Rationale:**\n\nThe revised goals relax the emphasis on machine-interpretable semantics while maintaining fundamentality as a proxy for ensuring derived constructs are coherent and predictable. By prioritizing predictability and stability over simplicity, the design better balances realism with maintainability."
+    },
+    {
+      "label": "P3",
+      "author": "qwen3:8b",
+      "text": "**Revised Design Goals:**  \n\n1. **MACHINE-INTERPRETABILITY:** All constructs are defined via explicit, unambiguous reduction rules executable by a machine, prioritizing formal semantics over human readability.  \n2. **PRIMITIVE DERIVABILITY:** Every feature is derived from the core evaluation rules (e.g., closures, environments, list evaluation), ensuring no redundant primitives exist.  \n3. **CHANGE-RESISTANCE:** Modifications are adopted only if they strictly improve operational semantics without breaking existing behavior, preserving determinism.  \n4. **DECIDABILITY & AUDITABILITY:** All constructs are deterministic, with behaviors fully decidable via finite reduction steps, ensuring transparency and debuggability.  \n5. **MINIMAL CORE & COMPOSITIONALITY:** The language\u2019s primitives are the absolute minimum required for computation, with complexity arising solely from their structured composition.  \n\n**Rationale:**  \nThe revised goals strictly enforce axioms by:  \n- **MACHINE-INTERPRETABILITY** (Axiom 1): Formal reduction rules replace ambiguous human-readable constructs.  \n- **PRIMITIVE DERIVABILITY** (Axiom 2 & 5): All features emerge from closures, environments, and list evaluation, avoiding reinvention.  \n- **CHANGE-RESISTANCE** (Axiom 3): Stability ensures deterministic behavior, preventing accidental breakage.  \n- **DECIDABILITY & AUDITABILITY** (Axiom 4): Finite, checkable semantics guarantee testability and debugging.  \n- **MINIMAL CORE & COMPOSITIONALITY** (Axiom 5): Primitives are minimal, with complexity arising from their predictable composition."
+    },
+    {
+      "label": "P4",
+      "author": "deepseek-r1:8b",
+      "text": "The current design goals are already optimal and fully align with the axioms, as they encapsulate the principles of machine-interpretability, fundamentality, stability, testability, and minimalism through clear, derived statements. No improvement is necessary."
+    },
+    {
+      "label": "P5",
+      "author": "mistral:7b",
+      "text": "**Revised Design Goals:**\n\n1. **MACHINE-INTERPRETABILITY FIRST:** All constructs must have explicit, formal semantics executable by a machine, prioritizing parsing and reasoning over human readability.\n2. **SIMPLICITY & REUSE:** Adopt the simplest possible construct that already works; do not add redundant primitives or unnecessary complexity.\n3. **STABILITY & PREDICTABILITY:** Changes are adopted only if they strictly improve operational semantics while maintaining determinism and readability, preserving existing behavior unless it contradicts these goals.\n4. **DECIDABILITY & AUDITABILITY:** Every construct must have a clear, checkable meaning that leads to finite reductions; ensuring all program behaviors are decidable through transparent steps and traceable for debugging.\n5. **MINIMALISM & COHERENCE:** The core primitives should be the absolute minimum required for computation, with complexity emerging solely from their coherent composition; avoiding unnecessary primitives and preserving simplicity.\n6. **TESTABILITY:** All constructs must support thorough testing to ensure reliability and maintainability, as well as aiding in debugging."
+    },
+    {
+      "label": "P6",
+      "author": "CURRENT",
+      "text": "**Revised Design Goals:**\n\n1. **MACHINE-INTERPRETABILITY:** All constructs must have explicit, formal semantics executable by a machine, prioritizing parsing and reasoning over human readability.\n2. **FUNDAMENTALITY:** No feature is introduced unless it can be derived from the most primitive evaluation rules, ensuring reuse and avoiding redundancy.\n3. **STABILITY & PREDICTABILITY:** Modifications are only adopted if they strictly improve operational semantics while maintaining determinism; existing behavior is preserved unless mandated by a compelling benefit.\n4. **DECIDABILITY & AUDITABILITY:** Every construct must have a deterministic, checkable meaning, ensuring all program behaviors are decidable through finite reduction steps and transparently auditible for debugging.\n5. **MINIMALISM & COHERENCE:** The core primitives are the absolute minimum required for computation, with complexity emerging solely from their coherent composition; avoiding redundancy and preserving simplicity.\n\n**Rationale:**\n\nThe revised goals further emphasize machine-interpretable semantics while introducing fundamentality to ensure that all constructs can be derived from primitive evaluation rules. Stability and predictability guarantee determinism in operational semantics, allowing for efficient debugging and auditing. Minimalism and coherence prioritize the absolute minimum required for computation, eliminating redundancy and ensuring simplicity."
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P3",
+      "P6",
+      "P1",
+      "P5",
+      "P2",
+      "P4"
+    ],
+    "gemma4:latest": [
+      "P3",
+      "P6",
+      "P1",
+      "P5",
+      "P2",
+      "P4"
+    ],
+    "llama3:latest": [
+      "P3",
+      "P1",
+      "P5",
+      "P6",
+      "P2",
+      "P4"
+    ],
+    "deepseek-r1:8b": [
+      "P3",
+      "P1",
+      "P6",
+      "P5",
+      "P2",
+      "P4"
+    ],
+    "mistral:7b": [
+      "P1",
+      "P6",
+      "P3",
+      "P5",
+      "P2",
+      "P4"
+    ]
+  },
+  "scores": {
+    "P1": 19,
+    "P2": 5,
+    "P3": 23,
+    "P4": 0,
+    "P5": 11,
+    "P6": 17
+  },
+  "winner_author": "qwen3:8b",
+  "winner_text": "**Revised Design Goals:**  \n\n1. **MACHINE-INTERPRETABILITY:** All constructs are defined via explicit, unambiguous reduction rules executable by a machine, prioritizing formal semantics over human readability.  \n2. **PRIMITIVE DERIVABILITY:** Every feature is derived from the core evaluation rules (e.g., closures, environments, list evaluation), ensuring no redundant primitives exist.  \n3. **CHANGE-RESISTANCE:** Modifications are adopted only if they strictly improve operational semantics without breaking existing behavior, preserving determinism.  \n4. **DECIDABILITY & AUDITABILITY:** All constructs are deterministic, with behaviors fully decidable via finite reduction steps, ensuring transparency and debuggability.  \n5. **MINIMAL CORE & COMPOSITIONALITY:** The language\u2019s primitives are the absolute minimum required for computation, with complexity arising solely from their structured composition.  \n\n**Rationale:**  \nThe revised goals strictly enforce axioms by:  \n- **MACHINE-INTERPRETABILITY** (Axiom 1): Formal reduction rules replace ambiguous human-readable constructs.  \n- **PRIMITIVE DERIVABILITY** (Axiom 2 & 5): All features emerge from closures, environments, and list evaluation, avoiding reinvention.  \n- **CHANGE-RESISTANCE** (Axiom 3): Stability ensures deterministic behavior, preventing accidental breakage.  \n- **DECIDABILITY & AUDITABILITY** (Axiom 4): Finite, checkable semantics guarantee testability and debugging.  \n- **MINIMAL CORE & COMPOSITIONALITY** (Axiom 5): Primitives are minimal, with complexity arising from their predictable composition.",
+  "note": ""
+}

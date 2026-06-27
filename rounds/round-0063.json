@@ -1,0 +1,89 @@
+{
+  "index": 63,
+  "title": "refine:builtins",
+  "options": [
+    {
+      "label": "P1",
+      "author": "mistral:7b",
+      "text": "The semantic rule governing `(E\u2081 E\u2082 \u2026 E\u2099)` should be refined to explicitly distinguish between Application and Construction. When evaluating the sequence, first check if `E\u2081` can be interpreted as a procedure. If so, evaluate it, and then pass the remaining arguments. Otherwise, proceed with the Data Structure Construction rule.\n\nThis refinement allows for a more deterministic machine interpretation without introducing additional primitives, thus upholding the minimal core principle (Axiom 5) while adhering to Reuse (Axiom 2). By ensuring explicit confirmation of the intended operation path, this revision eliminates ambiguity and maintains the required machine-interpretability for deterministic behavior (Axiom 1) and testability (Axiom 4).\n\nConclusion: The proposed builtins must be updated as follows:\n\n* Add an explicit procedure check for `E\u2081` in the semantic rule governing function application. If not a procedure, fallback to the Data Structure Construction rule.\n\n```scheme\n(define (factorial n)\n  (if (zero? n)\n      1\n      (* n (factorial (- n 1)))))\n\n(factorial 5) ; evaluates to 120\n```\nThe rest of the examples remain unchanged."
+    },
+    {
+      "label": "P2",
+      "author": "qwen3:8b",
+      "text": "The current definition is already optimal. No strictly better, simpler, or more general set of primitives can be proposed without violating the Minimal Core (Axiom 5) or compromising deterministic evaluation paths (Axiom 4). Arithmetic and comparison operators as syntactic forms are the maximal compression of primitives, aligning with Axiom 1 (machine-interpretability) and Axiom 2 (reuse). Introducing primitives would fragment the core, violating Axiom 5. Thus, the conclusion stands: the builtins are finalized as is."
+    },
+    {
+      "label": "P3",
+      "author": "llama3:latest",
+      "text": "Here's a revised proposal:\n\n**Proposal:**\n\nIntroduce a single, general-purpose predicate primitive `pred?` with syntax `(PRED? E)` that can be used to create custom predicates for any data structure or function. This primitive should replace the existing `eq?`, `number?`, and other specialized predicates.\n\n**Rationale:**\n\n1. **Minimal Core**: By introducing a single, general-purpose predicate primitive, we minimize the number of primitives while maintaining expressiveness.\n2. **Reuse, Don't Reinvent**: We avoid creating multiple specialized predicates for specific data structures or functions, which would lead to redundancy and complexity.\n3. **Machine-Interpretability First**: The `pred?` primitive is easily machine-interpretable, allowing the language to reason about its semantics deterministically.\n4. **Everything Is Testable**: The introduction of a single, general-purpose predicate primitive does not compromise the language's testability or decidability.\n\n**Example Usage:**\n\n```scheme\n(define (is-even x) (pred? (lambda (y) (= y 0))))\n(is-even 2) ; #t\n(is-even 3) ; #f\n```\n\nThis revised proposal maintains the spirit of the original axioms while providing a more general and flexible predicate mechanism."
+    },
+    {
+      "label": "P4",
+      "author": "deepseek-r1:8b",
+      "text": "The current definition is optimal. No strictly better, simpler, or more general set of primitives can be proposed without violating the Minimal Core (Axiom 5) or compromising the deterministic evaluation paths established by the other axioms.\n\nThe system's strength lies in defining arithmetic/comparison operators as *syntactic forms* rather than user-defined primitives, which perfectly balances the need for high-level expressiveness with the requirement for machine-interpretable determinism (Axiom 1).\n\n**Conclusion:** The proposed builtins are finalized as is, as they represent the maximal compression of primitives while maintaining strict adherence to all five axioms."
+    },
+    {
+      "label": "P5",
+      "author": "CURRENT",
+      "text": "The current definition is optimal. No strictly better, simpler, or more general set of primitives can be proposed without violating the Minimal Core (Axiom 5) or compromising the deterministic evaluation paths established by the other axioms.\n\nThe system's strength lies in defining arithmetic/comparison operators as *syntactic forms* rather than user-defined primitives, which perfectly balances the need for high-level expressiveness with the requirement for machine-interpretable determinism (Axiom 1).\n\n**Conclusion:** The proposed builtins are finalized as is, as they represent the maximal compression of primitives while maintaining strict adherence to all five axioms."
+    },
+    {
+      "label": "P6",
+      "author": "gemma4:latest",
+      "text": "The definition must be revised to eliminate the concept of specialized \"syntactic forms\" for operators. All builtins, including arithmetic and comparison, must be treated strictly as procedures bound in the environment, invoked via the standard function application rule.\n\n**Revised Builtins Definition:**\n\nThe system maintains the absolute minimum set of primitives:\n1.  **Data Structure Construction:** The list literal `()` construct, evaluated via the core semantic rule $\\text{\u2130}\u27e6(E_1 E_2 \\dots E_n)\u27e7$ (functioning as $\\text{DataList}$).\n2.  **Function Application:** The rule that defines procedural execution for $(E_1, \\dots, E_n)$.\n\nAll other operations (e.g., `+`, `-`, `zero?`, `map`) are implemented as **procedures** defined using the `define` construct. They are not special syntactic forms; they are merely names bound to functions that adhere to the standard function application semantics.\n\n**Justification:**\nThis revision strictly adheres to Axiom 5 (Minimal Core) by ensuring the language's grammatical parser recognizes only the two fundamental structures: list literals and function calls. By removing the implicit grammar rule that recognizes `(+ A B)` as a syntactic shortcut, and instead forcing it to be interpreted as `(function-name A B)`, we maximize machine interpretability (Axiom 1). This strengthens the core guarantees by making the system fundamentally predictable and composable from the absolute fewest primitives."
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P6",
+      "P1",
+      "P2",
+      "P4",
+      "P5",
+      "P3"
+    ],
+    "gemma4:latest": [
+      "P6",
+      "P3",
+      "P1",
+      "P2",
+      "P4",
+      "P5"
+    ],
+    "llama3:latest": [
+      "P1",
+      "P6",
+      "P3",
+      "P2",
+      "P4",
+      "P5"
+    ],
+    "deepseek-r1:8b": [
+      "P2",
+      "P4",
+      "P5",
+      "P3",
+      "P1",
+      "P6"
+    ],
+    "mistral:7b": [
+      "P1",
+      "P2",
+      "P3",
+      "P4",
+      "P5",
+      "P6"
+    ]
+  },
+  "scores": {
+    "P1": 18,
+    "P2": 16,
+    "P3": 12,
+    "P4": 10,
+    "P5": 5,
+    "P6": 14
+  },
+  "winner_author": "mistral:7b",
+  "winner_text": "The semantic rule governing `(E\u2081 E\u2082 \u2026 E\u2099)` should be refined to explicitly distinguish between Application and Construction. When evaluating the sequence, first check if `E\u2081` can be interpreted as a procedure. If so, evaluate it, and then pass the remaining arguments. Otherwise, proceed with the Data Structure Construction rule.\n\nThis refinement allows for a more deterministic machine interpretation without introducing additional primitives, thus upholding the minimal core principle (Axiom 5) while adhering to Reuse (Axiom 2). By ensuring explicit confirmation of the intended operation path, this revision eliminates ambiguity and maintains the required machine-interpretability for deterministic behavior (Axiom 1) and testability (Axiom 4).\n\nConclusion: The proposed builtins must be updated as follows:\n\n* Add an explicit procedure check for `E\u2081` in the semantic rule governing function application. If not a procedure, fallback to the Data Structure Construction rule.\n\n```scheme\n(define (factorial n)\n  (if (zero? n)\n      1\n      (* n (factorial (- n 1)))))\n\n(factorial 5) ; evaluates to 120\n```\nThe rest of the examples remain unchanged.",
+  "note": ""
+}

@@ -1,0 +1,82 @@
+{
+  "index": 19,
+  "title": "refine:meta-axiom",
+  "options": [
+    {
+      "label": "P1",
+      "author": "deepseek-r1:8b",
+      "text": "**ALL FEATURES MUST BE DERIVED FROM CORE PRIMITIVES USING TESTABLE SYNTACTIC SUGAR OR DIRECT COMPOSITION, WITH MINIMAL ADDITIONAL SEMANTICS TO ENHANCE READABILITY AND EXPRESSIVITY WHILE PRESERVING MACHINE-INTERPRETABILTY.**"
+    },
+    {
+      "label": "P2",
+      "author": "mistral:7b",
+      "text": "**ALL FEATURES SHOULD BE EITHER PRIMITIVE OR COMPOSED FROM THE CORE PRIMITIVES USING SYNTACTIC SUGER AND ADDITIONAL SEMANTICS TO IMPROVE READABILITY, CONVENIENCE, OR EXPRESSIVITY, WHERE:\n1. The additional semantics must be explicitly defined, testable, and unambiguous.\n2. The syntactic sugar should not obscure the core structure or intent of a program.\n3. Any new features should adhere to existing axioms, enhancing the language without adding unnecessary complexity.**"
+    },
+    {
+      "label": "P3",
+      "author": "CURRENT",
+      "text": "PROPOSED NEW META-AXIOM:\n\n**ALL FEATURES SHOULD BE EITHER PRIMITIVE OR COMPOSED FROM THE CORE PRIMITIVES WITH A LIMITED ADDITION OF SYNTACTIC SUGAR AND MINIMAL EXTRA SEMANTICS TO ENHANCE READABILITY, CONVENIENCE, OR INCREASED EXPRESSIVITY.**\n\nThis updated axiom highlights that while all features should be built on the core primitives to preserve simplicity and machine-interpretability, some constructs may require syntactic sugar or additional semantic rules for enhanced readability, convenience, or increased expressivity. The use of such extensions must adhere strictly to the existing axioms (Reuse, Don't Reinvent, Don't Break What Works, Everything is Testable, and Minimal Core), ensuring that they remain composable with the core primitives and do not complicate the language unnecessarily."
+    },
+    {
+      "label": "P4",
+      "author": "gemma4:latest",
+      "text": "**REVISED META-AXIOM:**\n\n**ALL SYNTACTIC CONSTRUCTS MUST BE DERIVABLE. Any apparent feature (including syntactic sugar or syntactic shorthand) must have an unambiguous, direct, and machine-checkable transformation (a sequence of replacements or expansions) into a form composed *exclusively* of the defined core primitives and existing built-ins. If such a derivation path requires defining a new semantic rule or parsing ambiguity that is not strictly necessary for language evolution or mandatory compliance, that feature is forbidden.**"
+    },
+    {
+      "label": "P5",
+      "author": "llama3:latest",
+      "text": "**PROPOSED NEW META-AXIOM:**\n\n**ALL FEATURES MUST BE DIRECTLY OR INDIRECTLY COMPOUNDABLE FROM THE CORE PRIMITIVES WITH A FOCUS ON MINIMAL ADDITIONAL SEMANTICS, SYNTACTIC SUGAR SHOULD BE AVOIDED UNLESS IT ENHANCES EXPRESSIVITY WITHOUT INTRODUCING NEW SEMANTICS OR COMPLEXITY.**"
+    },
+    {
+      "label": "P6",
+      "author": "qwen3:8b",
+      "text": "**PROPOSED NEW META-AXIOM:**\n\n**ALL FEATURES MUST BE PRIMITIVE OR COMPOSED FROM CORE PRIMITIVES, WITH SYNTACTIC SUGAR THAT ADDS NO SEMANTIC COMPLEXITY AND IS TESTABLE VIA CORE MECHANISMS.**\n\nThis version strictly enforces that syntactic sugar introduces no new semantic rules, ensuring all constructs remain testable and composable with core primitives. It eliminates ambiguity about \"minimal extra semantics\" by explicitly requiring sugar to be testable through core mechanisms, aligning with the axioms of machine-interpretable, reusable, and minimal core design."
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P4",
+      "P2",
+      "P6",
+      "P1",
+      "P3",
+      "P5"
+    ],
+    "gemma4:latest": [
+      "P4",
+      "P6",
+      "P1",
+      "P5",
+      "P2",
+      "P3"
+    ],
+    "llama3:latest": [
+      "P6",
+      "P5",
+      "P4",
+      "P3",
+      "P2",
+      "P1"
+    ],
+    "deepseek-r1:8b": [],
+    "mistral:7b": [
+      "P6",
+      "P5",
+      "P4",
+      "P3",
+      "P2",
+      "P1"
+    ]
+  },
+  "scores": {
+    "P1": 5,
+    "P2": 7,
+    "P3": 5,
+    "P4": 16,
+    "P5": 10,
+    "P6": 17
+  },
+  "winner_author": "qwen3:8b",
+  "winner_text": "**PROPOSED NEW META-AXIOM:**\n\n**ALL FEATURES MUST BE PRIMITIVE OR COMPOSED FROM CORE PRIMITIVES, WITH SYNTACTIC SUGAR THAT ADDS NO SEMANTIC COMPLEXITY AND IS TESTABLE VIA CORE MECHANISMS.**\n\nThis version strictly enforces that syntactic sugar introduces no new semantic rules, ensuring all constructs remain testable and composable with core primitives. It eliminates ambiguity about \"minimal extra semantics\" by explicitly requiring sugar to be testable through core mechanisms, aligning with the axioms of machine-interpretable, reusable, and minimal core design.",
+  "note": ""
+}

@@ -1,0 +1,23 @@
+# Agent session scratch / memory (not project artifacts)
+.remember/
+.deepseek/
+
+# Runtime / logs
+*.log
+*.pid
+
+# Timestamped session / prompt captures (scratch)
+20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-*.txt
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# OS / editor junk
+.DS_Store
+._*
+*.swp
+*.bak

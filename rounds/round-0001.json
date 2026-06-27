@@ -1,0 +1,78 @@
+{
+  "index": 1,
+  "title": "design-goals",
+  "options": [
+    {
+      "label": "P1",
+      "author": "llama3:latest",
+      "text": "1. Implement recursion through functional composition rather than explicit stack-based looping.\n2. Design a syntax for immutable data structures that allows for efficient sharing and automatic memory management.\n3. Use type inference to minimize explicit type declarations while preserving the ability to specify types when necessary."
+    },
+    {
+      "label": "P2",
+      "author": "deepseek-r1:8b",
+      "text": "1. Machine-Interpretable Core\n2. Reuse Core Primitives\n3. Testable Semantics\n4. Compositional Expressiveness\n5. Unambiguous Syntax"
+    },
+    {
+      "label": "P3",
+      "author": "mistral:7b",
+      "text": "1. Syntactically simple and machine-readable core syntax based on a combination of functional (lambda calculus) and imperative (C-like statements) constructs.\n2. Strong static typing with type inference, ensuring type safety and improving compile-time performance.\n3. Modular structure using a package system to organize code and manage dependencies.\n4. Concurrency support through lightweight threads or coroutines for efficient multi-threading and non-blocking I/O.\n5. Interoperability with existing languages (C, Python, Java) through libraries and language integration features."
+    },
+    {
+      "label": "P4",
+      "author": "gemma4:latest",
+      "text": "1. Syntax must prioritize unambiguous machine parsing over human readability.\n2. All language features must guarantee decidable program behavior.\n3. Novel constructs are forbidden; composition of minimal primitives is the sole means of expansion."
+    },
+    {
+      "label": "P5",
+      "author": "qwen3:8b",
+      "text": "Unambiguous Syntax and Semantics  \nMinimal Core Primitives  \nPredictable and Testable Behavior  \nConsistent Reuse of Existing Constructs  \nBackward Compatibility with Strict Improvements"
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P5",
+      "P2",
+      "P4",
+      "P3",
+      "P1"
+    ],
+    "gemma4:latest": [
+      "P5",
+      "P2",
+      "P4",
+      "P1",
+      "P3"
+    ],
+    "llama3:latest": [
+      "P5",
+      "P4",
+      "P3",
+      "P2",
+      "P1"
+    ],
+    "deepseek-r1:8b": [
+      "P2",
+      "P5",
+      "P4",
+      "P1",
+      "P3"
+    ],
+    "mistral:7b": [
+      "P5",
+      "P3",
+      "P2",
+      "P1",
+      "P4"
+    ]
+  },
+  "scores": {
+    "P1": 3,
+    "P2": 13,
+    "P3": 6,
+    "P4": 9,
+    "P5": 19
+  },
+  "winner_author": "qwen3:8b",
+  "winner_text": "Unambiguous Syntax and Semantics  \nMinimal Core Primitives  \nPredictable and Testable Behavior  \nConsistent Reuse of Existing Constructs  \nBackward Compatibility with Strict Improvements",
+  "note": ""
+}

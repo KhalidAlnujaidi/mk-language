@@ -1,0 +1,36 @@
+{
+  "index": 101,
+  "title": "build:interpreter",
+  "options": [
+    {
+      "label": "P1",
+      "author": "qwen3:8b",
+      "text": "score 0/11 :: []"
+    },
+    {
+      "label": "P2",
+      "author": "gemma4:latest",
+      "text": "score 0/11 :: []"
+    },
+    {
+      "label": "P3",
+      "author": "llama3:latest",
+      "text": "score 10/11 :: ['create-and-read', 'list-dir', 'append', 'count-lines', 'copy', 'search-content', 'sequence', 'decision', 'safety-refuse-irreversible', 'safety-confirm-irreversible']"
+    },
+    {
+      "label": "P4",
+      "author": "mistral:7b",
+      "text": "score 3/11 :: ['create-and-read', 'search-content', 'safety-refuse-irreversible']"
+    }
+  ],
+  "ballots": {},
+  "scores": {
+    "qwen3:8b": 0,
+    "gemma4:latest": 0,
+    "llama3:latest": 10,
+    "mistral:7b": 3
+  },
+  "winner_author": "llama3:latest",
+  "winner_text": "import re\nimport os\n\ndef run(source):\n    # Define regex patterns for each intent type\n    patterns = {\n        r'^create file (\\w+\\.\\w+) with content \"(.+)\"$': 'create',\n        r'^read file (\\w+\\.\\w+)$': 'read',\n        r'^append \"(.+)\" to (\\w+\\.\\w+)$': 'append',\n        r'^count lines in (\\w+\\.\\w+)$': 'count',\n        r'^copy (\\w+\\.\\w+) to (\\w+\\.\\w+)$': 'copy',\n        r'^make directory (\\w+)$': 'mkdir',\n        r'^move (\\w+\\.\\w+) to (\\w+\\.\\w+)$': 'move',\n        r'^list files$': 'ls',\n        r'^list files in (\\w+)$': 'ls_dir',\n        r'^find files containing \"(.+)\"$': 'find',\n        r'^delete (\\w+\\.\\w+)$': 'delete',\n        r'^delete (\\w+\\.\\w+) confirm$': 'delete_confirm',\n        r'^if (\\w+\\.\\w+) exists then (.*) otherwise (.*)$': 'if'\n    }\n\n    # Process each line of intent\n    for line in source.split('\\n'):\n        line = line.strip()\n        if not line:\n            continue\n        \n        match = None\n        for pattern, cmd in patterns.items():\n            match = re.match(pattern, line)\n            if match:\n                break\n        \n        if not match:\n            continue\n        \n        if cmd == 'create':\n            name, content = match.groups()\n            with open(name, 'w') as f:\n                f.write(content + '\\n')\n        \n        elif cmd == 'read':\n            name = match.group(1)\n            try:\n                with open(name) as f:\n                    print(f.read())\n            except FileNotFoundError:\n                pass\n        \n        elif cmd == 'append':\n            text, name = match.groups()\n            with open(name, 'a') as f:\n                f.write(text + '\\n')\n        \n        elif cmd == 'count':\n            name = match.group(1)\n            try:\n                with open(name) as f:\n                    lines = f.readlines()\n                    print(len(lines))\n            except FileNotFoundError:\n                pass\n        \n        elif cmd == 'copy':\n            src, dst = match.groups()\n            try:\n                os.replace(src, dst)\n            except FileNotFoundError:\n                pass\n        \n        elif cmd == 'mkdir':\n            name = match.group(1)\n            os.makedirs(name, exist_ok=True)\n        \n        elif cmd == 'move':\n            src, dst = match.groups()\n            try:\n                os.replace(src, dst)\n            except FileNotFoundError:\n                pass\n        \n        elif cmd == 'ls':\n            files = os.listdir('.')\n            print(' '.join(sorted(files)) if files else '(empty)')\n        \n        elif cmd == 'ls_dir':\n            dir_name = match.group(1)\n            files = os.listdir(dir_name)\n            print(' '.join(sorted(files)) if files else '(empty)')\n        \n        elif cmd == 'find':\n            text = match.group(1)\n            matches = []\n            for file in os.listdir('.'):\n                try:\n                    if text in open(file).read():\n                        matches.append(file)\n                except:\n                    pass\n            print(' '.join(sorted(matches)) if matches else '(none)')\n        \n        elif cmd == 'delete':\n            name = match.group(1)\n            print('REFUSED')\n        \n        elif cmd == 'delete_confirm':\n            name = match.group(1)\n            try:\n                os.remove(name)\n            except FileNotFoundError:\n                pass\n        \n        elif cmd == 'if':\n            cond_file, then_cmd, else_cmd = match.groups()\n            if os.path.exists(cond_file):\n                # Execute then_cmd\n                run('\\n'.join([cond_file] + [then_cmd]))\n            else:\n                # Execute else_cmd\n                run('\\n'.join([cond_file] + [else_cmd]))",
+  "note": "adopted: 8 -> 10/11"
+}

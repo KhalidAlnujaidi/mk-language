@@ -1,0 +1,78 @@
+{
+  "index": 4,
+  "title": "core-grammar",
+  "options": [
+    {
+      "label": "P1",
+      "author": "gemma4:latest",
+      "text": "```ebnf\nProgram = { Statement } ;\n\nStatement = Expression ;\n\nExpression = Literal | Identifier | \"(\" Expression { \" \" Expression } \")\" ;\n\nLiteral = Number | String | Boolean ;\n\nNumber = [ \"0\" | \"1\" | ... | \"9\" ] ;\nString = \" ( (\" [ ^\"\\\\\"] | \"\\\\.\" | \"\\\\n\" | \"\\\\r\" | \"\\\\t\" )* )\" ;\nBoolean = \"true\" | \"false\" ;\n\n// Note: Comments are handled during the lexical pass and are not part of the core grammar structure itself.\n```"
+    },
+    {
+      "label": "P2",
+      "author": "mistral:7b",
+      "text": "Here's a proposed EBNF for the language based on the design goals and notations specified so far:\n\n```\nexpression ::= term ( binop term )*\n\nterm       ::= factor ( unaryop factor )*\n\nfactor    ::= literal | identifier | grouped_expr\n            | function_call | lambda\n\nbinop      ::= '+' | '-' | '*' | '/' | '%' | '<' | '>' | '<=' | '>=' | '==' | '!='\n             | 'and' | 'or'\n\nunaryop    ::= '!' | '-'\n\nliteral    ::= number | string | boolean\n\nnumber     ::= [0-9]+ ('.' [0-9]*)?\nstring      ::= '\"([^\"\\\\]|\\\\.|\\\\n\\\\r\\\\t)*\"'\nboolean     ::= 'true' | 'false'\n\ngrouped_expr  ::= '(' expression ')'\n\nfunction_call ::= identifier '(' ( argument ( ', ' argument )* )? ')'\n\nargument      ::= expression | lambda\n\nlambda        ::= 'fn' '(' parameter ( ',' parameter )* ')' expression\n\nparameter     ::= identifier | '_'\n```\n\nThis grammar uses prefix notation for function calls and follows the chosen notation in terms of using parentheses, identifiers, literals, and comments. It adheres to the minimal core primitives by keeping the set of operators limited, and it ensures that every feature is expressible without additional syntax or semantic rules according to the meta-axiom."
+    },
+    {
+      "label": "P3",
+      "author": "llama3:latest",
+      "text": "EXPR ::= ATOM | '(' EXPRESSION ')'\nATOM ::= NUMBER | STRING | BOOLEAN | IDENTIFIER\nNUMBER ::=[0-9]+\nSTRING ::=\"([^\"\\\\]|\\\\.)*\"\"\nBOOLEAN ::= 'true' | 'false'\nIDENTIFIER ::=[a-zA-Z_][a-zA-Z0-9_]*\nWHITE_SPACE ::=(\\s|;.*?)+"
+    },
+    {
+      "label": "P4",
+      "author": "qwen3:8b",
+      "text": "program = expression*\n\nexpression = literal | variable | application | conditional | let | define\n\nliteral = number | string | boolean\n\nvariable = identifier\n\napplication = \"(\" expression (expression)* \")\"\n\nconditional = \"(\" \"if\" expression expression expression \")\"\n\nlet = \"(\" \"let\" (binding (\",\" binding)*)? \"in\" expression \")\"\n\nbinding = identifier \"=\" expression\n\ndefine = \"(\" \"define\" identifier expression \")\""
+    },
+    {
+      "label": "P5",
+      "author": "deepseek-r1:8b",
+      "text": "Based on the provided design goals, the core grammar for the language is defined using Extended Backus-Naur Form (EBNF) to ensure it is simple, recursive, and adheres to the principles of minimal core and machine-interpretability. The grammar consists of four non-terminal symbols and is structured to parse expressions and lists recursively. Here's the EBNF grammar:\n\n**EBNF Grammar:**\n\n```\n<program> = <expression>* ;\n<expression> = <atom> | <list> ;\n<atom> = <identifier> | <number> | <string> | <boolean> ;\n<list> = '(' <expression>* ')' ;\n<identifier> = [a-zA-Z_][a-zA-Z0-9_]* ;\n<number> = [0-9]+ ;\n<string> = '\"' [^\"]* '\"' ;\n<boolean> = 'true' | 'false' ;\n```\n\n### Explanation of the Grammar:\n1. **`<program>`**: Represents the entire program, which is a sequence of one or more `<expression>`s. This allows the program to consist of multiple statements or expressions.\n2. **`<expression>`**: The core of the language, which can be either an `<atom>` or a `<list>`. This ensures that both simple and complex expressions can be evaluated.\n3. **`<atom>`**: Represents a basic value in the language, such as a number, string, boolean, or identifier (for variables or functions). This includes:\n   - **`<identifier>`**: A sequence of letters, digits, and underscores (e.g., `x`, `myVar`).\n   - **`<number>`**: A sequence of digits (e.g., `42`, `-7`).\n   - **`<string>`**: A sequence of characters enclosed in double quotes (e.g., `\"hello\"`).\n   - **`<boolean>`**: The literals `true` or `false`.\n4. **`<list>`**: Represents a collection of expressions enclosed in parentheses. The grammar allows for any number of `<expression>`s, including zero (empty list). The empty list (`()`) is a valid expression.\n\n### Key Features:\n- **Recursive Structure**: The grammar allows for nested expressions (e.g., `(a (b))`), which is essential for representing complex computations.\n- **Simple Parsing**: The recursive definition of `<expression>` and `<list>` ensures that the grammar can be parsed using a straightforward recursive descent parser, aligning with the goal of machine-interpretability.\n- **Minimal Core**: The grammar includes only the necessary components (`<atom>` and `<list>`), adhering to the minimal core requirement. Higher-level constructs (like function definitions or loops) are not part of this core grammar, emphasizing simplicity and reusability.\n- **Lexical Flexibility**: The `<identifier>` and `<string>` rules allow for flexibility in naming variables and strings, while the `<number>` and `<boolean>` rules are fixed for simplicity.\n\n### Example Program:\nHere's a simple example of a program that adheres to this grammar:\n\n```\n(5 \"hello\" true (x (y) 42))\n```\n\nThis program consists of:\n- An `<atom>` (number `5`).\n- An `<atom>` (string `\"hello\"`).\n- An `<atom>` (boolean `true`).\n- A `<list>` containing an `<atom>` (identifier `x`), an empty list (`()`), and an `<atom>` (number `42`).\n\n### Notes:\n- The grammar does not include special forms for function definitions or control flow (e.g., `if`, loops), as these are outside the minimal core scope. Function definitions would require additional grammar rules and a runtime environment, but they are not part of this core design to keep the grammar simple and reusable.\n- The empty list (`()`) is allowed as a valid `<list>`, which can represent nil or a placeholder in higher-level constructs. This ensures the grammar remains flexible for extensions.\n\nThis grammar provides a solid foundation for building a language that prioritizes simplicity, reusability, and machine-interpretability while adhering to the specified design goals."
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P5",
+      "P3",
+      "P2",
+      "P1",
+      "P4"
+    ],
+    "gemma4:latest": [
+      "P5",
+      "P1",
+      "P3",
+      "P4",
+      "P2"
+    ],
+    "llama3:latest": [
+      "P5",
+      "P2",
+      "P1",
+      "P4",
+      "P3"
+    ],
+    "deepseek-r1:8b": [
+      "P3",
+      "P5",
+      "P1",
+      "P2",
+      "P4"
+    ],
+    "mistral:7b": [
+      "P2",
+      "P5",
+      "P1",
+      "P4",
+      "P3"
+    ]
+  },
+  "scores": {
+    "P1": 10,
+    "P2": 10,
+    "P3": 9,
+    "P4": 3,
+    "P5": 18
+  },
+  "winner_author": "deepseek-r1:8b",
+  "winner_text": "Based on the provided design goals, the core grammar for the language is defined using Extended Backus-Naur Form (EBNF) to ensure it is simple, recursive, and adheres to the principles of minimal core and machine-interpretability. The grammar consists of four non-terminal symbols and is structured to parse expressions and lists recursively. Here's the EBNF grammar:\n\n**EBNF Grammar:**\n\n```\n<program> = <expression>* ;\n<expression> = <atom> | <list> ;\n<atom> = <identifier> | <number> | <string> | <boolean> ;\n<list> = '(' <expression>* ')' ;\n<identifier> = [a-zA-Z_][a-zA-Z0-9_]* ;\n<number> = [0-9]+ ;\n<string> = '\"' [^\"]* '\"' ;\n<boolean> = 'true' | 'false' ;\n```\n\n### Explanation of the Grammar:\n1. **`<program>`**: Represents the entire program, which is a sequence of one or more `<expression>`s. This allows the program to consist of multiple statements or expressions.\n2. **`<expression>`**: The core of the language, which can be either an `<atom>` or a `<list>`. This ensures that both simple and complex expressions can be evaluated.\n3. **`<atom>`**: Represents a basic value in the language, such as a number, string, boolean, or identifier (for variables or functions). This includes:\n   - **`<identifier>`**: A sequence of letters, digits, and underscores (e.g., `x`, `myVar`).\n   - **`<number>`**: A sequence of digits (e.g., `42`, `-7`).\n   - **`<string>`**: A sequence of characters enclosed in double quotes (e.g., `\"hello\"`).\n   - **`<boolean>`**: The literals `true` or `false`.\n4. **`<list>`**: Represents a collection of expressions enclosed in parentheses. The grammar allows for any number of `<expression>`s, including zero (empty list). The empty list (`()`) is a valid expression.\n\n### Key Features:\n- **Recursive Structure**: The grammar allows for nested expressions (e.g., `(a (b))`), which is essential for representing complex computations.\n- **Simple Parsing**: The recursive definition of `<expression>` and `<list>` ensures that the grammar can be parsed using a straightforward recursive descent parser, aligning with the goal of machine-interpretability.\n- **Minimal Core**: The grammar includes only the necessary components (`<atom>` and `<list>`), adhering to the minimal core requirement. Higher-level constructs (like function definitions or loops) are not part of this core grammar, emphasizing simplicity and reusability.\n- **Lexical Flexibility**: The `<identifier>` and `<string>` rules allow for flexibility in naming variables and strings, while the `<number>` and `<boolean>` rules are fixed for simplicity.\n\n### Example Program:\nHere's a simple example of a program that adheres to this grammar:\n\n```\n(5 \"hello\" true (x (y) 42))\n```\n\nThis program consists of:\n- An `<atom>` (number `5`).\n- An `<atom>` (string `\"hello\"`).\n- An `<atom>` (boolean `true`).\n- A `<list>` containing an `<atom>` (identifier `x`), an empty list (`()`), and an `<atom>` (number `42`).\n\n### Notes:\n- The grammar does not include special forms for function definitions or control flow (e.g., `if`, loops), as these are outside the minimal core scope. Function definitions would require additional grammar rules and a runtime environment, but they are not part of this core design to keep the grammar simple and reusable.\n- The empty list (`()`) is allowed as a valid `<list>`, which can represent nil or a placeholder in higher-level constructs. This ensures the grammar remains flexible for extensions.\n\nThis grammar provides a solid foundation for building a language that prioritizes simplicity, reusability, and machine-interpretability while adhering to the specified design goals.",
+  "note": ""
+}

@@ -1,0 +1,89 @@
+{
+  "index": 36,
+  "title": "refine:builtins",
+  "options": [
+    {
+      "label": "P1",
+      "author": "gemma4:latest",
+      "text": "**Data Types:** Number, String, Boolean, List, Symbol, Nil.\n**Functions:** `lambda`, `car`, `cdr`, `null?`, `cons`.\n**Operators & Control Flow:** `if`, `quote`.\n**Built-in Functions:** `+`, `-`, `*`, `/`, `equal?`, `<=`, `>=`.\n\n**Rationale for Improvement:**\nThe original proposal included `cond`, `and`, and `or` alongside `if`. While convenient, including all three increases the complexity and potential overlap, violating the principle of **Minimal Core (Axiom 5)** and **Reuse (Axiom 2)**. The `if` construct is sufficient for basic conditional branching, and complex boolean logic can often be modeled recursively or via type-safe comparisons.\n\nThe proposed revision streamlines control flow primitives by retaining only `if` (as defined in the semantics) and removing `cond`, `and`, and `or` from the core primitive list. All other components (data types, fundamental functions, and the necessary arithmetic/comparison built-ins) are retained because they are demonstrably necessary to support the arithmetic and list-manipulation examples provided, ensuring the language remains practically complete without adding redundant primitives.\n\nThis revised set is the minimal set of tools required to support the language features demonstrated while adhering strictly to the principle of minimal required components."
+    },
+    {
+      "label": "P2",
+      "author": "llama3:latest",
+      "text": "**Proposed Builtins (Improved):**\n\n**Data Types:** Number, String, Boolean, List, Symbol, Nil.\n**Functions:** `lambda`, `car`, `cdr`, `cons`.\n**Operators & Control Flow:** `if`, `cond`, `and`, `or`.\n**Built-in Functions:** `+`, `-`, `*`, `/`.\n\n**Rationale for Optimality:**\n\n1. **Minimal Core & Reuse:** By removing `null?` and `equal?`, we eliminate redundancy in built-ins, adhering to Axiom 2.\n2. **Completeness:** The revised set still enables essential data structure manipulation with `cons`.\n3. **Efficiency:** Retaining only the necessary primitives maintains minimalism, making it more machine-interpretable under Axiom 1.\n\nThis revised set is strictly better than the current one because it eliminates redundancy and retains only the most fundamental operations."
+    },
+    {
+      "label": "P3",
+      "author": "CURRENT",
+      "text": "The current builtins are not optimal. Adding `cons` as a core primitive is strictly better under Axiom 5 (Minimal Core) and Axiom 2 (Reuse). `cons` is fundamental for list construction and aligns with `car`/`cdr` as foundational list operations. Removing it forces users to reimplement list creation, violating reuse. Including `cons` maintains minimalism while enabling essential data structure manipulation. \n\n**Proposed Builtins (Improved):**  \n**Data Types:** Number, String, Boolean, List, Symbol, Nil.  \n**Functions:** `lambda`, `car`, `cdr`, `null?`, `cons`.  \n**Operators & Control Flow:** `if`, `cond`, `and`, `or`, `quote`.  \n**Built-in Functions:** `+`, `-`, `*`, `/`, `equal?`, `<=`, `>=`.  \n\n**Rationale for Optimality:**  \n1. **Minimal Core & Reuse:** `cons` enables list creation without requiring user-defined functions, aligning with `car`/`cdr` as foundational primitives.  \n2. **Completeness:** `cons` is essential for building lists, which are central to the language\u2019s design.  \n3. **Efficiency:** Including `cons` avoids redundancy in user-defined list operations, adhering to Axiom 2.  \n4. **Balance:** Retaining arithmetic and control flow primitives ensures practical usability without bloating the core.  \n\nThe revised set adheres strictly to the axioms by preserving minimalism while enabling essential operations."
+    },
+    {
+      "label": "P4",
+      "author": "mistral:7b",
+      "text": "**Proposed Builtins (Optimized):**\n**Data Types:** Number, String, Boolean, List, Symbol, Nil.\n**Functions:** `lambda`, `car`, `cdr`, `null?`, `cons`, `append`, `list`.\n**Operators & Control Flow:** `if`, `cond`, `and`, `or`, `quote`.\n**Built-in Functions:** `+`, `-`, `*`, `/`, `equal?`, `<=`, `>=`.\n\n**Rationale for Optimality:**\n1. **Minimal Core & Reuse:** Including `append` allows more efficient concatenation of lists without user-defined functions, complementing `cons` and `car`/`cdr`.\n2. **Completeness:** `list` is essential for creating lists from multiple values and aligns with core principles.\n3. **Efficiency:** `append` can be more efficient than recursive list concatenation, adhering to Axiom 2.\n4. **Balance:** Retaining arithmetic and control flow primitives ensures practical usability without bloating the core while still providing a comprehensive set of built-ins.\n\nThe revised set adheres strictly to the axioms by preserving minimalism while enabling essential operations and improving list manipulation efficiency."
+    },
+    {
+      "label": "P5",
+      "author": "qwen3:8b",
+      "text": "The current builtins are already optimal. Removing `cond` and `quote` while retaining `if` and `map` maintains minimalism and reuse. `cons`, `car`, `cdr`, and `null?` are foundational for list operations. `map` is essential for higher-order functions, and `lambda` enables closures. Arithmetic and control flow primitives like `+`, `-`, `*`, `/`, `and`, `or`, and `if` suffice without redundancy. The set adheres strictly to the axioms: minimal core, reuse, machine-interpretable semantics, and testable constructs."
+    },
+    {
+      "label": "P6",
+      "author": "deepseek-r1:8b",
+      "text": "Data Types: Number, String, Boolean, List, Symbol, Nil.  \nFunctions: lambda, car, cdr, null?, cons.  \nOperators & Control Flow: if, cond, and, or, quote.  \nBuilt-in Functions: +, -, *, /, equal?, <=, >=.  \n\n**Rationale for Optimality:**  \n1. **Machine-Interpretabillity:** cons is included as a primitive for unambiguous list cell creation, ensuring clear evaluation semantics.  \n2. **Reuse:** cons enables efficient list construction without requiring user-defined functions, adhering to the principle of reusing primitives.  \n3. **Minimal Core:** The set balances essential primitives while avoiding unnecessary features, with cons being a derived concept in some contexts but included here for practical implementation.  \n4. **Testability:** All components are well-defined and verifiable within the language constraints.  \n5. **Consistency:** The choice aligns with common Lisp-family designs, ensuring familiarity and ease of use."
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P3",
+      "P6",
+      "P5",
+      "P1",
+      "P2",
+      "P4"
+    ],
+    "gemma4:latest": [
+      "P6",
+      "P1",
+      "P3",
+      "P2",
+      "P5",
+      "P4"
+    ],
+    "llama3:latest": [
+      "P5",
+      "P1",
+      "P3",
+      "P4",
+      "P2",
+      "P6"
+    ],
+    "deepseek-r1:8b": [
+      "P3",
+      "P6",
+      "P4",
+      "P5",
+      "P2",
+      "P1"
+    ],
+    "mistral:7b": [
+      "P6",
+      "P1",
+      "P3",
+      "P4",
+      "P2",
+      "P5"
+    ]
+  },
+  "scores": {
+    "P1": 14,
+    "P2": 6,
+    "P3": 19,
+    "P4": 7,
+    "P5": 11,
+    "P6": 18
+  },
+  "winner_author": "CURRENT",
+  "winner_text": "The current builtins are not optimal. Adding `cons` as a core primitive is strictly better under Axiom 5 (Minimal Core) and Axiom 2 (Reuse). `cons` is fundamental for list construction and aligns with `car`/`cdr` as foundational list operations. Removing it forces users to reimplement list creation, violating reuse. Including `cons` maintains minimalism while enabling essential data structure manipulation. \n\n**Proposed Builtins (Improved):**  \n**Data Types:** Number, String, Boolean, List, Symbol, Nil.  \n**Functions:** `lambda`, `car`, `cdr`, `null?`, `cons`.  \n**Operators & Control Flow:** `if`, `cond`, `and`, `or`, `quote`.  \n**Built-in Functions:** `+`, `-`, `*`, `/`, `equal?`, `<=`, `>=`.  \n\n**Rationale for Optimality:**  \n1. **Minimal Core & Reuse:** `cons` enables list creation without requiring user-defined functions, aligning with `car`/`cdr` as foundational primitives.  \n2. **Completeness:** `cons` is essential for building lists, which are central to the language\u2019s design.  \n3. **Efficiency:** Including `cons` avoids redundancy in user-defined list operations, adhering to Axiom 2.  \n4. **Balance:** Retaining arithmetic and control flow primitives ensures practical usability without bloating the core.  \n\nThe revised set adheres strictly to the axioms by preserving minimalism while enabling essential operations.",
+  "note": "status quo held"
+}

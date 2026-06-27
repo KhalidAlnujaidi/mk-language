@@ -1,0 +1,89 @@
+{
+  "index": 16,
+  "title": "refine:meta-axiom",
+  "options": [
+    {
+      "label": "P1",
+      "author": "gemma4:latest",
+      "text": "ALL LANGUAGE CONSTRUCTS MUST BE DERIVABLE OR EXPRESSED EXPLICITLY BY COMPOSITION OF THE CORE PRIMITIVES AND THE DEFINED BUILT-IN FUNCTIONS. NO NEW SYNTAX OR SEMANTIC RULE MAY BE INTRODUCED THAT DOES NOT DIRECTLY MAP TO AN EXISTING PRIMITIVE OR A LOGICAL COMPOSITION OF PRIMITIVES."
+    },
+    {
+      "label": "P2",
+      "author": "qwen3:8b",
+      "text": "EVERY CONSTRUCT MUST BE EXPRESSIBLE IN TERMS OF THE CORE PRIMITIVES WITHOUT ADDITIONAL SYNTAX OR SEMANTIC RULES, AND THE CORE PRIMITIVES ARE MINIMAL AND NOT EXPRESSIBLE IN TERMS OF EACH OTHER."
+    },
+    {
+      "label": "P3",
+      "author": "mistral:7b",
+      "text": "PROPOSED NEW META-AXIOM:\n\n**ALL FEATURES SHOULD BE EITHER PRIMITIVE OR COMPOSABLE FROM THE CORE PRIMITIVES WITH MINIMAL ADDITIONAL SYNTAX OR SEMANTIC RULES.**\n\nThis new axiom emphasizes that while all features must be expressible in terms of the core primitives (to maintain simplicity and machine-interpretability), some constructs may need minimal additional syntax or semantic rules for readability, convenience, or increased expressivity. This allows for extensions and higher-level abstractions but ensures they remain composable with the core primitives."
+    },
+    {
+      "label": "P4",
+      "author": "CURRENT",
+      "text": "EVERY FEATURE MUST BE EXPRESSIBLE IN TERMS OF THE CORE PRIMITIVES WITHOUT ADDITIONAL SYNTAX OR SEMANTIC RULES."
+    },
+    {
+      "label": "P5",
+      "author": "deepseek-r1:8b",
+      "text": "EVERY FEATURE MUST BE EXPRESSIBLE IN TERMS OF THE CORE PRIMITIVES."
+    },
+    {
+      "label": "P6",
+      "author": "llama3:latest",
+      "text": "EVERY CONSTRUCT MUST HAVE A CLEAR, TESTABLE BEHAVIOR AND BE EXPRESSIBLE IN TERMS OF THE CORE PRIMITIVES WITHOUT ADDITIONAL SYNTAX OR SEMANTIC RULES."
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P3",
+      "P6",
+      "P1",
+      "P2",
+      "P4",
+      "P5"
+    ],
+    "gemma4:latest": [
+      "P2",
+      "P1",
+      "P6",
+      "P4",
+      "P5",
+      "P3"
+    ],
+    "llama3:latest": [
+      "P3",
+      "P6",
+      "P1",
+      "P2",
+      "P5",
+      "P4"
+    ],
+    "deepseek-r1:8b": [
+      "P6",
+      "P3",
+      "P1",
+      "P2",
+      "P4",
+      "P5"
+    ],
+    "mistral:7b": [
+      "P3",
+      "P1",
+      "P6",
+      "P4",
+      "P2",
+      "P5"
+    ]
+  },
+  "scores": {
+    "P1": 17,
+    "P2": 12,
+    "P3": 19,
+    "P4": 6,
+    "P5": 2,
+    "P6": 19
+  },
+  "winner_author": "mistral:7b",
+  "winner_text": "PROPOSED NEW META-AXIOM:\n\n**ALL FEATURES SHOULD BE EITHER PRIMITIVE OR COMPOSABLE FROM THE CORE PRIMITIVES WITH MINIMAL ADDITIONAL SYNTAX OR SEMANTIC RULES.**\n\nThis new axiom emphasizes that while all features must be expressible in terms of the core primitives (to maintain simplicity and machine-interpretability), some constructs may need minimal additional syntax or semantic rules for readability, convenience, or increased expressivity. This allows for extensions and higher-level abstractions but ensures they remain composable with the core primitives.",
+  "note": ""
+}

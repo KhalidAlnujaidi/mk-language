@@ -1,0 +1,33 @@
+{
+  "records": 4181,
+  "total_chars": 25803522,
+  "rounds": [
+    0,
+    220
+  ],
+  "by_kind": {
+    "PROMPT": 1485,
+    "RAW REPLY": 1437,
+    "RUN START": 8,
+    "TALLY": 68,
+    "ERROR": 290,
+    "BUILD eval": 833,
+    "BUILD ADOPT": 56,
+    "GOAL SWITCH": 1,
+    "SIGNAL 15": 2,
+    "LAYER COMPLETE": 1
+  },
+  "by_model": {
+    "qwen3:8b": 749,
+    "gemma4:latest": 744,
+    "llama3:latest": 742,
+    "deepseek-r1:8b": 893,
+    "mistral:7b": 734,
+    "model-x": 156,
+    "anthropic/claude-sonnet-4": 5,
+    "openai/gpt-4o": 5,
+    "deepseek/deepseek-r1": 5,
+    "qwen/qwen-2.5-72b-instruct": 7,
+    "mistralai/mistral-large": 5
+  }
+}

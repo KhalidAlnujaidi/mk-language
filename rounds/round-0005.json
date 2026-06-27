@@ -1,0 +1,78 @@
+{
+  "index": 5,
+  "title": "paradigm-and-types",
+  "options": [
+    {
+      "label": "P1",
+      "author": "qwen3:8b",
+      "text": "Functional paradigm with dynamic typing. Data and behavior are separate: functions are first-class citizens, operating on immutable data structures (atoms/lists). This aligns with prefix notation's unambiguous parsing, reuses core primitives for function application, and avoids special syntax for objects or static types. Behavior is predictable via pure functions, ensuring testable semantics."
+    },
+    {
+      "label": "P2",
+      "author": "gemma4:latest",
+      "text": "Functional; Dynamic; Behavior is defined entirely by function application operating on immutable data.\n\n**Justification:**\n1. **Functional Paradigm:** The existing grammar, which mandates prefix notation (`(op arg1 arg2...)`), inherently models function application (or list reduction). This structure maps directly and unambiguously to recursive function calls, satisfying the **MACHINE-INTERPRETABILITY FIRST** axiom better than object-oriented methods (which introduce state and complex dispatch logic). It strictly adheres to the **MINIMAL CORE** by defining computation as the reduction of lists.\n2. **Dynamic Typing:** Adopting dynamic typing avoids the need for syntactic sugar or grammar rules to declare types (e.g., `(int x)`). This keeps the core simple and maximally reusable, upholding the **MINIMAL CORE** and **REUSE, DON'T REINVENT** axioms. The type checking is deferred to runtime, keeping the parser and core semantics clean and decidable.\n3. **Data and Behavior:** Data are treated as immutable values (atoms or nested lists). Behavior is defined solely by functions, which take lists/atoms as arguments and return a single resulting value. This functional purity ensures that the program's behavior remains highly **TESTABLE** and predictable, as side effects are managed explicitly or prohibited at the core level."
+    },
+    {
+      "label": "P3",
+      "author": "llama3:latest",
+      "text": "Functional, statically typed; core paradigm is pure function application with immutable data structures; type discipline enforces type-safe composition of functions.\n\nJustification:\nThe functional programming model aligns with the \"machine-interpretability-first\" axiom by providing a clear, compositional structure for programs. Immutable data structures ensure that functions always receive the same inputs and produce deterministic outputs, making it easier to reason about program behavior.\n\nStatic typing ensures that type errors are caught at compile-time rather than runtime, which is crucial for ensuring testable semantics and predictable behavior. The emphasis on functional composition allows for minimal core primitives and avoids special-casing for specific features or constructs.\n\nIn particular, this choice:\n\n* Complies with the \"minimal core\" axiom by focusing on a small set of fundamental concepts (function application, immutable data structures) that can be composed to build more complex abstractions.\n* Prioritizes machine-interpretability by providing a clear, unambiguous syntax and semantics for programs.\n* Enables predictable and testable behavior through static typing and functional composition."
+    },
+    {
+      "label": "P4",
+      "author": "mistral:7b",
+      "text": "Functional programming with static type discipline\n\nJustification:\n1. MACHINE-INTERPRETABILITY FIRST: Prefix notation (S-expressions) is chosen for its unambiguous parsing, which directly maps to a recursive function application structure, enabling simple recursive descent parsers and ensuring testable semantics. Functional programming paradigm aligns with this approach as it emphasizes the composition of functions and simple data structures.\n2. REUSE, DON'T REINVENT: Adopting functional programming as a core paradigm reuses existing functional language constructs and encourages composability and abstraction, allowing for flexible and extensible designs while avoiding redundancy. Static typing provides compile-time type checking to ensure program correctness and avoid runtime errors.\n3. DON'T BREAK WHAT WORKS: By adopting a functional programming paradigm, we leverage the well-established theoretical foundations and practical implementations of existing functional languages (e.g., Lisp, Haskell). This ensures that the chosen approach is extensible and well-documented, enabling efficient implementation, maintenance, and learning for new developers.\n4. EVERYTHING IS TESTABLE: The proposed design, using prefix notation, provides a clear, checkable meaning for every construct in the language. This facilitates thorough testing of the compiler and interpreter, ensuring predictable behavior and high-quality code.\n5. MINIMAL CORE: The core grammar is designed with minimal primitives (atoms and lists), allowing for simple extensions and composability while keeping the language lightweight and easy to understand.\n6. BACKWARD COMPATIBILITY with STRICT IMPROVEMENTS: By adopting functional programming as a core paradigm, we can build upon existing successful languages like Lisp or Scheme, ensuring backward compatibility where possible and strict improvements through enhancements, optimizations, and extensions."
+    },
+    {
+      "label": "P5",
+      "author": "deepseek-r1:8b",
+      "text": "Functional, dynamic.  \nFunctional programming aligns with the minimal core (atoms and lists as primitives) and machine-interpretable syntax (prefix S-expressions). Dynamic typing avoids adding type rules, ensuring minimal core reuse and testability by runtime evaluation. Data and behavior are separate (data as atoms/lists, behavior as functions), avoiding special-casing in the core."
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P2",
+      "P5",
+      "P1",
+      "P3",
+      "P4"
+    ],
+    "gemma4:latest": [
+      "P4",
+      "P3",
+      "P5",
+      "P1",
+      "P2"
+    ],
+    "llama3:latest": [
+      "P1",
+      "P4",
+      "P3",
+      "P2",
+      "P5"
+    ],
+    "deepseek-r1:8b": [
+      "P2",
+      "P5",
+      "P1",
+      "P3",
+      "P4"
+    ],
+    "mistral:7b": [
+      "P4",
+      "P3",
+      "P1",
+      "P2",
+      "P5"
+    ]
+  },
+  "scores": {
+    "P1": 11,
+    "P2": 10,
+    "P3": 10,
+    "P4": 11,
+    "P5": 8
+  },
+  "winner_author": "mistral:7b",
+  "winner_text": "Functional programming with static type discipline\n\nJustification:\n1. MACHINE-INTERPRETABILITY FIRST: Prefix notation (S-expressions) is chosen for its unambiguous parsing, which directly maps to a recursive function application structure, enabling simple recursive descent parsers and ensuring testable semantics. Functional programming paradigm aligns with this approach as it emphasizes the composition of functions and simple data structures.\n2. REUSE, DON'T REINVENT: Adopting functional programming as a core paradigm reuses existing functional language constructs and encourages composability and abstraction, allowing for flexible and extensible designs while avoiding redundancy. Static typing provides compile-time type checking to ensure program correctness and avoid runtime errors.\n3. DON'T BREAK WHAT WORKS: By adopting a functional programming paradigm, we leverage the well-established theoretical foundations and practical implementations of existing functional languages (e.g., Lisp, Haskell). This ensures that the chosen approach is extensible and well-documented, enabling efficient implementation, maintenance, and learning for new developers.\n4. EVERYTHING IS TESTABLE: The proposed design, using prefix notation, provides a clear, checkable meaning for every construct in the language. This facilitates thorough testing of the compiler and interpreter, ensuring predictable behavior and high-quality code.\n5. MINIMAL CORE: The core grammar is designed with minimal primitives (atoms and lists), allowing for simple extensions and composability while keeping the language lightweight and easy to understand.\n6. BACKWARD COMPATIBILITY with STRICT IMPROVEMENTS: By adopting functional programming as a core paradigm, we can build upon existing successful languages like Lisp or Scheme, ensuring backward compatibility where possible and strict improvements through enhancements, optimizations, and extensions.",
+  "note": ""
+}

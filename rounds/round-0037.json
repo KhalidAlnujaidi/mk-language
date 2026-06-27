@@ -1,0 +1,89 @@
+{
+  "index": 37,
+  "title": "refine:example-factorial",
+  "options": [
+    {
+      "label": "P1",
+      "author": "gemma4:latest",
+      "text": "```scheme\n(define (factorial n)\n  (if (zero? n)\n      1\n      (* n (factorial (- n 1)))))\n\n(factorial 5) ; evaluates to 120\n```"
+    },
+    {
+      "label": "P2",
+      "author": "CURRENT",
+      "text": "```\n(define (factorial n)\n  (if (zero? n)\n      1\n      (* n (factorial (- n 1)))))\n\n(factorial 5)  ; evaluates to 120\n```"
+    },
+    {
+      "label": "P3",
+      "author": "llama3:latest",
+      "text": "```\n(define (factorial n)\n  (cond ((zero? n) 1)\n        ((= n 1) 1)\n        (else (* n (factorial (- n 1))))))\n\n(factorial 5)  ; evaluates to 120\n```"
+    },
+    {
+      "label": "P4",
+      "author": "mistral:7b",
+      "text": "(define (factorial n)\n  (if (< n 2)\n      1\n      (* n (factorial (- n 1))))\n\n  ; Tail recursion for improved performance\n  (define (tail-rec acc n)\n    (if (zero? n)\n        acc\n        (tail-rec (+ (* n acc) 1) (- n 1))))\n\n  (tail-rec 1 n))"
+    },
+    {
+      "label": "P5",
+      "author": "deepseek-r1:8b",
+      "text": "```\n(define (factorial n)\n  (if (zero? n)\n      1\n      (* n (factorial (- n 1)))))\n\n(factorial 5)  ; evaluates to 120\n```"
+    },
+    {
+      "label": "P6",
+      "author": "qwen3:8b",
+      "text": "```\n(define (factorial n)\n  (if (zero? n)\n      1\n      (* n (factorial (- n 1)))))\n\n(factorial 5)  ; evaluates to 120\n```"
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P3",
+      "P4",
+      "P1",
+      "P2",
+      "P5",
+      "P6"
+    ],
+    "gemma4:latest": [
+      "P1",
+      "P2",
+      "P5",
+      "P6",
+      "P3",
+      "P4"
+    ],
+    "llama3:latest": [
+      "P4",
+      "P1",
+      "P3",
+      "P2",
+      "P5",
+      "P6"
+    ],
+    "deepseek-r1:8b": [
+      "P1",
+      "P2",
+      "P5",
+      "P6",
+      "P3",
+      "P4"
+    ],
+    "mistral:7b": [
+      "P1",
+      "P5",
+      "P6",
+      "P2",
+      "P3",
+      "P4"
+    ]
+  },
+  "scores": {
+    "P1": 22,
+    "P2": 14,
+    "P3": 11,
+    "P4": 9,
+    "P5": 12,
+    "P6": 7
+  },
+  "winner_author": "gemma4:latest",
+  "winner_text": "```scheme\n(define (factorial n)\n  (if (zero? n)\n      1\n      (* n (factorial (- n 1)))))\n\n(factorial 5) ; evaluates to 120\n```",
+  "note": ""
+}

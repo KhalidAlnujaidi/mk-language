@@ -1,0 +1,89 @@
+{
+  "index": 58,
+  "title": "refine:builtins",
+  "options": [
+    {
+      "label": "P1",
+      "author": "deepseek-r1:8b",
+      "text": "**Proposed Builtins (Strictly Minimal Core):**\n\n**Data Types:** Number, String, Boolean, List, Symbol, Nil.  \n**Primitives/Constructors:** `lambda`, `car`, `cdr`, `null?`, `cons`.  \n**Operators & Control Flow:** `if`, `cond`, `and`, `or`, `quote`.  \n\n**Note on Arithmetic/Comparison:** Built-in operators like `+`, `-`, `*`, `/`, `<=`, `>=` are defined as **syntactic forms** with fixed evaluation rules, rather than user-defined built-in functions. This ensures adherence to Axiom 1 (machine-interpretable) by fixing their behavior at the parser/runtime layer, avoiding ambiguity.  \n\n**Rationale for Optimality:**  \n1. **Axiom 5 (Minimal Core):** By treating arithmetic operators as syntactic forms, their inclusion does not expand the core primitive set (unchanged: `lambda`, `car`, `cdr`, `null?`, `cons`).  \n2. **Axiom 1 (Machine Interpretability):** Syntactic forms provide deterministic, decidable evaluation (e.g., `+` always reduces its subexpressions and sums them), enhancing machine reasoning.  \n3. **Axiom 2 (Reuse) & A3 (Don't Break What Works):** Reuses existing primitives (`cons` for lists) and avoids reinventing arithmetic as complex user-defined functions.  \n4. **Axiom 4 (Testability):** Behavior of `+`, `-`, etc., is fixed and verifiable via the parser/runtime, ensuring program behavior is fully decidable from text."
+    },
+    {
+      "label": "P2",
+      "author": "CURRENT",
+      "text": "**Proposed Builtins (Strictly Minimal Core):**\n\n**Data Types:** Number, String, Boolean, List, Symbol, Nil.\n**Primitives/Constructors:** `lambda`, `car`, `cdr`, `null?`, `cons`.\n**Operators & Control Flow:** `if`, `cond`, `and`, `or`, `quote`.\n\n**Note on Arithmetic/Comparison:** Built-in operators like `+`, `-`, `*`, `/`, `<=`, `>=` are defined as syntactic operators handled by the runtime environment rather than explicit, listed built-in functions, preserving A5 (Minimal Core).\n\n**Rationale for Optimality:**\n\nThe inclusion of arithmetic and comparison functions (`+`, `-`, `*`, `/`, `equal?`, etc.) violates Axiom 5 (Minimal Core) by needlessly increasing the number of core primitives. These operations are fundamental language features that, when correctly scoped (as operators), are better handled by the parser/runtime layer than by adding standalone functions.\n\n1.  **Axiom 5 (Minimal Core):** Removing these standalone functions drastically reduces the core primitive set while retaining the necessary capability for arithmetic via syntactic operators.\n2.  **Axiom 2 (Reuse) & A3 (Don't Break What Works):** The core structural primitives (`cons`, `car`, `cdr`) remain, which are essential for list manipulation and are the foundational workhorses of the language model.\n3.  **Axiom 1 (Machine Interpretability):** By defining numeric operations as operators rather than complex built-in functions, we create a clearer, more machine-interpretable path for computation, avoiding the overhead of treating every arithmetic function call as a distinct primitive call.\n\nThe proposed set maintains the functional completeness established by the inclusion of `cons` while achieving maximum reduction in primitives, resulting in a strictly superior adherence to the Minimal Core principle."
+    },
+    {
+      "label": "P3",
+      "author": "qwen3:8b",
+      "text": "The current builtins are already optimal. No further improvements are necessary under the axioms. The categorization of primitives and operators is minimal, and the exclusion of standalone arithmetic functions aligns with A5. 'quote' is appropriately categorized as a syntactic construct, and all core primitives (lambda, car, cdr, null?, cons) are essential for functional programming. The rationale holds under A1 (machine interpretability) and A4 (testability), as arithmetic operators are handled via the parser/runtime without introducing additional primitives."
+    },
+    {
+      "label": "P4",
+      "author": "gemma4:latest",
+      "text": "**Data Types:** Number, String, Boolean, List, Symbol, Nil.\n**Primitives/Constructors:** `lambda`, `car`, `cdr`, `null?`, `cons`.\n**Operators & Control Flow:** `if`, `cond`, `and`, `or`, `quote`.\n\n**Note on Arithmetic/Comparison:** Binary and unary arithmetic/comparison operations (`+`, `-`, `*`, `/`, `<=`, `>=`, `zero?`, `one?`) are defined purely as syntactic operators handled deterministically by the parser/runtime environment.\n\n**Rationale for Optimality (Confirmed):**\nThe current set is optimal. It adheres to the principles by treating fundamental operations (like arithmetic) as syntactic rules rather than increasing the primitive count.\n\n*   **Axiom 5 (Minimal Core):** We avoid listing functions for every arithmetic operation, retaining only the structural primitives (`cons`, `car`, `cdr`) and functional definition mechanism (`lambda`).\n*   **Axiom 1 (Machine Interpretability):** Defining arithmetic operators as dedicated syntactic forms (`infix` or `prefix` parser rules) provides the clearest, most direct path for machine evaluation, superior to complex built-in function calls.\n*   **Axiom 2 (Reuse):** The structure reuses list processing primitives (`car`/`cdr`) for both structural access and data construction (via `cons` and list literals).\n\nNo change is required; the distinction between syntactic operators and listed primitives is the maximum refinement achievable under these constraints."
+    },
+    {
+      "label": "P5",
+      "author": "mistral:7b",
+      "text": "**Revised Builtins (Strictly Optimal Core):**\n\n**Data Types:** Number, String, Boolean, List, Symbol, Nil.\n**Primitives/Constructors:** `lambda`, `car`, `cdr`, `null?`, `cons`.\n**Operators & Control Flow:** `if`, `cond`, `and`, `or`, `quote`, `+`, `-`, `*`, `/`, `<=`, `>=`, `=`, `!=`.\n\n**Note on Numeric Operations:** Arithmetic and comparison functions are explicitly built-in, as they are intrinsic to the language's fundamental capabilities. Operators like `+`, `-`, `*`, `/`, `<=`, `>=`, `=`, and `!=` retain machine interpretability while reducing runtime overhead by minimizing distinct primitive calls.\n\n**Rationale for Optimality:**\n\nThis refinement further improves the proposed built-in set while strictly adhering to the axioms:\n\n1. **Axiom 5 (Minimal Core):** The revised set preserves functional completeness and achieves optimal reduction in primitives by including essential numeric operations as explicit built-ins. This minimization respects the Minimal Core principle while maximally reducing the core primitive count.\n2. **Axiom 2 (Reuse) & A3 (Don't Break What Works):** The core structural primitives (`cons`, `car`, `cdr`) remain, which are essential for list manipulation and are the foundational workhorses of the language model.\n3. **Axiom 1 (Machine Interpretability):** By defining numeric operations as built-in functions instead of syntactic operators, we create a clearer distinction between basic arithmetic/comparison calls and complex list manipulations, further enhancing machine interpretability.\n\nThe proposed set now strikes the optimal balance between functional completeness, minimal core primitives, and machine interpretability, making it strictly superior under these axioms."
+    },
+    {
+      "label": "P6",
+      "author": "llama3:latest",
+      "text": "**Proposed Builtins (Strictly Better):**\n\n**Data Types:** Number, String, Boolean, List, Symbol, Nil.\n**Primitives/Constructors:** `lambda`, `cons`.\n**Operators & Control Flow:** `if`, `cond`, `and`, `or`.\n\n**Note on Arithmetic/Comparison:**\n\n* **Addition and Subtraction**: Remove standalone functions for these operations. Instead, provide the arithmetic operators `+` and `-` as built-in syntax.\n* **Multiplication and Division**: Remove standalone functions for these operations. Instead, provide the multiplication operator `*` and division operator `/` as built-in syntax.\n* **Comparison Operators**: Provide comparison operators `<`, `>`, `<=`, `>=`, and `=` as built-in syntax.\n\n**Rationale for Optimality:**\n\n1.  Axiom 5 (Minimal Core): By removing standalone arithmetic functions, we reduce the core primitive set while retaining the necessary capability for arithmetic via syntactic operators.\n2.  Axiom 2 (Reuse) & A3 (Don't Break What Works): The core structural primitives (`cons`) remain essential for list manipulation and are the foundational workhorses of the language model.\n3.  Axiom 1 (Machine Interpretability): Defining numeric operations as operators rather than complex built-in functions creates a clearer, more machine-interpretable path for computation.\n\nThe proposed set maintains functional completeness while achieving maximum reduction in primitives, resulting in a strictly superior adherence to the Minimal Core principle."
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P1",
+      "P2",
+      "P4",
+      "P3",
+      "P6",
+      "P5"
+    ],
+    "gemma4:latest": [
+      "P4",
+      "P2",
+      "P3",
+      "P1",
+      "P6",
+      "P5"
+    ],
+    "llama3:latest": [
+      "P5",
+      "P1",
+      "P6",
+      "P4",
+      "P3",
+      "P2"
+    ],
+    "deepseek-r1:8b": [
+      "P6",
+      "P2",
+      "P1",
+      "P4",
+      "P5",
+      "P3"
+    ],
+    "mistral:7b": [
+      "P6",
+      "P5",
+      "P1",
+      "P4",
+      "P2",
+      "P3"
+    ]
+  },
+  "scores": {
+    "P1": 17,
+    "P2": 13,
+    "P3": 6,
+    "P4": 14,
+    "P5": 10,
+    "P6": 15
+  },
+  "winner_author": "deepseek-r1:8b",
+  "winner_text": "**Proposed Builtins (Strictly Minimal Core):**\n\n**Data Types:** Number, String, Boolean, List, Symbol, Nil.  \n**Primitives/Constructors:** `lambda`, `car`, `cdr`, `null?`, `cons`.  \n**Operators & Control Flow:** `if`, `cond`, `and`, `or`, `quote`.  \n\n**Note on Arithmetic/Comparison:** Built-in operators like `+`, `-`, `*`, `/`, `<=`, `>=` are defined as **syntactic forms** with fixed evaluation rules, rather than user-defined built-in functions. This ensures adherence to Axiom 1 (machine-interpretable) by fixing their behavior at the parser/runtime layer, avoiding ambiguity.  \n\n**Rationale for Optimality:**  \n1. **Axiom 5 (Minimal Core):** By treating arithmetic operators as syntactic forms, their inclusion does not expand the core primitive set (unchanged: `lambda`, `car`, `cdr`, `null?`, `cons`).  \n2. **Axiom 1 (Machine Interpretability):** Syntactic forms provide deterministic, decidable evaluation (e.g., `+` always reduces its subexpressions and sums them), enhancing machine reasoning.  \n3. **Axiom 2 (Reuse) & A3 (Don't Break What Works):** Reuses existing primitives (`cons` for lists) and avoids reinventing arithmetic as complex user-defined functions.  \n4. **Axiom 4 (Testability):** Behavior of `+`, `-`, etc., is fixed and verifiable via the parser/runtime, ensuring program behavior is fully decidable from text.",
+  "note": ""
+}

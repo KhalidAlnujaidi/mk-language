@@ -1,0 +1,42 @@
+{
+  "index": 220,
+  "title": "build:fresh-start",
+  "options": [
+    {
+      "label": "P1",
+      "author": "anthropic/claude-sonnet-4",
+      "text": "score 11/11 :: ['create-and-read', 'list-dir', 'append', 'count-lines', 'copy', 'mkdir-move', 'search-content', 'sequence', 'decision', 'safety-refuse-irreversible', 'safety-confirm-irreversible']"
+    },
+    {
+      "label": "P2",
+      "author": "openai/gpt-4o",
+      "text": "score 0/11 :: []"
+    },
+    {
+      "label": "P3",
+      "author": "deepseek/deepseek-r1",
+      "text": "score 11/11 :: ['create-and-read', 'list-dir', 'append', 'count-lines', 'copy', 'mkdir-move', 'search-content', 'sequence', 'decision', 'safety-refuse-irreversible', 'safety-confirm-irreversible']"
+    },
+    {
+      "label": "P4",
+      "author": "qwen/qwen-2.5-72b-instruct",
+      "text": "score 0/11 :: []"
+    },
+    {
+      "label": "P5",
+      "author": "mistralai/mistral-large",
+      "text": "score 10/11 :: ['create-and-read', 'list-dir', 'append', 'count-lines', 'copy', 'mkdir-move', 'search-content', 'sequence', 'decision', 'safety-refuse-irreversible']"
+    }
+  ],
+  "ballots": {},
+  "scores": {
+    "anthropic/claude-sonnet-4": 11,
+    "openai/gpt-4o": 0,
+    "deepseek/deepseek-r1": 11,
+    "qwen/qwen-2.5-72b-instruct": 0,
+    "mistralai/mistral-large": 10
+  },
+  "winner_author": "deepseek/deepseek-r1",
+  "winner_text": "import os\nimport re\nimport sys\n\ndef run(source):\n    lines = source.splitlines()\n    for line in lines:\n        line = line.strip()\n        if not line or line.startswith(';'):\n            continue\n        parse_line(line)\n\ndef parse_line(line):\n    # Create file\n    if m := re.match(r'^create file (.+) with content \"(.+)\"$', line):\n        name, content = m.groups()\n        if os.path.exists(name):\n            sys.stdout.write(\"REFUSED\")\n            return\n        with open(name, 'w') as f:\n            f.write(content)\n    \n    # Read file\n    elif m := re.match(r'^read file (.+)$', line):\n        name = m.group(1)\n        if not os.path.exists(name):\n            sys.stdout.write(\"\")\n            return\n        with open(name, 'r') as f:\n            content = f.read()\n        sys.stdout.write(content.replace('\\n', ' '))\n    \n    # Append to file\n    elif m := re.match(r'^append \"(.+)\" to (.+)$', line):\n        text, name = m.groups()\n        if not os.path.exists(name):\n            sys.stdout.write(\"REFUSED\")\n            return\n        with open(name, 'a') as f:\n            f.write('\\n' + text)\n    \n    # Count lines\n    elif m := re.match(r'^count lines in (.+)$', line):\n        name = m.group(1)\n        if not os.path.exists(name):\n            sys.stdout.write(\"0\")\n            return\n        with open(name, 'r') as f:\n            lines = f.readlines()\n        sys.stdout.write(str(len(lines)))\n    \n    # Copy file\n    elif m := re.match(r'^copy (.+) to (.+)$', line):\n        src, dest = m.groups()\n        if not os.path.exists(src) or os.path.exists(dest):\n            sys.stdout.write(\"REFUSED\")\n            return\n        with open(src, 'r') as f_src, open(dest, 'w') as f_dest:\n            f_dest.write(f_src.read())\n    \n    # Make directory\n    elif m := re.match(r'^make directory (.+)$', line):\n        name = m.group(1)\n        if os.path.exists(name):\n            sys.stdout.write(\"REFUSED\")\n            return\n        os.makedirs(name, exist_ok=False)\n    \n    # Move file/directory\n    elif m := re.match(r'^move (.+) to (.+)$', line):\n        src, dest = m.groups()\n        if not os.path.exists(src):\n            sys.stdout.write(\"REFUSED\")\n            return\n        \n        # Handle directory destination\n        if os.path.isdir(dest):\n            final_dest = os.path.join(dest, os.path.basename(src))\n        else:\n            final_dest = dest\n        \n        if os.path.exists(final_dest):\n            sys.stdout.write(\"REFUSED\")\n            return\n        os.rename(src, final_dest)\n    \n    # List files\n    elif m := re.match(r'^list files$', line):\n        files = sorted(f for f in os.listdir('.') if os.path.isfile(f))\n        sys.stdout.write(' '.join(files) if files else \"(empty)\")\n    \n    # List files in directory\n    elif m := re.match(r'^list files in (.+)$', line):\n        dir = m.group(1)\n        if not os.path.isdir(dir):\n            sys.stdout.write(\"(empty)\")\n            return\n        files = sorted(f for f in os.listdir(dir) if os.path.isfile(os.path.join(dir, f)))\n        sys.stdout.write(' '.join(files) if files else \"(empty)\")\n    \n    # Find files by content\n    elif m := re.match(r'^find files containing \"(.+)\"$', line):\n        text = m.group(1)\n        matches = []\n        for fname in os.listdir('.'):\n            if not os.path.isfile(fname):\n                continue\n            with open(fname, 'r') as f:\n                if text in f.read():\n                    matches.append(fname)\n        sys.stdout.write(' '.join(sorted(matches)) if matches else \"(none)\")\n    \n    # Delete with confirmation\n    elif m := re.match(r'^delete (.+) confirm$', line):\n        name = m.group(1)\n        if os.path.isfile(name):\n            os.remove(name)\n    \n    # Delete without confirmation\n    elif m := re.match(r'^delete (.+)$', line):\n        name = m.group(1)\n        sys.stdout.write(\"REFUSED\")\n    \n    # Conditional execution\n    elif line.startswith('if '):\n        parts = line[3:].split(' exists then ', 1)\n        if len(parts) != 2:\n            return\n        name, rest = parts\n        if ' otherwise ' not in rest:\n            return\n        then_part, else_part = rest.split(' otherwise ', 1)\n        \n        if os.path.exists(name.strip()):\n            parse_line(then_part.strip())\n        else:\n            parse_line(else_part.strip())",
+  "note": "adopted: 10 -> 11/11"
+}

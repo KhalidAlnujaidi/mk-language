@@ -1,0 +1,89 @@
+{
+  "index": 20,
+  "title": "refine:meta-axiom",
+  "options": [
+    {
+      "label": "P1",
+      "author": "llama3:latest",
+      "text": "**PROPOSED NEW META-AXIOM:**\n\n**ALL FEATURES MUST BE COMPOSED FROM CORE PRIMITIVES AND TESTABLE VIA CORE MECHANISMS; SYNTACTIC SUGAR MAY INTRODUCE MINIMAL EXTRA SEMANTICS ONLY WHEN NEEDED TO OPTIMIZE PERFORMANCE OR READABILITY, BUT STILL PRESERVES THE ORIGINAL PROGRAM'S FUNCTIONALITY AND BEHAVIOR.**\n\nThis proposal refines the original axiom to allow for minimal extra semantics in syntactic sugar while maintaining the core's testability and composability. This relaxation enables performance- or readability-oriented optimizations without compromising the fundamental principles of machine-interpretable, reusable, and minimal core design."
+    },
+    {
+      "label": "P2",
+      "author": "mistral:7b",
+      "text": "**PROPOSED NEW META-AXIOM:**\n\n**ALL FEATURES SHOULD BE UNAMBIGUOUSLY PARSEABLE AND EXPLICITLY DEFINED BY EITHER PRIMITIVES OR COMPOSED CONSTRUCTS USING CORE PRIMITIVES, WITH SYNTAX THAT ADDRESSES HUMAN READABILITY WITHOUT INTRODUCING SEMANTIC COMPLEXITY. SUCH SYNTACTIC SUGAR MUST BE TESTABLE VIA CORE MECHANISMS.**\n\nThis axiom emphasizes human-readability alongside machine-interpretability, while ensuring that any syntactic sugar added does not complicate the semantics or require new mechanisms for testing. It strikes a balance between making the language easy for humans to read and write, while maintaining clarity and testability for machines."
+    },
+    {
+      "label": "P3",
+      "author": "gemma4:latest",
+      "text": "ALL FEATURES MUST BE SEMANTICALLY EQUIVALENT TO A DIRECT, CONTEXT-FREE REDUCTION SEQUENCE OF THE CORE PRIMITIVES, ENSURING THAT SYNTACTIC SUGAR IMPLIES NO AMBIGUITY OR UNDECIDABLE BEHAVIOR WHEN PARSED BY A MACHINE. ANY SYNTACTIC STRUCTURE MUST HAVE A UNIQUE, TRACEABLE TRACEBACK TO A WELL-DEFINED COMBINATION OF `car`, `cdr`, `cons`, `set`, `lambda`, and built-in tests (`null?`, `number?`, etc.)."
+    },
+    {
+      "label": "P4",
+      "author": "deepseek-r1:8b",
+      "text": "**PROPOSED META-AXIOM:**\n\n**ALL FEATURES MUST BE PRIMITIVE OR COMPOSED FROM CORE PRIMITIVES, WITH SYNTACTIC SUGAR THAT IS SEMANTICALLY TRANSPARENT AND FULLY DECIDABLE FROM CORE MECHANISMS.**"
+    },
+    {
+      "label": "P5",
+      "author": "CURRENT",
+      "text": "**PROPOSED NEW META-AXIOM:**\n\n**ALL FEATURES MUST BE PRIMITIVE OR COMPOSED FROM CORE PRIMITIVES, WITH SYNTACTIC SUGAR THAT ADDS NO SEMANTIC COMPLEXITY AND IS TESTABLE VIA CORE MECHANISMS.**\n\nThis version strictly enforces that syntactic sugar introduces no new semantic rules, ensuring all constructs remain testable and composable with core primitives. It eliminates ambiguity about \"minimal extra semantics\" by explicitly requiring sugar to be testable through core mechanisms, aligning with the axioms of machine-interpretable, reusable, and minimal core design."
+    },
+    {
+      "label": "P6",
+      "author": "qwen3:8b",
+      "text": "**PROPOSED NEW META-AXIOM:**  \n**ALL FEATURES MUST BE PRIMITIVE OR COMPOSED FROM CORE PRIMITIVES, WITH SYNTACTIC SUGAR THAT ADDS NO SEMANTIC COMPLEXITY AND IS MECHANICALLY REDUCIBLE TO CORE MECHANISMS VIA A WELL-DEFINED TRANSFORMATION.**  \n\nThis version strengthens the requirement by explicitly demanding that syntactic sugar is *mechanically reducible* to core primitives via a defined transformation, ensuring no hidden rules or ambiguity. It aligns with Axiom 1 (machine-interpretable) by enforcing explicit reduction rules, Axiom 2 (reuse) by mandating composition, and Axiom 4 (testability) by requiring deterministic core-based evaluation. The phrasing avoids reliance on vague terms like \"testable via core mechanisms,\" instead framing it as a formal transformation, which better aligns with the axioms' emphasis on unambiguous, decidable behavior."
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P6",
+      "P5",
+      "P3",
+      "P4",
+      "P2",
+      "P1"
+    ],
+    "gemma4:latest": [
+      "P6",
+      "P3",
+      "P4",
+      "P5",
+      "P2",
+      "P1"
+    ],
+    "llama3:latest": [
+      "P6",
+      "P5",
+      "P4",
+      "P3",
+      "P2",
+      "P1"
+    ],
+    "deepseek-r1:8b": [
+      "P6",
+      "P3",
+      "P2",
+      "P5",
+      "P4",
+      "P1"
+    ],
+    "mistral:7b": [
+      "P6",
+      "P5",
+      "P4",
+      "P1",
+      "P2",
+      "P3"
+    ]
+  },
+  "scores": {
+    "P1": 2,
+    "P2": 7,
+    "P3": 13,
+    "P4": 12,
+    "P5": 16,
+    "P6": 25
+  },
+  "winner_author": "qwen3:8b",
+  "winner_text": "**PROPOSED NEW META-AXIOM:**  \n**ALL FEATURES MUST BE PRIMITIVE OR COMPOSED FROM CORE PRIMITIVES, WITH SYNTACTIC SUGAR THAT ADDS NO SEMANTIC COMPLEXITY AND IS MECHANICALLY REDUCIBLE TO CORE MECHANISMS VIA A WELL-DEFINED TRANSFORMATION.**  \n\nThis version strengthens the requirement by explicitly demanding that syntactic sugar is *mechanically reducible* to core primitives via a defined transformation, ensuring no hidden rules or ambiguity. It aligns with Axiom 1 (machine-interpretable) by enforcing explicit reduction rules, Axiom 2 (reuse) by mandating composition, and Axiom 4 (testability) by requiring deterministic core-based evaluation. The phrasing avoids reliance on vague terms like \"testable via core mechanisms,\" instead framing it as a formal transformation, which better aligns with the axioms' emphasis on unambiguous, decidable behavior.",
+  "note": ""
+}

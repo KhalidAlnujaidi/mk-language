@@ -1,0 +1,78 @@
+{
+  "index": 0,
+  "title": "meta-axiom",
+  "options": [
+    {
+      "label": "P1",
+      "author": "mistral:7b",
+      "text": "\"CLARITY AND EFFICIENCY: A construct should be designed to not only be machine-interpretable and testable, but also easy for humans to understand and efficient in terms of resource usage.\""
+    },
+    {
+      "label": "P2",
+      "author": "llama3:latest",
+      "text": "Any new feature or construct must be demonstrated to significantly improve the expressiveness, readability, or maintainability of programs, and its benefits must outweigh any added complexity or cognitive load."
+    },
+    {
+      "label": "P3",
+      "author": "gemma4:latest",
+      "text": "All side effects and state mutations must be strictly local and explicitly defined by the type system."
+    },
+    {
+      "label": "P4",
+      "author": "qwen3:8b",
+      "text": "EVERY FEATURE MUST BE EXPRESSIBLE IN TERMS OF THE CORE PRIMITIVES WITHOUT ADDITIONAL SYNTAX OR SEMANTIC RULES."
+    },
+    {
+      "label": "P5",
+      "author": "deepseek-r1:8b",
+      "text": "Prioritize safety from unintended effects over expressive power."
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P4",
+      "P2",
+      "P5",
+      "P3",
+      "P1"
+    ],
+    "gemma4:latest": [
+      "P4",
+      "P3",
+      "P5",
+      "P1",
+      "P2"
+    ],
+    "llama3:latest": [
+      "P4",
+      "P5",
+      "P3",
+      "P2",
+      "P1"
+    ],
+    "deepseek-r1:8b": [
+      "P4",
+      "P3",
+      "P5",
+      "P2",
+      "P1"
+    ],
+    "mistral:7b": [
+      "P3",
+      "P2",
+      "P1",
+      "P5",
+      "P4"
+    ]
+  },
+  "scores": {
+    "P1": 3,
+    "P2": 8,
+    "P3": 13,
+    "P4": 16,
+    "P5": 10
+  },
+  "winner_author": "qwen3:8b",
+  "winner_text": "EVERY FEATURE MUST BE EXPRESSIBLE IN TERMS OF THE CORE PRIMITIVES WITHOUT ADDITIONAL SYNTAX OR SEMANTIC RULES.",
+  "note": ""
+}

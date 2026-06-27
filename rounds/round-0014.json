@@ -1,0 +1,89 @@
+{
+  "index": 14,
+  "title": "refine:paradigm-and-types",
+  "options": [
+    {
+      "label": "P1",
+      "author": "llama3:latest",
+      "text": "**SPEC SO FAR:**\n\n1. **`set`**\n   ```scheme\n   (set var value)\n   ```\n   - **Purpose**: Updates the current environment by binding `var` to `value`.\n   \n2. **`if`**\n   ```scheme\n   (if condition then else)\n   ```\n   - **Purpose**: Evaluates the `condition`, returning `then` if true, else `else`.\n\n3. **`lambda`**\n   ```scheme\n   (lambda var body)\n   ```\n   - **Purpose**: Creates a closure (function) that captures `var` in its environment and executes `body`.\n\n4. **`car`**  \n   ```scheme\n   (car list)\n   ```\n   - **Purpose**: Returns the first element of a list.\n\n5. **`cdr`**  \n   ```scheme\n   (cdr list)\n   ```\n   - **Purpose**: Returns the list after the first element.\n\n6. **`cons`**  \n   ```scheme\n   (cons element list)\n   ```\n   - **Purpose**: Constructs a new list by adding `element` to the front of `list`.\n\n7. **`eq?`**  \n   ```scheme\n   (eq? a b)\n   ```\n   - **Purpose**: Checks if `a` and `b` are the same value (identity comparison).\n\n8. **`number?`**  \n   ```scheme\n   (number? value)\n   ```\n   - **Purpose**: Checks if `value` is a number.\n\n9. **`string?`**  \n   ```scheme\n   (string? value)\n   ```\n   - **Purpose**: Checks if `value` is a string.\n\n10. **`boolean?`**  \n    ```scheme\n    (boolean? value)\n    ```\n    - **Purpose**: Checks if `value` is a boolean (`#t` or `#f`).\n\n---\n\n### **Design Rationale**\n\n*   **Minimal Core**: Only the most essential functions are included, avoiding redundancy.\n*   **Reusability**: Primitives like `car`, `cdr`, and `cons` align with Lisp-like list manipulation, enabling flexible data structure creation.\n*   **Testability**: Type predicates (`number?`, `string?`, etc.) ensure runtime checks for correctness, even with static type discipline.\n*   **Flexibility**: `lambda` and `set` provide full functional and variable binding capabilities, allowing complex logic and state management.\n\nThese primitives form the foundation for a functional, minimal, and robust language that adheres to the specified design principles.\n\n## example-factorial\n```\n(define (factorial n)\n  (if (zero? n)\n      1\n      (* n (factorial (- n 1)))))\n\n(factorial 5)  ; evaluates to 120\n```\n\n## example-data\n```scheme\n;; Define a simple Pair data structure (Key-Value) using the list primitives.\n;; A pair is represented as the list (Key Value).\n\n;; 1. Constructor: Creates a Pair (Key -> Value)\n(define (make-pair key value)\n  (cons key value))\n\n;; 2. Accessor: Retrieves the Key from a pair\n(define (get-key pair)\n  (car pair))\n\n;; 3. Accessor: Retrieves the Value from a pair\n(define (get-value pair)\n  (cdr pair))\n\n;; 4. Update Operation: Returns a *new* Pair with the updated value.\n;; This respects immutability by constructing a new list.\n(define (set-value pair new-value)\n  (cons (get-key pair) new-value))\n\n;; Example Usage:\n(define user-record (make-pair \"user_id\" 101))\n(display \"Original Record: \")\n(display user-record) ; Expected output: (user_id 101)\n(newline)\n\n(display \"Retrieved Key: \")\n(display (get-key user-record)) ; Expected output: user_id\n(newline)\n\n(display \"Original Value: \")\n(display (get-value user-record)) ; Expected output: 101\n(newline)\n\n;; Update the record value\n(define updated-record (set-value user-record 202))\n(display \"Updated Record: \")\n(display updated-record) ; Expected output: (user_id 202)\n\n;; Demonstrate immutability: original record remains unchanged\n(display \"Original Record (Check): \")\n(display user-record) ; Expected output: (user_id 101)\n(newline)\n```\n\n## example-showcase\n```scheme\n;; Example 3: Functional Mapping (Demonstrating Higher-Order Functions and Recursion)\n;; This example implements the 'map' function, which takes a function (F)\n;; and a list (L), applying F to every element of L and returning a new list.\n\n;; 1. map function definition:\n;; map :: (Function) -> (List) -> (List)\n(define (map func list)\n  (if (null? list) ; Assuming 'null?' checks for Nil/Empty list\n      ()\n      (cons (func (car list))\n            (map func (cdr list)))))\n\n;; 2. Example Transformation Functions:\n\n;; F1: Double a number\n(define (double n)\n  (* n 2))\n\n;; F2: Convert a number to a formatted string\n(define (number-to-string n)\n  (string-append \"Value: \" (number->string n))) ; Assuming a built-in number->string\n\n;; 3. Demonstration:\n\n(display \"--- Demonstrating Map ---\")\n(newline)\n\n;; Test Case 1: Mapping 'double' over a list of numbers\n(define numbers (list 1 2 3 4 5))\n(display \"Original Numbers: \")\n(display numbers) ; (1 2 3 4 5)\n(newline)\n\n(display \"Mapped (Doubled): \")\n(display (map double numbers)) ; Expected output: (2 4 6 8 10)\n(newline)\n\n\n;; Test Case 2: Mapping a string conversion function\n(define scores (list 10 20 30))\n(display \"Original Scores: \")\n(display scores)\n(newline)\n\n(display \"Mapped (Stringified): \")\n(display (map number-to-string scores))\n(newline)\n\n;; Test Case 3: Mapping an identity function (for completeness)\n(define identity-func lambda (x) x)\n(define original-list (list 'a 'b 'c))\n(display \"Mapped (Identity Check): \")\n(display (map identity-func original-list))\n(newline)\n```"
+    },
+    {
+      "label": "P2",
+      "author": "CURRENT",
+      "text": "**Functional programming with structural static typing discipline**\nThis decision prioritizes machine interpretability and adheres to the established functional core of the language while adding structured static typing for type safety without reinventing complex abstractions. This approach ensures the language remains composable, unambiguous, and testable while providing a level of safety to prevent runtime errors due to incorrect data types.\n\n1. MACHINE-INTERPRETABILITY FIRST: S-expressions remain the cornerstone, allowing the machine to parse and reason about the language unambiguously.\n2. REUSE, DON'T REINVENT: Leverages the functional core and utilizes structural static typing to improve safety, reusing existing data structure primitives (`car`, `cdr`, `cons`) for type checks.\n3. DON'T BREAK WHAT WORKS: Preserves the core principles established in the original decision (S-expressions, immutability, functional purity). Structural static typing is a minimally intrusive enhancement to enhance safety without compromising the language's existing strengths.\n4. EVERYTHING IS TESTABLE: With structural static typing, every interaction has a clearly definable contract in terms of required data structure, ensuring testability and predictability at compile time.\n5. MINIMAL CORE: Structural static typing keeps the type system minimal by defining type correctness based on the required *shape* of the data without the need for specialized keywords or primitives. This adheres to the core principle of composing simple primitives while providing an additional layer of safety.\n\nThis revised decision emphasizes a more robust and safe language, preserving the functional nature of the original design while enforcing structural static typing for enhanced predictability and testability at compile time."
+    },
+    {
+      "label": "P3",
+      "author": "deepseek-r1:8b",
+      "text": "Functional programming with structural static typing discipline (to enhance machine-interpretability and testability by defining type contracts based on data shapes, ensuring minimal core additions while maintaining functional purity and avoiding reinvention)"
+    },
+    {
+      "label": "P4",
+      "author": "gemma4:latest",
+      "text": "**Functional programming with optional, structural type signature annotation discipline**\n\nThis approach retains the core S-expression computational model and functional purity while minimally introducing type signature annotation to enhance safety and testability without compromising interpretability. Type annotations are designed to be *structural* and *optional*, serving primarily as compile-time checks rather than requiring a full, complex type inference engine.\n\n1.  **MACHINE-INTERPRETABILITY FIRST:** The core computation remains pure S-expressions, which are inherently simple for machines to parse. Annotations are treated as metadata checked during the compilation/parsing phase, resulting in a clean, predictable AST that the interpreter executes. This minimizes runtime overhead associated with type checking.\n2.  **REUSE, DON'T REINVENT:** We do not invent new primitives; we enhance the interpretation of existing ones. The type system reuses the existing `car`, `cdr`, `cons`, and built-in type predicates (`number?`, etc.) to validate structure at compile time.\n3.  **DON'T BREAK WHAT WORKS:** The core semantics of function application, list manipulation, and environment management remain unchanged. Type checking is an additive safety layer, not a functional replacement.\n4.  **EVERYTHING IS TESTABLE:** Annotations enforce explicit input/output contracts (e.g., `(function (Int) (List String))`). This moves type errors from indeterminate runtime failures to explicit, decidable compile-time failures, significantly improving testability and predictability.\n5.  **MINIMAL CORE:** By making structural annotations optional, we adhere to the minimal core principle. The language defaults to its robust, runtime-checked functional core, only incurring the overhead of a type checker when the user explicitly demands the added safety guarantee.\n\nThis refined discipline provides the safety benefits of static typing while maintaining the interpretability and minimalism necessary for a true core language design."
+    },
+    {
+      "label": "P5",
+      "author": "qwen3:8b",
+      "text": "**Functional programming with structural static typing**  \nThis decision prioritizes machine interpretability by embedding type constraints directly into data structures, eliminating the need for separate type annotations. Structural typing ensures type safety through the shape of values (e.g., lists of numbers, pairs of strings) rather than explicit keywords, aligning with minimal core and reuse.  \n\n1. **MACHINE-INTERPRETABILITY FIRST**: Type contracts are enforced via data structure patterns (e.g., `car`/`cdr` for tuples), making the language unambiguous and parsable without runtime checks.  \n2. **REUSE, DON\u2019T REINVENT**: Leverages existing primitives (`cons`, `car`, `cdr`, `eq?`) to define type shapes, avoiding redundant constructs.  \n3. **DON\u2019T BREAK WHAT WORKS**: Retains functional purity, immutability, and the original S-expression syntax. Structural typing is a minimal, additive enhancement.  \n4. **EVERYTHING IS TESTABLE**: Type correctness is decidable at parse time via structural patterns (e.g., a list\u2019s type is inferred by its elements\u2019 types), ensuring predictable behavior.  \n5. **MINIMAL CORE**: The type system is entirely composed of primitives, with no specialized syntax. Type safety emerges from data structure composition, not separate annotations.  \n\nThis approach is optimal under the axioms. No further changes are needed."
+    },
+    {
+      "label": "P6",
+      "author": "mistral:7b",
+      "text": "Functional programming with explicit static typing discipline\n\nThis decision emphasizes machine interpretability and maintains functional purity while incorporating explicit static typing for improved type safety without reintroducing unnecessary complexities. The approach ensures the language remains composable, unambiguous, and testable while providing a level of safety to prevent runtime errors due to incorrect data types.\n\n1. MACHINE-INTERPRETABILITY FIRST: S-expressions remain the cornerstone, allowing the machine to parse and reason about the language unambiguously.\n2. REUSE, DON'T REINVENT: Leverages the functional core and utilizes explicit static typing for improved safety while reusing existing data structure primitives (`car`, `cdr`, `cons`) for type checks and defining new typed constructs as needed.\n3. DON'T BREAK WHAT WORKS: Preserves the core principles established in the original decision (S-expressions, immutability, functional purity). Explicit static typing is a minimally intrusive enhancement to enhance safety without compromising the language's existing strengths.\n4. EVERYTHING IS TESTABLE: With explicit static typing, every interaction has a clearly definable contract in terms of required data structure and type, ensuring testability and predictability at compile time.\n5. MINIMAL CORE: Maintains a minimal core by defining typed constructs as needed to ensure the language remains composable while providing an additional layer of safety through explicit static typing.\n\nThis revised decision emphasizes a more robust and safe language, preserving the functional nature of the original design while enforcing explicit static typing for enhanced predictability and testability at compile time."
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P5",
+      "P2",
+      "P4",
+      "P6",
+      "P1",
+      "P3"
+    ],
+    "gemma4:latest": [
+      "P5",
+      "P4",
+      "P2",
+      "P3",
+      "P1",
+      "P6"
+    ],
+    "llama3:latest": [
+      "P5",
+      "P1",
+      "P2",
+      "P4",
+      "P6",
+      "P3"
+    ],
+    "deepseek-r1:8b": [
+      "P3",
+      "P5",
+      "P2",
+      "P4",
+      "P6",
+      "P1"
+    ],
+    "mistral:7b": [
+      "P5",
+      "P1",
+      "P6",
+      "P4",
+      "P2",
+      "P3"
+    ]
+  },
+  "scores": {
+    "P1": 10,
+    "P2": 14,
+    "P3": 7,
+    "P4": 13,
+    "P5": 24,
+    "P6": 7
+  },
+  "winner_author": "qwen3:8b",
+  "winner_text": "**Functional programming with structural static typing**  \nThis decision prioritizes machine interpretability by embedding type constraints directly into data structures, eliminating the need for separate type annotations. Structural typing ensures type safety through the shape of values (e.g., lists of numbers, pairs of strings) rather than explicit keywords, aligning with minimal core and reuse.  \n\n1. **MACHINE-INTERPRETABILITY FIRST**: Type contracts are enforced via data structure patterns (e.g., `car`/`cdr` for tuples), making the language unambiguous and parsable without runtime checks.  \n2. **REUSE, DON\u2019T REINVENT**: Leverages existing primitives (`cons`, `car`, `cdr`, `eq?`) to define type shapes, avoiding redundant constructs.  \n3. **DON\u2019T BREAK WHAT WORKS**: Retains functional purity, immutability, and the original S-expression syntax. Structural typing is a minimal, additive enhancement.  \n4. **EVERYTHING IS TESTABLE**: Type correctness is decidable at parse time via structural patterns (e.g., a list\u2019s type is inferred by its elements\u2019 types), ensuring predictable behavior.  \n5. **MINIMAL CORE**: The type system is entirely composed of primitives, with no specialized syntax. Type safety emerges from data structure composition, not separate annotations.  \n\nThis approach is optimal under the axioms. No further changes are needed.",
+  "note": ""
+}

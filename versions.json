@@ -1,0 +1,27 @@
+{
+  "current_goal": "nl-terminal-translator-v3",
+  "current": "v03",
+  "versions": [
+    {
+      "id": "v01",
+      "name": "First council language",
+      "goal": "(scheme-style)",
+      "status": "archived",
+      "did": "An S-expression language designed by anonymous Borda consensus on prose. Hit the Axiom-4 wall \u2014 design-by-vote isn't executable \u2014 and was reframed."
+    },
+    {
+      "id": "v02",
+      "name": "NL\u2192OS direct interpreter",
+      "goal": "nl-os-abstraction-layer-v1",
+      "status": "complete \u00b7 11/11",
+      "did": "A Python interpreter that runs 11 natural-language intents directly as sandboxed OS operations. The frontier council broke the 119-round 10\u219211 plateau and reached 11/11."
+    },
+    {
+      "id": "v03",
+      "name": "NL\u2192terminal translator",
+      "goal": "nl-terminal-translator-v3",
+      "status": "active",
+      "did": "One-to-one English\u2192shell: parse each intent into an ASG, EMIT the real terminal command, and the harness runs it. Same 11 intents, now produced as executable commands. Terminal level first; a Python-emitting level next."
+    }
+  ]
+}

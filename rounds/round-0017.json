@@ -1,0 +1,89 @@
+{
+  "index": 17,
+  "title": "refine:meta-axiom",
+  "options": [
+    {
+      "label": "P1",
+      "author": "llama3:latest",
+      "text": "**PROPOSED NEW META-AXIOM:**\n\n**EVERY FEATURE SHOULD BE EITHER DIRECTLY IMPLEMENTED BY A CORE PRIMITIVE OR DECOMPOSABLE INTO A COMBINATION OF CORE PRIMITIVES, WITH ANY ADDITIONAL SYNTAX OR SEMANTIC RULES NECESSARY FOR READABILITY AND CONVENIENCE BEING MINIMAL AND WELL-DEFINED.**"
+    },
+    {
+      "label": "P2",
+      "author": "mistral:7b",
+      "text": "**NEW META-AXIOM:**\n\n**ALL FEATURES SHOULD EITHER BE PRIMITIVE OR COMPOSED FROM THE MINIMAL CORE PRIMITIVES WITH ONLY NECESSARY ADDITIONAL SYNTAX OR SEMANTIC RULES TO ACHIEVE READABILITY, CONVENIENCE, AND INCREASED EXPRESSIVITY.**\n\nThis new axiom reiterates the importance of machine-interpretability and composability while emphasizing that constructs may require minimal additional syntax or semantic rules to strike an optimal balance between simplicity and expressivity. The primary focus remains on retaining a minimal core of primitives, but extensions are permitted if they maintain composability with the core primitives, ensuring the language's growth without compromising its fundamental design principles."
+    },
+    {
+      "label": "P3",
+      "author": "qwen3:8b",
+      "text": "**PROPOSED NEW META-AXIOM:**\n\n**ALL FEATURES MUST BE COMPOSABLE FROM THE CORE PRIMITIVES WITHOUT ANY ADDITIONAL SYNTAX OR SEMANTIC RULES, EXCEPT FOR THOSE STRICTLY NECESSARY TO ENSURE MACHINE-INTERPRETABLE UNAMBIGUITY AND TESTABILITY.**\n\nThis version eliminates optional minimal syntax, enforcing strict composability from core primitives. It prioritizes machine-interpretable clarity (Axiom 1) and testability (Axiom 4) by disallowing syntactic sugar unless absolutely required. This ensures the language remains minimal (Axiom 5) and avoids ambiguity, while still allowing necessary abstractions (e.g., `map` as a derived construct) that are unambiguously defined in terms of primitives."
+    },
+    {
+      "label": "P4",
+      "author": "gemma4:latest",
+      "text": "**COMPOSABILITY GOVERNING AXIOM (Priority Constraint):**\nAny proposed construct or feature must be provably derived solely by combining primitives or established higher-order functions (like `map` or function application) using the existing semantic rules. If a feature requires a novel primitive or a syntactic shortcut that cannot be fully decomposed into the existing set, the feature is rejected. This axiom strictly enforces compositionality over convenience."
+    },
+    {
+      "label": "P5",
+      "author": "CURRENT",
+      "text": "PROPOSED NEW META-AXIOM:\n\n**ALL FEATURES SHOULD BE EITHER PRIMITIVE OR COMPOSABLE FROM THE CORE PRIMITIVES WITH MINIMAL ADDITIONAL SYNTAX OR SEMANTIC RULES.**\n\nThis new axiom emphasizes that while all features must be expressible in terms of the core primitives (to maintain simplicity and machine-interpretability), some constructs may need minimal additional syntax or semantic rules for readability, convenience, or increased expressivity. This allows for extensions and higher-level abstractions but ensures they remain composable with the core primitives."
+    },
+    {
+      "label": "P6",
+      "author": "deepseek-r1:8b",
+      "text": "ALL FEATURES SHOULD BE EITHER PRIMITIVE OR COMPOSABLE FROM THE CORE PRIMITIVES WITH MINIMAL ADDITIONAL SYNTAX OR SEMANTIC RULES."
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P6",
+      "P5",
+      "P2",
+      "P1",
+      "P4",
+      "P3"
+    ],
+    "gemma4:latest": [
+      "P4",
+      "P3",
+      "P5",
+      "P6",
+      "P1",
+      "P2"
+    ],
+    "llama3:latest": [
+      "P3",
+      "P1",
+      "P5",
+      "P2",
+      "P4",
+      "P6"
+    ],
+    "deepseek-r1:8b": [
+      "P3",
+      "P4",
+      "P5",
+      "P6",
+      "P1",
+      "P2"
+    ],
+    "mistral:7b": [
+      "P5",
+      "P1",
+      "P6",
+      "P3",
+      "P2",
+      "P4"
+    ]
+  },
+  "scores": {
+    "P1": 12,
+    "P2": 6,
+    "P3": 16,
+    "P4": 11,
+    "P5": 18,
+    "P6": 12
+  },
+  "winner_author": "CURRENT",
+  "winner_text": "PROPOSED NEW META-AXIOM:\n\n**ALL FEATURES SHOULD BE EITHER PRIMITIVE OR COMPOSABLE FROM THE CORE PRIMITIVES WITH MINIMAL ADDITIONAL SYNTAX OR SEMANTIC RULES.**\n\nThis new axiom emphasizes that while all features must be expressible in terms of the core primitives (to maintain simplicity and machine-interpretability), some constructs may need minimal additional syntax or semantic rules for readability, convenience, or increased expressivity. This allows for extensions and higher-level abstractions but ensures they remain composable with the core primitives.",
+  "note": "status quo held"
+}

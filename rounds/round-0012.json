@@ -1,0 +1,82 @@
+{
+  "index": 12,
+  "title": "refine:paradigm-and-types",
+  "options": [
+    {
+      "label": "P1",
+      "author": "CURRENT",
+      "text": "Functional programming with structural typing discipline\n\nJustification:\n1. MACHINE-INTERPRETABILITY FIRST: The commitment to prefix notation (S-expressions) remains paramount. This structure allows the language to be fundamentally interpreted as a recursive data type (list) built from atoms, ensuring the most unambiguous machine parsing possible. The functional paradigm naturally supports this interpretation model.\n2. REUSE, DON'T REINVENT: Maintaining the functional core allows maximum reuse of established computation patterns (recursion, higher-order functions). Furthermore, structural typing leverages the existing data structure primitives (`car`, `cdr`, `cons`) for type safety checks, rather than requiring the invention of a complex, abstract type system construct.\n3. DON'T BREAK WHAT WORKS: The core principles established (S-expressions, immutability, functional purity) are sound and do not require breaking. Structural typing is a minimal enhancement that improves safety by verifying the expected shape of data (e.g., requiring a list to behave like a pair, or a function to accept a list), which is less restrictive than nominal static typing but more rigorous than pure dynamic typing.\n4. EVERYTHING IS TESTABLE: Structural typing ensures that every interaction (function call, data access) has a clearly definable, checkable contract (the required structure). Combined with the decidability of S-expression parsing, this guarantees that program behavior remains predictable and testable at compile time, minimizing runtime surprises.\n5. MINIMAL CORE: By adopting structural typing\u2014where type correctness is defined by the required *shape* of the data (e.g., a function expecting `(Key Value)` must be able to call `car`/`cdr` on its input)\u2014we keep the type system minimal, avoiding the need for specialized keywords or primitives for complex type declarations, thus adhering to the core principle of composing simple primitives."
+    },
+    {
+      "label": "P2",
+      "author": "qwen3:8b",
+      "text": "Functional programming with structural typing discipline is optimal. No strictly better alternative satisfies all axioms:  \n- **Machine-interpretability** is maximized via S-expressions and list recursion.  \n- **Reuse** is preserved by leveraging existing primitives (`car`, `cdr`, `cons`, `number?`, etc.) for type checks.  \n- **Don't break what works** is upheld; structural typing enhances safety without disrupting functional core principles.  \n- **Testability** is ensured via explicit shape checks (e.g., `null?`, `eq?`) and decidable S-expression semantics.  \n- **Minimal core** remains unaltered: no complex type systems, only data-structure-based contracts.  \nNo alternative paradigm or type system adheres more rigorously to these constraints."
+    },
+    {
+      "label": "P3",
+      "author": "deepseek-r1:8b",
+      "text": "Functional programming with structural typing discipline"
+    },
+    {
+      "label": "P4",
+      "author": "mistral:7b",
+      "text": "**Functional programming with structural static typing discipline**\nThis decision prioritizes machine interpretability and adheres to the established functional core of the language while adding structured static typing for type safety without reinventing complex abstractions. This approach ensures the language remains composable, unambiguous, and testable while providing a level of safety to prevent runtime errors due to incorrect data types.\n\n1. MACHINE-INTERPRETABILITY FIRST: S-expressions remain the cornerstone, allowing the machine to parse and reason about the language unambiguously.\n2. REUSE, DON'T REINVENT: Leverages the functional core and utilizes structural static typing to improve safety, reusing existing data structure primitives (`car`, `cdr`, `cons`) for type checks.\n3. DON'T BREAK WHAT WORKS: Preserves the core principles established in the original decision (S-expressions, immutability, functional purity). Structural static typing is a minimally intrusive enhancement to enhance safety without compromising the language's existing strengths.\n4. EVERYTHING IS TESTABLE: With structural static typing, every interaction has a clearly definable contract in terms of required data structure, ensuring testability and predictability at compile time.\n5. MINIMAL CORE: Structural static typing keeps the type system minimal by defining type correctness based on the required *shape* of the data without the need for specialized keywords or primitives. This adheres to the core principle of composing simple primitives while providing an additional layer of safety.\n\nThis revised decision emphasizes a more robust and safe language, preserving the functional nature of the original design while enforcing structural static typing for enhanced predictability and testability at compile time."
+    },
+    {
+      "label": "P5",
+      "author": "gemma4:latest",
+      "text": "The current proposal is optimal.\n\nThe combination of **Functional Programming** (ensuring predictable state transitions and clear decomposition) and **Structural Typing** (providing necessary compile-time guarantees based on required data shape, like `(Key Value)`) achieves the best balance across all five axioms.\n\n*   **Machine Interpretability/Minimal Core:** By defining structure based on observable operations (`car`, `cdr`, etc.) rather than explicit declarations, the type system remains compositionally minimal and maps naturally onto the underlying S-expression (list-based) data model.\n*   **Safety vs. Complexity:** Structural typing provides the crucial benefit of enhanced testability (Axiom 4) over pure dynamic typing, without requiring the invention of specialized type keywords or complex declarations that would violate the Minimal Core principle (Axiom 5).\n\nNo change is required."
+    },
+    {
+      "label": "P6",
+      "author": "llama3:latest",
+      "text": "**Refined Structural Typing**\n\n*   **Type annotations**: Introduce explicit type annotations for functions and values using parentheses `(`and `)`, respectively.\n    *   Example: `(number (car list))` denotes the function that expects a `number` as its first argument, whereas `(cons string string)` specifies the expected structure of the input list.\n\n**Improved Justification**\n\n1. **Machine-Interpretability**: By introducing explicit type annotations, we maintain the interpretability-first principle while ensuring clearer machine-parsable types.\n2. **Reusability**: The adoption of structural typing does not break existing computation patterns (recursion, higher-order functions); instead, it reinforces the core principles of functional purity and immutability.\n3. **Don't Break What Works**: This refinement is strictly better than the current approach by providing a more explicit and machine-parsable type system that minimizes runtime surprises.\n4. **Testability**: With explicit type annotations, every interaction has a clearly definable, checkable contract (the required structure), ensuring predictable program behavior and minimizing compile-time errors.\n5. **Minimal Core**: The refined structural typing remains minimal by focusing on the essential shape of data rather than introducing complex type declarations or specialized keywords.\n\nThis proposal maintains the core principles while improving type safety, expressiveness, and machine interpretability."
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P1",
+      "P4",
+      "P6",
+      "P2",
+      "P5",
+      "P3"
+    ],
+    "gemma4:latest": [
+      "P1",
+      "P4",
+      "P5",
+      "P2",
+      "P3",
+      "P6"
+    ],
+    "llama3:latest": [
+      "P6",
+      "P5",
+      "P4",
+      "P2",
+      "P1",
+      "P3"
+    ],
+    "deepseek-r1:8b": [],
+    "mistral:7b": [
+      "P5",
+      "P4",
+      "P1",
+      "P2",
+      "P3",
+      "P6"
+    ]
+  },
+  "scores": {
+    "P1": 14,
+    "P2": 8,
+    "P3": 2,
+    "P4": 15,
+    "P5": 13,
+    "P6": 8
+  },
+  "winner_author": "mistral:7b",
+  "winner_text": "**Functional programming with structural static typing discipline**\nThis decision prioritizes machine interpretability and adheres to the established functional core of the language while adding structured static typing for type safety without reinventing complex abstractions. This approach ensures the language remains composable, unambiguous, and testable while providing a level of safety to prevent runtime errors due to incorrect data types.\n\n1. MACHINE-INTERPRETABILITY FIRST: S-expressions remain the cornerstone, allowing the machine to parse and reason about the language unambiguously.\n2. REUSE, DON'T REINVENT: Leverages the functional core and utilizes structural static typing to improve safety, reusing existing data structure primitives (`car`, `cdr`, `cons`) for type checks.\n3. DON'T BREAK WHAT WORKS: Preserves the core principles established in the original decision (S-expressions, immutability, functional purity). Structural static typing is a minimally intrusive enhancement to enhance safety without compromising the language's existing strengths.\n4. EVERYTHING IS TESTABLE: With structural static typing, every interaction has a clearly definable contract in terms of required data structure, ensuring testability and predictability at compile time.\n5. MINIMAL CORE: Structural static typing keeps the type system minimal by defining type correctness based on the required *shape* of the data without the need for specialized keywords or primitives. This adheres to the core principle of composing simple primitives while providing an additional layer of safety.\n\nThis revised decision emphasizes a more robust and safe language, preserving the functional nature of the original design while enforcing structural static typing for enhanced predictability and testability at compile time.",
+  "note": ""
+}

@@ -1,0 +1,78 @@
+{
+  "index": 8,
+  "title": "example-factorial",
+  "options": [
+    {
+      "label": "P1",
+      "author": "llama3:latest",
+      "text": "```\n(define (factorial n)\n  (if (zero? n)\n      1\n      (* n (factorial (- n 1)))))\n\n(factorial 5)  ; evaluates to 120\n```"
+    },
+    {
+      "label": "P2",
+      "author": "qwen3:8b",
+      "text": "(set fact (lambda n (if (eq? n 0) 1 (* n (fact (- n 1))))))"
+    },
+    {
+      "label": "P3",
+      "author": "gemma4:latest",
+      "text": "`(lambda (n)\n  (if (<= n 0)\n      1\n      (* n (lambda (k)\n        (if (<= k 0)\n            1\n            (* k (lambda (j)\n              (if (<= j 0)\n                  1\n                  (* j (lambda (i)\n                    (if (<= i 0)\n                        1\n                        (* i (lambda (x)\n                          (if (<= x 0)\n                              1\n                              (* x (lambda (y)\n                                (if (<= y 0)\n                                    1\n                                    (* y (lambda (z)\n                                      (if (<= z 0)\n                                          1\n                                          (* z (lambda (v)\n                                            (if (<= v 0)\n                                                1\n                                                (* v 1)))))))))))))))))))`\n\n*(Note: Due to the constraint of only using explicitly defined primitives and avoiding `define`, the full recursive structure must be manually nested. The intention is to define a function `factorial` that calculates $n!$, which is then called with the desired input, e.g., `(factorial 5)`.)*\n\n**Concise Interpretation (assuming recursive binding is allowed):**\n\n```scheme\n(lambda (n)\n  (if (<= n 0)\n      1\n      (* n (lambda (k)\n        (if (<= k 0)\n            1\n            (* k (lambda (j) ... (recursive structure) ...)))))))\n```"
+    },
+    {
+      "label": "P4",
+      "author": "deepseek-r1:8b",
+      "text": "I'm sorry, but with only the provided builtins (`eq?`, `car`, `cdr`), it is not possible to write a factorial program that performs arithmetic operations. These primitives allow us to work with symbols and pairs, but not with numerical operations or counting down to zero. If other builtins were available, I could write a program, but based on the given constraints, a factorial program cannot be implemented."
+    },
+    {
+      "label": "P5",
+      "author": "mistral:7b",
+      "text": "```scheme\n(define (factorial n)\n  (if (= n 0)\n      1\n      (* n (factorial (- n 1)))))\n\n(set result (factorial 5))\n(display result) ; prints the factorial of 5\n```"
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P1",
+      "P5",
+      "P3",
+      "P2",
+      "P4"
+    ],
+    "gemma4:latest": [
+      "P1",
+      "P5",
+      "P2",
+      "P4",
+      "P3"
+    ],
+    "llama3:latest": [
+      "P1",
+      "P5",
+      "P2",
+      "P4",
+      "P3"
+    ],
+    "deepseek-r1:8b": [
+      "P1",
+      "P5",
+      "P2",
+      "P3",
+      "P4"
+    ],
+    "mistral:7b": [
+      "P1",
+      "P5",
+      "P2",
+      "P4",
+      "P3"
+    ]
+  },
+  "scores": {
+    "P1": 20,
+    "P2": 9,
+    "P3": 3,
+    "P4": 3,
+    "P5": 15
+  },
+  "winner_author": "llama3:latest",
+  "winner_text": "```\n(define (factorial n)\n  (if (zero? n)\n      1\n      (* n (factorial (- n 1)))))\n\n(factorial 5)  ; evaluates to 120\n```",
+  "note": ""
+}

@@ -1,0 +1,89 @@
+{
+  "index": 61,
+  "title": "refine:builtins",
+  "options": [
+    {
+      "label": "P1",
+      "author": "deepseek-r1:8b",
+      "text": "**Proposed Builtins (Final Minimal Core):**\n\n**Data Types:** Number, String, Boolean, List, Symbol, Nil.\n\n**Core Primitives/Constructors:** `lambda` (Procedure Creation), `car` (First element access), `cdr` (Rest access), `null?` (Empty check), `cons` (Pair/Cons cell construction).\n\n**Control Flow & Evaluation:** `if` (Conditional branching), `cond` (Multi-way branching), `and` (Logical AND), `or` (Logical OR), `quote` (Quoting/Literal preservation).\n\n**Operator Semantics (Syntactic Forms):**\nOperators (`+`, `-`, `*`, `/`, `<=`, `>=`) are defined exclusively as **syntactic forms**. Their evaluation is fixed, non-user-defined, and requires deterministic reduction of subexpressions.\n\n**Rationale for Optimality (Reinforcement):**\nThe existing structure is optimal because it addresses the fundamental conflicts between human readability and machine determinism while achieving maximal compression of primitives.\n\n1.  **Axiom 1 (Machine Interpretability):** By defining arithmetic/comparison operators as syntactic forms, we mandate a deterministic, two-phase evaluation: first, reduce all subexpressions to values (e.g., `2+3` reduces to `5` before the addition rule applies); second, apply the fixed, non-ambiguous operational rule. This ensures decidability at the parsing/runtime layer.\n2.  **Axiom 5 (Minimal Core):** No new primitive is introduced. All complex operations (arithmetic, list access) are handled either by reusing existing primitives (`car`, `cdr`, `cons`) or by fixing their evaluation status at the parser level.\n3.  **Axiom 2 & A3 (Reuse & Stability):** We retain the core Lisp paradigm: $\\text{\u2130}\u27e6(E_1 E_2 \\dots E_n)\u27e7$ handles both data construction and application, relying on explicit semantic checks (as defined previously) to prevent ambiguity, rather than adding specialized syntax (e.g., dedicated list construction syntax).\n4.  **Axiom 4 (Testability):** Every construct has a clearly defined, non-recursive or trivially recursive behavior (e.g., `+` is defined by standard integer arithmetic, not by calling `add` procedure).\n\n*Conclusion:* No strictly better, simpler, or more general set of primitives can be proposed without violating the Minimal Core or introducing non-deterministic evaluation paths. The current design is robustly optimal."
+    },
+    {
+      "label": "P2",
+      "author": "gemma4:latest",
+      "text": "The current set is optimally minimal. No strictly better, simpler, or more general set of primitives can be proposed without violating the Minimal Core or introducing non-deterministic evaluation paths.\n\nThe following refinement is proposed not as an addition of a primitive, but as a mandatory structural clarification to reinforce the adherence to Axiom 1 (Machine Interpretability) concerning list construction.\n\n**Refinement:**\nThe `list` constructor (if used syntactically) must be defined *semantically* as zero or more chained `cons` operations terminating in `Nil`. It must not introduce a special internal representation or evaluation path distinct from the sequence of `cons` calls.\n\n**Rationale:**\nThis clarification ensures that even if `list` is used syntactically for human readability (a concession to ease of use), its underlying machine evaluation path *must* be $E\\llbracket \\text{list}(E_1, \\dots, E_n) \\rrbracket \\rightarrow \\text{cons}(E_1, \\text{cons}(E_2, \\dots, \\text{cons}(E_{n-1}, E_n, \\text{Nil})))$, thereby forcing the implementation to rely exclusively on the explicitly defined core primitive `cons`, satisfying Axiom 1 (Machine Interpretability) and strengthening the adherence to Axiom 5 (Minimal Core) by making the structure transparently built from the smallest unit.\n\nAll other components (`lambda`, `car`, `cdr`, `if`, `cond`, etc.) remain optimal as they are irreducible building blocks required for Turing completeness under the stated constraints."
+    },
+    {
+      "label": "P3",
+      "author": "qwen3:8b",
+      "text": "The current builtins are already optimal under the axioms. No strictly better version is possible."
+    },
+    {
+      "label": "P4",
+      "author": "CURRENT",
+      "text": "**Proposed Builtins (Final Minimal Core):**\n\n**Data Types:** Number, String, Boolean, List, Symbol, Nil.\n\n**Core Primitives/Constructors:** `lambda` (Procedure Creation), `car` (First element access), `cdr` (Rest access), `null?` (Empty check), `cons` (Pair/Cons cell construction).\n\n**Control Flow & Evaluation:** `if` (Conditional branching), `cond` (Multi-way branching), `and` (Logical AND), `or` (Logical OR), `quote` (Quoting/Literal preservation).\n\n**Operator Semantics (Syntactic Forms):**\nOperators (`+`, `-`, `*`, `/`, `<=`, `>=`) are defined exclusively as **syntactic forms**. Their evaluation is fixed, non-user-defined, and requires deterministic reduction of subexpressions.\n\n**Rationale for Optimality (Reinforcement):**\nThe existing structure is optimal because it addresses the fundamental conflicts between human readability and machine determinism while achieving maximal compression of primitives.\n\n1.  **Axiom 1 (Machine Interpretability):** By defining arithmetic/comparison operators as syntactic forms, we mandate a deterministic, two-phase evaluation: first, reduce all subexpressions to values (e.g., `2+3` reduces to `5` before the addition rule applies); second, apply the fixed, non-ambiguous operational rule. This ensures decidability at the parsing/runtime layer.\n2.  **Axiom 5 (Minimal Core):** No new primitive is introduced. All complex operations (arithmetic, list access) are handled either by reusing existing primitives (`car`, `cdr`, `cons`) or by fixing their evaluation status at the parser level.\n3.  **Axiom 2 & A3 (Reuse & Stability):** We retain the core Lisp paradigm: $\\text{\u2130}\u27e6(E_1 E_2 \\dots E_n)\u27e7$ handles both data construction and application, relying on explicit semantic checks (as defined previously) to prevent ambiguity, rather than adding specialized syntax (e.g., dedicated list construction syntax).\n4.  **Axiom 4 (Testability):** Every construct has a clearly defined, non-recursive or trivially recursive behavior (e.g., `+` is defined by standard integer arithmetic, not by calling `add` procedure).\n\n*Conclusion:* No strictly better, simpler, or more general set of primitives can be proposed without violating the Minimal Core or introducing non-deterministic evaluation paths. The current design is robustly optimal."
+    },
+    {
+      "label": "P5",
+      "author": "llama3:latest",
+      "text": "**Proposed Builtins (Refined Minimal Core):**\n\n**Data Types:** Number, String, Boolean, List, Symbol, Nil, Real.\n\n**Core Primitives/Constructors:** `lambda` (Procedure Creation), `car` (First element access), `cdr` (Rest access), `null?` (Empty check), `cons` (Pair/Cons cell construction), `list` (List creation).\n\n**Control Flow & Evaluation:** `if` (Conditional branching), `cond` (Multi-way branching), `and` (Logical AND), `or` (Logical OR), `quote` (Quoting/Literal preservation).\n\n**Operator Semantics (Syntactic Forms):**\nOperators (`+`, `-`, `*`, `/`, `<=`, `>=`) are defined exclusively as **syntactic forms**. Their evaluation is fixed, non-user-defined, and requires deterministic reduction of subexpressions.\n\n**Rationale for Optimality:**\n\n1.  **Axiom 1 (Machine Interpretability):** The proposed addition of the `Real` data type allows for more precise mathematical operations while maintaining decidability at the parsing/runtime layer.\n2.  **Axiom 5 (Minimal Core):** No new primitive is introduced, and all complex operations are handled either by reusing existing primitives or fixing their evaluation status at the parser level.\n3.  **Axiom 2 & A3 (Reuse & Stability):** The proposed `list` constructor handles list creation, eliminating the need for specialized syntax.\n4.  **Axiom 4 (Testability):** Every construct has a clearly defined, non-recursive or trivially recursive behavior.\n\n*Conclusion:* This refined set of builtins is strictly better than the original due to its added precision in mathematical operations and its reliance on existing primitives for complex operations."
+    },
+    {
+      "label": "P6",
+      "author": "mistral:7b",
+      "text": "**Proposed Builtins (Optimized Minimal Core):**\n\n**Data Types:** Number, String, Boolean, List, Symbol, Nil, Procedure.\n\n**Core Primitives/Constructors:** `lambda` (Procedure Creation), `car` (First element access), `cdr` (Rest access), `null?`, `cons`, `list` (List Construction).\n\n**Control Flow & Evaluation:** `if`, `cond`, `and`, `or`, `quote`.\n\n**Operator Semantics (Syntactic Forms):**\nOperators (`+`, `-`, `*`, `/`, `<=`, `>=`) and other functions like `length`, `append`, `reverse`, are defined as built-in **user-defined procedures**. Their evaluation is flexible, allowing users to extend or specialize their behavior.\n\n**Rationale for Optimality:**\nThis optimized design addresses the axioms with increased flexibility while maintaining deterministic machine interpretability and minimal core primitives.\n\n1.  **Axiom 1 (Machine Interpretability):** By defining arithmetic/comparison operators as user-defined procedures, we maintain maximum adaptability to different use cases, without sacrificing determinism by separating the operational rule from subexpression reduction at evaluation time. This ensures decidability through explicit user intent (procedures defined explicitly by users).\n2.  **Axiom 5 (Minimal Core):** No new primitive is introduced for arithmetic/comparison operators or list functions. All complex operations are handled using existing primitives (`car`, `cdr`, `cons`) and the addition of user-defined procedures, which can be specialized as needed by users.\n3.  **Axiom 2 & A3 (Reuse & Stability):** The core Lisp paradigm is preserved with $\\text{\u2130}\u27e6(E_1 E_2 \\dots E_n)\u27e7$ handling both data construction and application, and the explicit semantic checks preventing ambiguity between list processing and data structure construction.\n4.  **Axiom 4 (Testability):** Every construct, including user-defined procedures, has a clear behavior that can be defined, tested, and verified by the users themselves, ensuring maximal control over program behavior."
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P1",
+      "P4",
+      "P2",
+      "P6",
+      "P3",
+      "P5"
+    ],
+    "gemma4:latest": [
+      "P2",
+      "P1",
+      "P4",
+      "P5",
+      "P6",
+      "P3"
+    ],
+    "llama3:latest": [
+      "P4",
+      "P1",
+      "P3",
+      "P5",
+      "P2",
+      "P6"
+    ],
+    "deepseek-r1:8b": [
+      "P6",
+      "P1",
+      "P2",
+      "P3",
+      "P4",
+      "P5"
+    ],
+    "mistral:7b": [
+      "P2",
+      "P1",
+      "P4",
+      "P3",
+      "P6",
+      "P5"
+    ]
+  },
+  "scores": {
+    "P1": 21,
+    "P2": 17,
+    "P3": 8,
+    "P4": 16,
+    "P5": 4,
+    "P6": 9
+  },
+  "winner_author": "deepseek-r1:8b",
+  "winner_text": "**Proposed Builtins (Final Minimal Core):**\n\n**Data Types:** Number, String, Boolean, List, Symbol, Nil.\n\n**Core Primitives/Constructors:** `lambda` (Procedure Creation), `car` (First element access), `cdr` (Rest access), `null?` (Empty check), `cons` (Pair/Cons cell construction).\n\n**Control Flow & Evaluation:** `if` (Conditional branching), `cond` (Multi-way branching), `and` (Logical AND), `or` (Logical OR), `quote` (Quoting/Literal preservation).\n\n**Operator Semantics (Syntactic Forms):**\nOperators (`+`, `-`, `*`, `/`, `<=`, `>=`) are defined exclusively as **syntactic forms**. Their evaluation is fixed, non-user-defined, and requires deterministic reduction of subexpressions.\n\n**Rationale for Optimality (Reinforcement):**\nThe existing structure is optimal because it addresses the fundamental conflicts between human readability and machine determinism while achieving maximal compression of primitives.\n\n1.  **Axiom 1 (Machine Interpretability):** By defining arithmetic/comparison operators as syntactic forms, we mandate a deterministic, two-phase evaluation: first, reduce all subexpressions to values (e.g., `2+3` reduces to `5` before the addition rule applies); second, apply the fixed, non-ambiguous operational rule. This ensures decidability at the parsing/runtime layer.\n2.  **Axiom 5 (Minimal Core):** No new primitive is introduced. All complex operations (arithmetic, list access) are handled either by reusing existing primitives (`car`, `cdr`, `cons`) or by fixing their evaluation status at the parser level.\n3.  **Axiom 2 & A3 (Reuse & Stability):** We retain the core Lisp paradigm: $\\text{\u2130}\u27e6(E_1 E_2 \\dots E_n)\u27e7$ handles both data construction and application, relying on explicit semantic checks (as defined previously) to prevent ambiguity, rather than adding specialized syntax (e.g., dedicated list construction syntax).\n4.  **Axiom 4 (Testability):** Every construct has a clearly defined, non-recursive or trivially recursive behavior (e.g., `+` is defined by standard integer arithmetic, not by calling `add` procedure).\n\n*Conclusion:* No strictly better, simpler, or more general set of primitives can be proposed without violating the Minimal Core or introducing non-deterministic evaluation paths. The current design is robustly optimal.",
+  "note": ""
+}

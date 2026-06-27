@@ -1,0 +1,42 @@
+{
+  "index": 79,
+  "title": "build:interpreter",
+  "options": [
+    {
+      "label": "P1",
+      "author": "qwen3:8b",
+      "text": "score 0/11 :: []"
+    },
+    {
+      "label": "P2",
+      "author": "gemma4:latest",
+      "text": "score 0/11 :: []"
+    },
+    {
+      "label": "P3",
+      "author": "llama3:latest",
+      "text": "score 1/11 :: ['list-dir']"
+    },
+    {
+      "label": "P4",
+      "author": "deepseek-r1:8b",
+      "text": "score 0/11 :: []"
+    },
+    {
+      "label": "P5",
+      "author": "mistral:7b",
+      "text": "score 0/11 :: []"
+    }
+  ],
+  "ballots": {},
+  "scores": {
+    "qwen3:8b": 0,
+    "gemma4:latest": 0,
+    "llama3:latest": 1,
+    "deepseek-r1:8b": 0,
+    "mistral:7b": 0
+  },
+  "winner_author": "",
+  "winner_text": "",
+  "note": "status quo held at 1/11 (no proposal beat it)"
+}

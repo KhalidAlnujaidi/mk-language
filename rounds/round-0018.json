@@ -1,0 +1,89 @@
+{
+  "index": 18,
+  "title": "refine:meta-axiom",
+  "options": [
+    {
+      "label": "P1",
+      "author": "gemma4:latest",
+      "text": "**COMPOSABILITY AND REDUCIBILITY.** Every feature must be mathematically and computationally reducible to a sequence of calls utilizing only the existing core primitives and built-in functions. No syntax or semantic rule shall be added purely for convenience or readability if that construct cannot be parsed and evaluated by an unambiguous reduction to the existing primitive set."
+    },
+    {
+      "label": "P2",
+      "author": "mistral:7b",
+      "text": "PROPOSED NEW META-AXIOM:\n\n**ALL FEATURES SHOULD BE EITHER PRIMITIVE OR COMPOSED FROM THE CORE PRIMITIVES WITH A LIMITED ADDITION OF SYNTACTIC SUGAR AND MINIMAL EXTRA SEMANTICS TO ENHANCE READABILITY, CONVENIENCE, OR INCREASED EXPRESSIVITY.**\n\nThis updated axiom highlights that while all features should be built on the core primitives to preserve simplicity and machine-interpretability, some constructs may require syntactic sugar or additional semantic rules for enhanced readability, convenience, or increased expressivity. The use of such extensions must adhere strictly to the existing axioms (Reuse, Don't Reinvent, Don't Break What Works, Everything is Testable, and Minimal Core), ensuring that they remain composable with the core primitives and do not complicate the language unnecessarily."
+    },
+    {
+      "label": "P3",
+      "author": "llama3:latest",
+      "text": "**NEW META-AXIOM:**\n\n**A FEATURE IS ELIGIBLE FOR INCLUSION IF AND ONLY IF IT CAN BE DEFINED WITH A CLEAR, MACHINE-INTERPRETABLE SPECIFICATION THAT DOES NOT INTRODUCE UNNECESSARY SYNTAX OR SEMANTIC COMPLEXITY.**\n\nNote that this revised axiom strengthens the original by introducing a clearer and more concise definition of eligibility for inclusion. The added clause ensures that any proposed feature must not only be composable from core primitives but also possess a machine-interpretable specification, thus maintaining the simplicity and machine-interpretability principles while allowing for minimal additional complexity."
+    },
+    {
+      "label": "P4",
+      "author": "qwen3:8b",
+      "text": "**PROPOSED NEW META-AXIOM:**  \n**ALL FEATURES MUST BE COMPOSABLE FROM THE CORE PRIMITIVES WITHOUT ANY ADDITIONAL SYNTAX OR SEMANTIC RULES.**  \n\nThis version strictly enforces minimal core by eliminating even minimal additional syntax, ensuring every construct is directly derivable from primitives. It avoids ambiguity, aligns with machine-interpretability, and prevents proliferation of special cases, adhering strictly to the axioms."
+    },
+    {
+      "label": "P5",
+      "author": "CURRENT",
+      "text": "PROPOSED NEW META-AXIOM:\n\n**ALL FEATURES SHOULD BE EITHER PRIMITIVE OR COMPOSABLE FROM THE CORE PRIMITIVES WITH MINIMAL ADDITIONAL SYNTAX OR SEMANTIC RULES.**\n\nThis new axiom emphasizes that while all features must be expressible in terms of the core primitives (to maintain simplicity and machine-interpretability), some constructs may need minimal additional syntax or semantic rules for readability, convenience, or increased expressivity. This allows for extensions and higher-level abstractions but ensures they remain composable with the core primitives."
+    },
+    {
+      "label": "P6",
+      "author": "deepseek-r1:8b",
+      "text": "**PROPOSED NEW META-AXIOM:**\n\nA language feature is allowed only if it can be defined entirely from the core primitives, except for minimal additional syntax or semantics that enable direct expression of composable behavior to the benefit of these axioms."
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P5",
+      "P2",
+      "P3",
+      "P6",
+      "P1",
+      "P4"
+    ],
+    "gemma4:latest": [
+      "P4",
+      "P1",
+      "P3",
+      "P6",
+      "P2",
+      "P5"
+    ],
+    "llama3:latest": [
+      "P5",
+      "P2",
+      "P6",
+      "P1",
+      "P4",
+      "P3"
+    ],
+    "deepseek-r1:8b": [
+      "P2",
+      "P3",
+      "P5",
+      "P6",
+      "P1",
+      "P4"
+    ],
+    "mistral:7b": [
+      "P2",
+      "P5",
+      "P1",
+      "P6",
+      "P4",
+      "P3"
+    ]
+  },
+  "scores": {
+    "P1": 11,
+    "P2": 19,
+    "P3": 10,
+    "P4": 7,
+    "P5": 17,
+    "P6": 11
+  },
+  "winner_author": "mistral:7b",
+  "winner_text": "PROPOSED NEW META-AXIOM:\n\n**ALL FEATURES SHOULD BE EITHER PRIMITIVE OR COMPOSED FROM THE CORE PRIMITIVES WITH A LIMITED ADDITION OF SYNTACTIC SUGAR AND MINIMAL EXTRA SEMANTICS TO ENHANCE READABILITY, CONVENIENCE, OR INCREASED EXPRESSIVITY.**\n\nThis updated axiom highlights that while all features should be built on the core primitives to preserve simplicity and machine-interpretability, some constructs may require syntactic sugar or additional semantic rules for enhanced readability, convenience, or increased expressivity. The use of such extensions must adhere strictly to the existing axioms (Reuse, Don't Reinvent, Don't Break What Works, Everything is Testable, and Minimal Core), ensuring that they remain composable with the core primitives and do not complicate the language unnecessarily.",
+  "note": ""
+}

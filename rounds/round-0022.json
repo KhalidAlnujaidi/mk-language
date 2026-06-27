@@ -1,0 +1,89 @@
+{
+  "index": 22,
+  "title": "refine:lexical-grammar",
+  "options": [
+    {
+      "label": "P1",
+      "author": "mistral:7b",
+      "text": "Tokens:\n- **Parentheses**: `(` and `)`\n- **Identifier**: `[a-zA-Z_][a-zA-Z0-9_]*`\n- **Literal**:\n  - Number: `\\d+(\\.\\d*)?` (allows floating-point numbers)\n  - String: `\"([^\\\\\"]|\\\\.)*\"` (escaped control characters and double quotes)\n  - Boolean: `true` / `false`\n- **Comment**: `;.*?(\\n|$)` (non-greedy match with precise end-of-line or file termination)\n\nWhitespace is ignored. Lexing order unchanged.\n\nThe proposed lexer tokenization addresses the following improvements:\n1. Allows floating-point numbers by modifying the number regex to include decimal points and optional fractional parts.\n2. Includes escaped control characters within strings, making them compatible with more string use cases.\n3. Ensures precise comment handling by changing the comment regex to a non-greedy match and explicitly stating end-of-line or file termination.\n4. Maintains clarity and testability without compromising machine interpretability."
+    },
+    {
+      "label": "P2",
+      "author": "CURRENT",
+      "text": "Tokens:  \n- **Parentheses**: `(` and `)`  \n- **Identifier**: `[a-zA-Z_][a-zA-Z0-9_]*`  \n- **Literal**:  \n  - Number: `[0-9]+`  \n  - String: `\"[^\"]*\"` (simplified, no escapes or control characters)  \n  - Boolean: `true` / `false`  \n- **Comment**: `;.*(\\n|$)` (precise end-of-line or file termination)  \n\nWhitespace is ignored. Lexing order unchanged.  \n\n**Arguments for improvement:**  \nThe simplified string token regex (`\"[^\"]*\"`) removes complex escaping and control character handling, improving machine-interpretability by making string lexing more straightforward and reducing edge cases. The comment regex now explicitly handles end-of-line or end-of-file termination, ensuring better testability. These changes maintain or improve clarity while adhering to the axioms, with no degradation in functionality, thus being strictly better under machine-interpretability and testability principles."
+    },
+    {
+      "label": "P3",
+      "author": "qwen3:8b",
+      "text": "The current lexical grammar is already optimal. Simplified string lexing (`\"[^\"]*\"`) and precise comment termination (`;.*(\\n|$)`) align with machine-interpretability and testability, with no degradation in functionality. No strictly better alternative exists under the axioms."
+    },
+    {
+      "label": "P4",
+      "author": "llama3:latest",
+      "text": "Tokens:\n\n* **Parentheses**: `(` and `)`\n* **Identifier**: `[a-zA-Z_][a-zA-Z0-9_]*`\n* **Literal**:\n\t+ Number: `[0-9]+`\n\t+ String: `\"[^\"\\b]+\"` (allow backslashes as escape characters)\n\t+ Boolean: `true` / `false`\n* **Comment**: `(?:;.*(\\n|$)|#.*(\\n|$))` (handle both semicolon and hash comment styles)\n\nWhitespace is ignored. Lexing order unchanged."
+    },
+    {
+      "label": "P5",
+      "author": "deepseek-r1:8b",
+      "text": "Tokens:  \n- **Parentheses**: `(` and `)`  \n- **Identifier**: `[a-zA-Z_][a-zA-Z0-9_]*`  \n- **Literal**:  \n  - Number: `[0-9]+`  \n  - String: `\"[^\"]*\"`  \n  - Boolean: `true` / `false`  \n- **Comment**: `;.*(\\n|$)` (precise end-of-line or file termination)  \n\nWhitespace is ignored. Lexing order unchanged."
+    },
+    {
+      "label": "P6",
+      "author": "gemma4:latest",
+      "text": "Tokens:\n- **Parentheses**: `(` and `)`\n- **Keyword (Boolean)**: `true` or `false`\n- **Identifier**: `[a-zA-Z_][a-zA-Z0-9_]*` (This pattern must be checked *after* keywords to handle reserved words)\n- **Literal**:\n  - Number: `[0-9]+`\n  - String: `\"[^\"]*\"` (Literal content matching this pattern)\n- **Comment**: `;[^\\\\n]*` (Non-greedy match until newline, or end of file)\n\nWhitespace is ignored. Lexing order: (1) Comment $\\rightarrow$ (2) String $\\rightarrow$ (3) Keyword/Boolean $\\rightarrow$ (4) Number $\\rightarrow$ (5) Parentheses $\\rightarrow$ (6) Identifier.\n\n*Rationale for Strict Improvement:* The current definition is optimal for machine interpretability, but the sequence of matching must explicitly prioritize reserved keywords (`true`, `false`) over the general `Identifier` pattern to guarantee correct tokenization. The comment regex is tightened to explicitly exclude line terminators from the match, ensuring predictable parsing state upon hitting a newline. This structural clarification improves testability without adding complexity."
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P6",
+      "P2",
+      "P5",
+      "P1",
+      "P4",
+      "P3"
+    ],
+    "gemma4:latest": [
+      "P6",
+      "P5",
+      "P2",
+      "P3",
+      "P4",
+      "P1"
+    ],
+    "llama3:latest": [
+      "P6",
+      "P3",
+      "P4",
+      "P1",
+      "P2",
+      "P5"
+    ],
+    "deepseek-r1:8b": [
+      "P6",
+      "P2",
+      "P5",
+      "P1",
+      "P4",
+      "P3"
+    ],
+    "mistral:7b": [
+      "P6",
+      "P4",
+      "P1",
+      "P2",
+      "P3",
+      "P5"
+    ]
+  },
+  "scores": {
+    "P1": 9,
+    "P2": 14,
+    "P3": 7,
+    "P4": 10,
+    "P5": 10,
+    "P6": 25
+  },
+  "winner_author": "gemma4:latest",
+  "winner_text": "Tokens:\n- **Parentheses**: `(` and `)`\n- **Keyword (Boolean)**: `true` or `false`\n- **Identifier**: `[a-zA-Z_][a-zA-Z0-9_]*` (This pattern must be checked *after* keywords to handle reserved words)\n- **Literal**:\n  - Number: `[0-9]+`\n  - String: `\"[^\"]*\"` (Literal content matching this pattern)\n- **Comment**: `;[^\\\\n]*` (Non-greedy match until newline, or end of file)\n\nWhitespace is ignored. Lexing order: (1) Comment $\\rightarrow$ (2) String $\\rightarrow$ (3) Keyword/Boolean $\\rightarrow$ (4) Number $\\rightarrow$ (5) Parentheses $\\rightarrow$ (6) Identifier.\n\n*Rationale for Strict Improvement:* The current definition is optimal for machine interpretability, but the sequence of matching must explicitly prioritize reserved keywords (`true`, `false`) over the general `Identifier` pattern to guarantee correct tokenization. The comment regex is tightened to explicitly exclude line terminators from the match, ensuring predictable parsing state upon hitting a newline. This structural clarification improves testability without adding complexity.",
+  "note": ""
+}

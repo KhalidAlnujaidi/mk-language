@@ -1,0 +1,89 @@
+{
+  "index": 28,
+  "title": "refine:builtins",
+  "options": [
+    {
+      "label": "P1",
+      "author": "qwen3:8b",
+      "text": "**Improved Builtins Proposal**  \n**Core Primitives (Enhanced):**  \n**Data Types:** Number, String, Boolean, List, Symbol, Nil.  \n**Functions:** `lambda`, `cons`, `car`, `cdr`, `null?`.  \n**Operators & Control Flow:** `if`, `cond`, `and`, `or`, `quote`.  \n**Built-in Functions:** `+`, `-`, `*`, `/`, `equal?`, `<=`, `>=`, `string-append`.  \n\n**Rationale:**  \n- **Minimal Core:** Retains `cons` for list construction, removes `list-append`, `list-map`, `list-filter` to avoid redundancy.  \n- **Testability:** `cons` and `string-append` ensure immutability and clarity in data manipulation.  \n- **Consistency:** `null?` standardizes list emptiness checks; `string-append` addresses string operations explicitly.  \n- **Reusability:** Higher-order functions like `map`/`filter` remain user-defined, adhering to the \"reuse\" axiom.  \n- **Completeness:** Includes essential primitives for practical use cases (e.g., string concatenation).  \n\n**Key Changes:**  \n- Added `cons` as a core primitive (critical for list construction).  \n- Added `string-append` to handle string operations explicitly.  \n- Retained `apply` as optional (redundant with closure-based function application).  \n- Removed `list-append`, `list-map`, `list-filter` to maintain minimal core.  \n\n**Conclusion:** This version strictly adheres to the axioms by ensuring machine-interpretability, reusability, and completeness while minimizing redundant primitives."
+    },
+    {
+      "label": "P2",
+      "author": "gemma4:latest",
+      "text": "**Built-in Functions (Streamlined):**\n*   **Arithmetic:** `+`, `-`, `*`, `/`\n*   **Comparison:** `equal?`, `<=`, `>=`\n*   **List:** `null?`\n\n**Rationale for Revision:**\nThe proposed set of built-ins is highly functional, but the inclusion of dedicated built-in functions `and` and `or` adds primitives that can be implicitly handled by the core structure.\n\n1.  **Minimal Core & Reuse (A5, A2):** The logical behavior of `and` (short-circuiting on false) and `or` is inherently tied to boolean evaluation and the conditional structure (`if`). By relying solely on the standard boolean literals (`True`, `False`) and the `if` control flow structure, we keep the primitives minimal and rely on the established semantics of boolean comparison (e.g., `(if condition ...)`).\n2.  **Redundancy:** Keeping explicit `and` and `or` functions duplicates logic already available through the core boolean types and the conditional structure.\n3.  **Consistency:** The removal of abstract logical functions streamlines the built-in set to only fundamental arithmetic, comparison, and list manipulation primitives.\n\nThe revised structure maintains full testability, respects functional purity, and achieves a stricter minimum core size without breaking existing functionality."
+    },
+    {
+      "label": "P3",
+      "author": "llama3:latest",
+      "text": "**Builtins Proposal:**\n\n1. **Retain `apply`**: Essential for function application and composition.\n2. **Remove `quote`**: Redundant with `lambda`, which can be used to create anonymous functions.\n3. **Add `list?`**: Provides a clear, testable way to check if a value is a list, eliminating the need for ad-hoc checks.\n\n**Core Primitives (Refined):**\n\n* Data Types: Number, String, Boolean, List, Symbol, Nil\n* Functions: lambda, car, cdr, null?, list?\n* Operators & Control Flow: if, cond, and, or, apply\n* Built-in Functions: +, -, *, /, equal?, <=, >=\n\n**Rationale:**\n\n* **Minimal Core:** Reduces the number of primitives while preserving essential functionality.\n* **Testability:** Every operation is composable via car, cdr, cons, and recursion.\n* **Consistency:** list? standardizes list checks, eliminating ad-hoc logic.\n* **Reusability:** Higher-order functions like map/filter are user-defined, adhering to the \"reuse\" axiom."
+    },
+    {
+      "label": "P4",
+      "author": "CURRENT",
+      "text": "The current builtins are already optimal under the axioms, but with minor refinements to ensure minimal core and testability. Key improvements include:\n\n1. **Remove `list-append`**: Redundant as users can concatenate lists via `cons` and recursion.  \n2. **Remove `list-map` and `list-filter`**: These can be implemented using recursion and `cons`, reducing core primitives.  \n3. **Retain `apply`**: Useful for function application, but optional.  \n4. **Standardize `null?`**: Ensures consistent list emptiness checks.  \n\n### Final Proposal\n**Core Primitives (Refined):**  \n**Data Types:** Number, String, Boolean, List, Symbol, Nil.  \n**Functions:** `lambda`, `car`, `cdr`, `null?`.  \n**Operators & Control Flow:** `if`, `cond`, `and`, `or`, `quote`.  \n**Built-in Functions:** `+`, `-`, `*`, `/`, `equal?`, `<=`, `>=`.  \n\n**Rationale:**  \n- **Minimal Core:** Removes `list-append`, `list-map`, `list-filter` to reduce primitives.  \n- **Testability:** All operations are composable via `car`, `cdr`, `cons`, and recursion.  \n- **Consistency:** `null?` standardizes list checks, avoiding ad-hoc logic.  \n- **Reusability:** Higher-order functions like `map`/`filter` are user-defined, adhering to the \"reuse\" axiom.  \n\nNo further changes are strictly necessary."
+    },
+    {
+      "label": "P5",
+      "author": "mistral:7b",
+      "text": "**Core Primitives (Improved):**\n\n* **Data Types:** Number, String, Boolean, List, Symbol, Nil.\n* **Functions:** `lambda`, `car`, `cdr`, `null?`.\n* **Operators & Control Flow:** `if`, `cond`, `and`, `or`, `quote`.\n* **Built-in Functions:** `+`, `-`, `*`, `/`, `equal?`, `<=`, `>=`.\n* `cons`: A built-in function that acts as a list constructor and concatenation operator, replacing both `list-append` and the need for recursive concatenation.\n* **Higher-Order Functions:** User-defined functions like `map`/`filter`, which can be easily defined using recursion and `cons`.\n\nThe proposed changes simplify the core primitives, making them more intuitive for users while still following the axioms:\n\n* Combines list construction and concatenation under one operator (`cons`).\n* Removes redundant built-in functions (`list-append`, `list-map`, `list-filter`) to reduce core primitives.\n* Retains optional but useful built-ins (`apply`) while promoting higher-order function reusability.\n* Standardizes `null?` for consistency and simplified list checking.\n\nThe current version is optimal, but this proposal further improves the minimal core while maintaining testability, reuse, machine-interpretability, and no mutation."
+    },
+    {
+      "label": "P6",
+      "author": "deepseek-r1:8b",
+      "text": "The current builtins are optimal under the axioms. The proposal remains unchanged.\n\nCore Primitives (Refined):  \n- Data Types: Number, String, Boolean, List, Symbol, Nil.  \n- Functions: `lambda`, `car`, `cdr`, `null?`.  \n- Operators & Control Flow: `if`, `cond`, `and`, `or`, `quote`.  \n- Built-in Functions: `+`, `-`, `*`, `/`, `equal?`, `<=`, `>=`.  \n\n**Rationale:**  \n- **Minimal Core:** Removes `list-append`, `list-map`, `list-filter` to keep the core minimal with `car`, `cdr`, `cons`, and `null?`.  \n- **Testability:** Ensures all operations are covered, with `equal?` providing general equality checks.  \n- **Optimality:** No further changes are necessary, as the design adheres strictly to the axioms without unnecessary additions or omissions."
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P4",
+      "P5",
+      "P1",
+      "P2",
+      "P3",
+      "P6"
+    ],
+    "gemma4:latest": [
+      "P5",
+      "P2",
+      "P4",
+      "P6",
+      "P3",
+      "P1"
+    ],
+    "llama3:latest": [
+      "P4",
+      "P5",
+      "P6",
+      "P1",
+      "P3",
+      "P2"
+    ],
+    "deepseek-r1:8b": [
+      "P6",
+      "P4",
+      "P1",
+      "P3",
+      "P2",
+      "P5"
+    ],
+    "mistral:7b": [
+      "P5",
+      "P1",
+      "P4",
+      "P3",
+      "P2",
+      "P6"
+    ]
+  },
+  "scores": {
+    "P1": 12,
+    "P2": 8,
+    "P3": 7,
+    "P4": 20,
+    "P5": 18,
+    "P6": 10
+  },
+  "winner_author": "CURRENT",
+  "winner_text": "The current builtins are already optimal under the axioms, but with minor refinements to ensure minimal core and testability. Key improvements include:\n\n1. **Remove `list-append`**: Redundant as users can concatenate lists via `cons` and recursion.  \n2. **Remove `list-map` and `list-filter`**: These can be implemented using recursion and `cons`, reducing core primitives.  \n3. **Retain `apply`**: Useful for function application, but optional.  \n4. **Standardize `null?`**: Ensures consistent list emptiness checks.  \n\n### Final Proposal\n**Core Primitives (Refined):**  \n**Data Types:** Number, String, Boolean, List, Symbol, Nil.  \n**Functions:** `lambda`, `car`, `cdr`, `null?`.  \n**Operators & Control Flow:** `if`, `cond`, `and`, `or`, `quote`.  \n**Built-in Functions:** `+`, `-`, `*`, `/`, `equal?`, `<=`, `>=`.  \n\n**Rationale:**  \n- **Minimal Core:** Removes `list-append`, `list-map`, `list-filter` to reduce primitives.  \n- **Testability:** All operations are composable via `car`, `cdr`, `cons`, and recursion.  \n- **Consistency:** `null?` standardizes list checks, avoiding ad-hoc logic.  \n- **Reusability:** Higher-order functions like `map`/`filter` are user-defined, adhering to the \"reuse\" axiom.  \n\nNo further changes are strictly necessary.",
+  "note": "status quo held"
+}

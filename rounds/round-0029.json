@@ -1,0 +1,82 @@
+{
+  "index": 29,
+  "title": "refine:builtins",
+  "options": [
+    {
+      "label": "P1",
+      "author": "qwen3:8b",
+      "text": "The current builtins are already optimal. No further changes are strictly necessary."
+    },
+    {
+      "label": "P2",
+      "author": "deepseek-r1:8b",
+      "text": "Cons\nCore Primitives (Refined):\n- Data Types: Number, String, Boolean, List, Symbol, Nil.\n- Functions: `lambda`, `car`, `cdr`, `null?`, `cons`.\n- Operators & Control Flow: `if`, `cond`, `and`, `or`, `quote`.\n- Built-in Functions: `+`, `-`, `*`, `/`, `equal?`, `<=`, `>=`.\n\nRationale:\n- **Minimal Core:** Adds `cons` to reduce the need for user-defined list construction, avoiding reinvention (Axiom 2). `cons` is a fundamental list-building operation that enables efficient and testable list manipulation, directly supporting the evaluation semantics and examples.\n- **Testability:** Ensures all list operations are built-in and clearly defined (Axiom 4). With `cons`, users can test list creation and deconstruction reliably, aligning with the machine-interpretable behavior.\n- **Machine-Interpretability:** Improves parsability by including a core list constructor (Axiom 1). `cons` clarifies how lists are built, avoiding ambiguity in the current specification.\n- **Consistency:** Maintains consistency with functional evaluation by integrating list construction into primitives, preventing redundant user-defined functions.\n- No other changes are proposed as they do not strictly improve the system under the axioms."
+    },
+    {
+      "label": "P3",
+      "author": "CURRENT",
+      "text": "The current builtins are already optimal under the axioms, but with minor refinements to ensure minimal core and testability. Key improvements include:\n\n1. **Remove `list-append`**: Redundant as users can concatenate lists via `cons` and recursion.  \n2. **Remove `list-map` and `list-filter`**: These can be implemented using recursion and `cons`, reducing core primitives.  \n3. **Retain `apply`**: Useful for function application, but optional.  \n4. **Standardize `null?`**: Ensures consistent list emptiness checks.  \n\n### Final Proposal\n**Core Primitives (Refined):**  \n**Data Types:** Number, String, Boolean, List, Symbol, Nil.  \n**Functions:** `lambda`, `car`, `cdr`, `null?`.  \n**Operators & Control Flow:** `if`, `cond`, `and`, `or`, `quote`.  \n**Built-in Functions:** `+`, `-`, `*`, `/`, `equal?`, `<=`, `>=`.  \n\n**Rationale:**  \n- **Minimal Core:** Removes `list-append`, `list-map`, `list-filter` to reduce primitives.  \n- **Testability:** All operations are composable via `car`, `cdr`, `cons`, and recursion.  \n- **Consistency:** `null?` standardizes list checks, avoiding ad-hoc logic.  \n- **Reusability:** Higher-order functions like `map`/`filter` are user-defined, adhering to the \"reuse\" axiom.  \n\nNo further changes are strictly necessary."
+    },
+    {
+      "label": "P4",
+      "author": "gemma4:latest",
+      "text": "The current proposal is optimal. No strictly better version can be derived without violating the principle of preserving established functionality (Axiom 3) or introducing unnecessary complexity (Axiom 5).\n\nThe refinement proposed is simply a restatement of the optimality argument, confirming the current structure meets all constraints.\n\n**Final Proposal Confirmation:**\n\n**Core Primitives (Refined):**\n**Data Types:** Number, String, Boolean, List, Symbol, Nil.\n**Functions:** `lambda`, `car`, `cdr`, `null?`.\n**Operators & Control Flow:** `if`, `cond`, `and`, `or`, `quote`.\n**Built-in Functions:** `+`, `-`, `*`, `/`, `equal?`, `<=`, `>=`.\n\n**Rationale for Optimality:**\n\n1.  **Minimal Core & Reuse (Axioms 2 & 5):** The exclusion of high-level list manipulators (`list-map`, `list-filter`, `list-append`) forces users to rely on fundamental list manipulation primitives (`car`, `cdr`, recursion) or standard higher-order functions, forcing adherence to foundational functional programming concepts.\n2.  **Completeness:** Retaining basic arithmetic built-ins (`+`, `-`, etc.) prevents the overhead of implementing fundamental mathematical operations repeatedly, while keeping them as built-ins keeps the language lightweight.\n3.  **Practicality vs. Purity:** While a purely functional approach would eliminate built-in arithmetic, retaining them maintains the practical usability demonstrated by the examples without sacrificing core principles.\n4.  **Redundancy Check:** The combination of `if/else` logic (via `if`) and arithmetic built-ins covers the necessary control flow and mathematical requirements efficiently.\n\nThe structure provides the necessary balance between mathematical power, functional rigor, and practical implementation overhead."
+    },
+    {
+      "label": "P5",
+      "author": "llama3:latest",
+      "text": "**Builtins Proposal:**\n\n**Retain `cons` and `null?`, remove `car` and `cdr`.**\n\nRationale:\n\n* **Minimal Core:** Reducing primitives to a single `cons` for list construction simplifies the language and eliminates redundant operations.\n* **Testability:** With `cons`, users can create lists and test their emptiness using `null?`.\n* **Consistency:** Maintaining only one way to construct lists ensures consistent behavior and avoids ad-hoc logic.\n* **Reusability:** Users can implement higher-order functions like `map`/`filter` using recursion, closures, and `cons`, adhering to the \"reuse\" axiom.\n\nThis proposal strictly adheres to the axioms by minimizing the core primitives while maintaining testability, consistency, and reusability."
+    },
+    {
+      "label": "P6",
+      "author": "mistral:7b",
+      "text": "Proposed modifications for builtins:\n\n1. Add `list-append` as a primitive function to facilitate list concatenation, improving reusability and readability without violating other axioms.\n   **Built-in Functions:** `+`, `-`, `*`, `/`, `equal?`, `<=`, `>=`, `list-append`.\n2. Introduce `list-map` as a user-defined higher-order function that leverages recursion, improving testability and reusability while minimally expanding the core primitives:\n   **Data Types:** Number, String, Boolean, List, Symbol, Nil.\n   **Functions:** `lambda`, `car`, `cdr`, `null?`, `list-append`.\n   **User-defined Functions:** (map F L) for mapping function F over list L.\n3. Remove `apply` as it is rarely used and adds complexity to the language, without providing significant benefits under these axioms:\n   **Functions:** `lambda`, `car`, `cdr`, `null?`, `list-append`, (map F L).\n4. Maintain `null?` standardization for consistent list emptiness checks.\n\nBy introducing `list-append` as a primitive and keeping `null?` while user-defining `list-map`, we achieve an optimal balance between minimal core, testability, reusability, and readability under the given axioms."
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P3",
+      "P4",
+      "P2",
+      "P6",
+      "P5",
+      "P1"
+    ],
+    "gemma4:latest": [
+      "P4",
+      "P3",
+      "P2",
+      "P6",
+      "P5",
+      "P1"
+    ],
+    "llama3:latest": [
+      "P4",
+      "P2",
+      "P3",
+      "P1",
+      "P5",
+      "P6"
+    ],
+    "deepseek-r1:8b": [],
+    "mistral:7b": [
+      "P4",
+      "P2",
+      "P1",
+      "P3",
+      "P6",
+      "P5"
+    ]
+  },
+  "scores": {
+    "P1": 5,
+    "P2": 14,
+    "P3": 14,
+    "P4": 19,
+    "P5": 3,
+    "P6": 5
+  },
+  "winner_author": "gemma4:latest",
+  "winner_text": "The current proposal is optimal. No strictly better version can be derived without violating the principle of preserving established functionality (Axiom 3) or introducing unnecessary complexity (Axiom 5).\n\nThe refinement proposed is simply a restatement of the optimality argument, confirming the current structure meets all constraints.\n\n**Final Proposal Confirmation:**\n\n**Core Primitives (Refined):**\n**Data Types:** Number, String, Boolean, List, Symbol, Nil.\n**Functions:** `lambda`, `car`, `cdr`, `null?`.\n**Operators & Control Flow:** `if`, `cond`, `and`, `or`, `quote`.\n**Built-in Functions:** `+`, `-`, `*`, `/`, `equal?`, `<=`, `>=`.\n\n**Rationale for Optimality:**\n\n1.  **Minimal Core & Reuse (Axioms 2 & 5):** The exclusion of high-level list manipulators (`list-map`, `list-filter`, `list-append`) forces users to rely on fundamental list manipulation primitives (`car`, `cdr`, recursion) or standard higher-order functions, forcing adherence to foundational functional programming concepts.\n2.  **Completeness:** Retaining basic arithmetic built-ins (`+`, `-`, etc.) prevents the overhead of implementing fundamental mathematical operations repeatedly, while keeping them as built-ins keeps the language lightweight.\n3.  **Practicality vs. Purity:** While a purely functional approach would eliminate built-in arithmetic, retaining them maintains the practical usability demonstrated by the examples without sacrificing core principles.\n4.  **Redundancy Check:** The combination of `if/else` logic (via `if`) and arithmetic built-ins covers the necessary control flow and mathematical requirements efficiently.\n\nThe structure provides the necessary balance between mathematical power, functional rigor, and practical implementation overhead.",
+  "note": ""
+}

@@ -1,0 +1,78 @@
+{
+  "index": 23,
+  "title": "refine:semantics",
+  "options": [
+    {
+      "label": "P1",
+      "author": "llama3:latest",
+      "text": "**Improved Semantics Decision**\n\n1. **Environment and Scoping:**\n   - Introduce `Closure` as an environment-aware primitive to create function closures with their own local environments.\n   - Update scoping to use lexical scoping, but allow functions to capture their calling environments when creating closures.\n\n2. **Evaluation Order (Call by Value):**\n   - Replace the original evaluation order with a more flexible and efficient approach:\n     * Evaluate `E_1` to obtain the function/procedure `F`.\n     * Apply `F` to the current environment, capturing its local state.\n     * Recursively apply this process to the evaluated arguments of `F`.\n\n3. **Reduction Rules ($\\mathcal{E} \\llbracket E \\rrbracket$):**\n   - Keep the existing reduction rules for atom evaluation and list evaluation.\n   - Update the `Call` mechanism in B1 to create a new local environment binding the evaluated arguments, ensuring proper scoping.\n\n**New Reduction Rule:**\n\nIf an expression evaluates to a function closure:\n$$\\mathcal{E} \\llbracket (F_{\\lambda} E_1 E_2 \\dots E_n) \\rrbracket = \\text{Closure}(F_{\\lambda}, \\Gamma, \\text{Scope})$$\nThe closure is evaluated by applying the captured environment and scope to its body."
+    },
+    {
+      "label": "P2",
+      "author": "qwen3:8b",
+      "text": "The current evaluation semantics are already optimal under the axioms. They adhere to **Call by Value**, **lexical scoping**, and **testable reduction rules**. The distinction between function application and data structures via list evaluation is precise and unambiguous, ensuring machine-interpretable behavior. The environment handling for closures and variable assignment aligns with the axioms of reuse and minimal core. No further improvements are strictly necessary."
+    },
+    {
+      "label": "P3",
+      "author": "gemma4:latest",
+      "text": "The current evaluation model is robust for scope and binding, but the ambiguity in applying the S-expression syntax\u2014where a list `(A B C)` is interpreted as either a function call or a data structure depending on the type of $A$\u2014needs formal clarification to prevent runtime errors or misinterpretations.\n\nThe rule for determining whether an S-expression represents an **Application** (function call) or a **Data Structure** (list construction) must be formalized as the highest-priority rule after scope resolution.\n\n### Proposed Modification: Application vs. Data Structure Priority\n\nWe introduce a strict, two-phase evaluation rule for any non-empty list $L = (L_1 L_2 \\dots L_n)$:\n\n**Rule 1: Application Evaluation (Function Call)**\nIf the first element, $L_1$, evaluates to a callable entity (i.e., it resolves to a defined function, macro, or procedure in the current scope), the entire list $L$ is evaluated as an **Application**:\n$$\\text{Result} = \\text{Call}(L_1, \\text{Eval}(L_2), \\dots, \\text{Eval}(L_n))$$\n*This takes precedence.*\n\n**Rule 2: Data Structure Evaluation (List Construction)**\nIf the first element, $L_1$, evaluates to a non-callable value (i.e., a constant, number, string, or a data structure itself), the entire list $L$ is evaluated as a **Data Structure**:\n$$\\text{Result} = \\text{List}(\\text{Eval}(L_1), \\text{Eval}(L_2), \\dots, \\text{Eval}(L_n))$$\n\n---\n\n### Summary of Changes\n\n1.  **Precedence Established:** The ability to resolve $L_1$ to a callable entity is now the definitive test for function application.\n2.  **Ambiguity Resolution:** This change resolves the conflict where, for example, calling a function like `(if condition true false)` requires the interpreter to recognize `if` as the primary callable entity, while constructing a list like `(A B C)` requires the interpreter to treat $A$ as the first element of the sequence, regardless of its type.\n\n### Final Evaluation Model (Combined)\n\nThe final evaluation model incorporates the previous rules with this new, critical structural rule:\n\n1.  **Scope Resolution:** Binding rules govern variable lookups and parameter passing.\n2.  **Application vs. Data Structure:** For any list $(L_1 L_2 \\dots L_n)$:\n    *   If $L_1$ evaluates to a callable function/macro, execute it as an application (Rule 1).\n    *   Otherwise, construct a list (Rule 2).\n3.  **Primitives:** Evaluation of constants, numbers, and atoms proceeds normally.\n4.  **Recursion:** Evaluation is inherently recursive, applying rules 2 and 3 to all sub-expressions."
+    },
+    {
+      "label": "P4",
+      "author": "CURRENT",
+      "text": "### Evaluation Semantics\n\nThe language employs **Call by Value** evaluation, utilizing a structured evaluation environment ($\\Gamma$) for scope management.\n\n#### 1. Evaluation Environment and Scoping\n*   **Environment ($\\Gamma$):** The environment is a mapping from identifiers (strings) to values.\n*   **Scoping:** Lexical scoping is enforced. When evaluating an expression, the scope chain is resolved by looking up identifiers in the current function's local environment, then the enclosing environment, and so on, up to the global environment.\n*   **Variable Assignment:** Assignment is handled via a dedicated function/primitive, e.g., `(set var value)`, which updates the current environment binding for `var`.\n\n#### 2. Evaluation Order (Call by Value)\nTo evaluate an expression $(E_1 E_2 \\dots E_n)$:\n1.  Evaluate $E_1$ to obtain the function/procedure $F$.\n2.  Evaluate $E_2$ to obtain argument $A_1$.\n3.  Evaluate $E_3$ to obtain argument $A_2$.\n4.  ...\n5.  Evaluate $E_n$ to obtain argument $A_{n-1}$.\n6.  Apply $F$ to the resulting tuple of arguments: $F(A_1, A_2, \\dots, A_{n-1})$.\n\n#### 3. Reduction Rules ($\\mathcal{E} \\llbracket E \\rrbracket$)\n\nLet $\\mathcal{E} \\llbracket E \\rrbracket$ denote the evaluation of expression $E$ in the current environment $\\Gamma$.\n\n**A. Atom Evaluation:**\n*   **Literals (Numbers, Strings, Booleans):** $\\mathcal{E} \\llbracket \\text{literal} \\rrbracket = \\text{literal}$. They are evaluated immediately and do not require environment lookups.\n*   **Identifiers (Variables):** $\\mathcal{E} \\llbracket \\text{identifier} \\rrbracket = \\Gamma(\\text{identifier})$. The value is retrieved directly from the environment $\\Gamma$.\n\n**B. List Evaluation (The Core Reduction):**\nAn expression $E$ that parses as a list $(E_1 E_2 \\dots E_n)$ is interpreted based on the type of the evaluated first element, $\\text{Val}_1 = \\mathcal{E} \\llbracket E_1 \\rrbracket$.\n\n1.  **Function Application (The Primary Case):**\n    *   If $\\text{Val}_1$ is a callable procedure $F$:\n        $$\\mathcal{E} \\llbracket (E_1 E_2 \\dots E_n) \\rrbracket = \\text{Call}(F, \\mathcal{E} \\llbracket E_2 \\rrbracket, \\dots, \\mathcal{E} \\llbracket E_n \\rrbracket)$$\n        The `Call` mechanism invokes $F$ with the evaluated arguments, creating a new local environment binding these arguments.\n\n2.  **Data Structure (Non-Callable List):**\n    *   If $\\text{Val}_1$ is *not* callable (e.g., it evaluates to a Number, String, or a closed data structure):\n        $$\\mathcal{E} \\llbracket (E_1 E_2 \\dots E_n) \\rrbracket = \\text{DataList}(\\mathcal{E} \\llbracket E_1 \\rrbracket, \\dots, \\mathcal{E} \\llbracket E_n \\rrbracket)$$\n        The list is treated as an immutable sequence of evaluated values (like a tuple or array), which is a valid value itself.\n\n3.  **Empty List:**\n    *   $$\\mathcal{E} \\llbracket () \\rrbracket = \\text{Nil}$$\n    *   The empty list evaluates to the designated $\\text{Nil}$ value.\n\n**C. Control Flow Primitives (Requires function bindings):**\n\n*   **Conditionals (IF):** Assuming `if` is bound to a function $F_{if}$:\n    $$\\mathcal{E} \\llbracket (F_{if} E_{cond} E_{true} E_{false}) \\rrbracket = \\text{If}(\\text{IsTrue}(\\mathcal{E} \\llbracket E_{cond} \\rrbracket), \\mathcal{E} \\llbracket E_{true} \\rrbracket, \\mathcal{E} \\llbracket E_{false} \\rrbracket)$$\n*   **Binding/Defining Functions (LAMBDA):** Assuming `lambda` is bound to a function $F_{\\lambda}$:\n    $$\\mathcal{E} \\llbracket (F_{\\lambda} \\text{var} \\text{ params} \\text{ body}) \\rrbracket = \\text{Closure}(\\text{body}, \\text{NewEnv}(\\Gamma, \\text{var} \\rightarrow \\text{params}), \\text{Scope})$$\n    This creates a function closure that captures the current environment $\\Gamma$ for scope resolution."
+    },
+    {
+      "label": "P5",
+      "author": "mistral:7b",
+      "text": "Proposal: **First-Class Environment and Anonymous Functions**\n\n1. Evaluation Environment and Scoping\n*   **Environment ($\\Gamma$):** The environment is a mapping from identifiers (strings) to values or other environments (closures).\n*   **Scoping:** Lexical scoping is enforced as before, but closures can capture their own local environment. This allows for anonymous functions (lambda expressions) and dynamic scope in nested function definitions.\n\n2. Evaluation Order (Call by Value)\nThe same order remains unchanged: evaluate arguments one-by-one and apply a function to the resulting tuple of arguments.\n\n3. Reduction Rules ($\\mathcal{E} \\llbracket E \\rrbracket$)\n**A. Atom Evaluation:** Literals, identifiers, and lists remain as before.\n\n**B. List Evaluation (The Core Reduction):**\n\n1. Function Application (The Primary Case):\n    *   If $\\text{Val}_1$ is a callable procedure $F$:\n        $$\\mathcal{E} \\llbracket (E_1 E_2 \\dots E_n) \\rrbracket = \\text{Call}(F, \\Gamma_L(\\text{identifier}_2), \\dots, \\Gamma_L(\\text{identifier}_n))$$\n        The `Call` mechanism invokes $F$ with the evaluated arguments from the local environment of the function body $\\Gamma_L$. This allows for closure capturing and dynamic scope in nested functions.\n\n2. Data Structure (Non-Callable List):\n    *   If $\\text{Val}_1$ is a closed data structure or non-callable:\n        $$\\mathcal{E} \\llbracket (E_1 E_2 \\dots E_n) \\rrbracket = \\text{DataList}(\\mathcal{E} \\llbracket E_1 \\rrbracket, \\dots, \\mathcal{E} \\llbracket E_n \\rrbracket)$$\n        The list is treated as an immutable sequence of evaluated values.\n\n3. Lambda Expressions (Anonymous Functions):\n    *   $\\mathcal{E} \\llbracket (\\text{lambda identifier params body}) \\rrbracket = F_\\lambda(\\text{params}, \\Gamma_L)$\n        A lambda expression creates a new function $F_\\lambda$ with the provided parameters and the current local environment $\\Gamma_L$. This allows for anonymous functions within expressions.\n\nThis version maintains call by value evaluation semantics while allowing for dynamic scoping and anonymous functions, which provides additional flexibility for writing expressive programs in the language."
+    }
+  ],
+  "ballots": {
+    "qwen3:8b": [
+      "P4",
+      "P2",
+      "P3",
+      "P5",
+      "P1"
+    ],
+    "gemma4:latest": [
+      "P4",
+      "P3",
+      "P2",
+      "P1",
+      "P5"
+    ],
+    "llama3:latest": [
+      "P2",
+      "P4",
+      "P5",
+      "P1",
+      "P3"
+    ],
+    "deepseek-r1:8b": [
+      "P2",
+      "P4",
+      "P3",
+      "P1",
+      "P5"
+    ],
+    "mistral:7b": [
+      "P5",
+      "P1",
+      "P4",
+      "P3",
+      "P2"
+    ]
+  },
+  "scores": {
+    "P1": 6,
+    "P2": 13,
+    "P3": 8,
+    "P4": 16,
+    "P5": 7
+  },
+  "winner_author": "CURRENT",
+  "winner_text": "### Evaluation Semantics\n\nThe language employs **Call by Value** evaluation, utilizing a structured evaluation environment ($\\Gamma$) for scope management.\n\n#### 1. Evaluation Environment and Scoping\n*   **Environment ($\\Gamma$):** The environment is a mapping from identifiers (strings) to values.\n*   **Scoping:** Lexical scoping is enforced. When evaluating an expression, the scope chain is resolved by looking up identifiers in the current function's local environment, then the enclosing environment, and so on, up to the global environment.\n*   **Variable Assignment:** Assignment is handled via a dedicated function/primitive, e.g., `(set var value)`, which updates the current environment binding for `var`.\n\n#### 2. Evaluation Order (Call by Value)\nTo evaluate an expression $(E_1 E_2 \\dots E_n)$:\n1.  Evaluate $E_1$ to obtain the function/procedure $F$.\n2.  Evaluate $E_2$ to obtain argument $A_1$.\n3.  Evaluate $E_3$ to obtain argument $A_2$.\n4.  ...\n5.  Evaluate $E_n$ to obtain argument $A_{n-1}$.\n6.  Apply $F$ to the resulting tuple of arguments: $F(A_1, A_2, \\dots, A_{n-1})$.\n\n#### 3. Reduction Rules ($\\mathcal{E} \\llbracket E \\rrbracket$)\n\nLet $\\mathcal{E} \\llbracket E \\rrbracket$ denote the evaluation of expression $E$ in the current environment $\\Gamma$.\n\n**A. Atom Evaluation:**\n*   **Literals (Numbers, Strings, Booleans):** $\\mathcal{E} \\llbracket \\text{literal} \\rrbracket = \\text{literal}$. They are evaluated immediately and do not require environment lookups.\n*   **Identifiers (Variables):** $\\mathcal{E} \\llbracket \\text{identifier} \\rrbracket = \\Gamma(\\text{identifier})$. The value is retrieved directly from the environment $\\Gamma$.\n\n**B. List Evaluation (The Core Reduction):**\nAn expression $E$ that parses as a list $(E_1 E_2 \\dots E_n)$ is interpreted based on the type of the evaluated first element, $\\text{Val}_1 = \\mathcal{E} \\llbracket E_1 \\rrbracket$.\n\n1.  **Function Application (The Primary Case):**\n    *   If $\\text{Val}_1$ is a callable procedure $F$:\n        $$\\mathcal{E} \\llbracket (E_1 E_2 \\dots E_n) \\rrbracket = \\text{Call}(F, \\mathcal{E} \\llbracket E_2 \\rrbracket, \\dots, \\mathcal{E} \\llbracket E_n \\rrbracket)$$\n        The `Call` mechanism invokes $F$ with the evaluated arguments, creating a new local environment binding these arguments.\n\n2.  **Data Structure (Non-Callable List):**\n    *   If $\\text{Val}_1$ is *not* callable (e.g., it evaluates to a Number, String, or a closed data structure):\n        $$\\mathcal{E} \\llbracket (E_1 E_2 \\dots E_n) \\rrbracket = \\text{DataList}(\\mathcal{E} \\llbracket E_1 \\rrbracket, \\dots, \\mathcal{E} \\llbracket E_n \\rrbracket)$$\n        The list is treated as an immutable sequence of evaluated values (like a tuple or array), which is a valid value itself.\n\n3.  **Empty List:**\n    *   $$\\mathcal{E} \\llbracket () \\rrbracket = \\text{Nil}$$\n    *   The empty list evaluates to the designated $\\text{Nil}$ value.\n\n**C. Control Flow Primitives (Requires function bindings):**\n\n*   **Conditionals (IF):** Assuming `if` is bound to a function $F_{if}$:\n    $$\\mathcal{E} \\llbracket (F_{if} E_{cond} E_{true} E_{false}) \\rrbracket = \\text{If}(\\text{IsTrue}(\\mathcal{E} \\llbracket E_{cond} \\rrbracket), \\mathcal{E} \\llbracket E_{true} \\rrbracket, \\mathcal{E} \\llbracket E_{false} \\rrbracket)$$\n*   **Binding/Defining Functions (LAMBDA):** Assuming `lambda` is bound to a function $F_{\\lambda}$:\n    $$\\mathcal{E} \\llbracket (F_{\\lambda} \\text{var} \\text{ params} \\text{ body}) \\rrbracket = \\text{Closure}(\\text{body}, \\text{NewEnv}(\\Gamma, \\text{var} \\rightarrow \\text{params}), \\text{Scope})$$\n    This creates a function closure that captures the current environment $\\Gamma$ for scope resolution.",
+  "note": "status quo held"
+}
