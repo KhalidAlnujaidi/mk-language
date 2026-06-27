@@ -1,0 +1,9 @@
+{
+  "id": "groom-deslop-no-filler",
+  "description": "A model response must be free of LLM 'slop' filler phrasing",
+  "prompt": "summarize what the redact stage does in one sentence",
+  "tags": ["groom", "slop"],
+  "assertions": [
+    {"kind": "slop", "target": "response_text", "expected": ""}
+  ]
+}

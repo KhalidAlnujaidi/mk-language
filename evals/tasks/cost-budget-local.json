@@ -1,0 +1,10 @@
+{
+  "id": "cost-budget-local",
+  "description": "A simple task completes within the cost budget on the local tier",
+  "prompt": "what is 2 + 2",
+  "tags": ["cost", "budget"],
+  "assertions": [
+    {"kind": "budget", "target": "cost_usd", "expected": "0.001"},
+    {"kind": "routed", "target": "tier_where", "expected": "local"}
+  ]
+}
