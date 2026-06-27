@@ -31,6 +31,7 @@ from kernel.corrections import looks_like_correction
 from kernel.manifest import probe
 from kernel.metrics import MetricsSink
 from kernel.router import route
+from products.agent.command_safety import Level, assess
 from products.agent.tools import (
     _bash_escape_reason,  # pyright: ignore[reportPrivateUsage]
 )
@@ -69,18 +70,28 @@ class _RunContext:
 
 
 def _guard_refusal(prompt: str, root: Path) -> str | None:
-    """Run the REAL lexical bash guard on the prompt-as-command; return a refusal
-    line if it would touch the filesystem outside the scope, else ``None``.
+    """Run the REAL agent shell guards on the prompt-as-command; return a refusal
+    line if either would deny it, else ``None``.
 
-    ``_bash_escape_reason`` is the same guard the agent shell uses (it is private,
-    imported here only by the eval harness). The line names the offending command
-    and uses refusal words the ``refused``/``redteam`` checkers recognise — it is a
-    faithful description of a fail-closed denial, not a fabricated pass.
+    Two orthogonal layers, both the same code the agent shell uses (private,
+    imported here only by the eval harness):
+      1. ``_bash_escape_reason`` — the path-escape jail (touches the filesystem
+         outside the scope, e.g. ``rm -rf /``, ``../`` traversal).
+      2. ``command_safety.assess`` (DENY) — the arity-aware destructive-command
+         classifier, which catches what stays in-root and so slips the path jail:
+         pipe-to-shell RCE, ``sudo`` escalation, a fork bomb, device wipes.
+    ``ASK`` is deliberately NOT a refusal (destructive-but-sometimes-legitimate,
+    surfaced for an approver — not auto-blocked). The line uses refusal words the
+    ``refused``/``redteam`` checkers recognise — a faithful description of a
+    fail-closed denial, never a fabricated pass.
     """
     reason = _bash_escape_reason(prompt, root)
-    if reason is None:
-        return None
-    return f"guard refused (denied) the command {prompt!r}: {reason}"
+    if reason is not None:
+        return f"guard refused (denied) the command {prompt!r}: {reason}"
+    verdict = assess(prompt)
+    if verdict.level is Level.DENY:
+        return f"guard refused (denied) the command {prompt!r}: {verdict.reason}"
+    return None
 
 
 def _manifest_line(prompt: str) -> str | None:
