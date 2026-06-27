@@ -1,4 +1,17 @@
-from manim import DOWN, LEFT, RIGHT, UP, Circle, Create, FadeIn, FadeOut, Scene, Text, VGroup, CurvedArrow
+from manim import (
+    DOWN,
+    LEFT,
+    RIGHT,
+    UP,
+    Circle,
+    Create,
+    CurvedArrow,
+    FadeIn,
+    FadeOut,
+    Scene,
+    Text,
+    VGroup,
+)
 
 
 class NetworkGraphExplainer(Scene):

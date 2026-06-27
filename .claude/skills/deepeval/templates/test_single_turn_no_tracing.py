@@ -1,13 +1,11 @@
 from importlib import import_module
 
 import pytest
-
 from deepeval import assert_test
 from deepeval.dataset import EvaluationDataset, Golden
 from deepeval.test_case import LLMTestCase
 
 from metrics import SINGLE_TURN_NO_TRACING_METRICS
-
 
 ai_app = import_module("ai_app")
 
