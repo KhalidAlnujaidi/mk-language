@@ -13,8 +13,11 @@
 - Iteration support: Done. 2 new ASG node types (GlobFiles + ForEachFile).
   7 iteration planner rules. All 4 backends handle iteration. 30 new test rungs.
 
-Current state: 89/89 v03 rungs, 11/11 v02 rungs, 121/121 planner rungs green.
-Total: 221 rungs. 18 ASG node types, 4 backends, 37 compound + 7 iteration planner rules.
+Current state: 89/89 v03 rungs, 128/128 planner rungs green.
+Total: 217 rungs. 20 ASG node types, 4 backends, 42 compound + 7 iteration + 5 var planner rules.
+
+- Variable binding: Done. 2 new ASG node types (SetVar + PrintVar).
+  {var} substitution across all backends. 5 planner rules. 17 new test rungs.
 
 ## Now (immediate, high-leverage)
 
