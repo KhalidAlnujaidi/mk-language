@@ -70,6 +70,12 @@ uppercase placeholders):
   if NAME exists then INTENT otherwise INTENT — conditional execution
   set VAR = INTENT                          — capture output of INTENT into VAR
   print $VAR                                — print the value of a variable
+  replace "OLD" with "NEW" in NAME          — find & replace text in file
+  uppercase NAME                            — convert to UPPERCASE
+  lowercase NAME                            — convert to lowercase
+  titlecase NAME                            — convert to Title Case
+  unique lines in NAME                      — remove duplicate lines
+  reverse lines in NAME                     — reverse line order
 
 Variable substitution: any string field in later nodes can contain {VARNAME}
 which gets replaced with the captured value. Example:
@@ -331,6 +337,27 @@ _VAR_RULES: list[tuple[re.Pattern, list[str]]] = [
     (
         re.compile(r'^(?:show|print|echo) \$(\w+)$', re.IGNORECASE),
         ['print ${0}'],
+    ),
+    # --- v03.3: Text transform shortcuts ---
+    # "dedupe NAME" → unique lines
+    (
+        re.compile(r'^dedupe (\S+)$', re.IGNORECASE),
+        ['unique lines in {0}'],
+    ),
+    # "deduplicate NAME" → unique lines
+    (
+        re.compile(r'^deduplicate (\S+)$', re.IGNORECASE),
+        ['unique lines in {0}'],
+    ),
+    # "ucase NAME" → uppercase
+    (
+        re.compile(r'^ucase (\S+)$', re.IGNORECASE),
+        ['uppercase {0}'],
+    ),
+    # "lcase NAME" → lowercase
+    (
+        re.compile(r'^lcase (\S+)$', re.IGNORECASE),
+        ['lowercase {0}'],
     ),
 ]
 

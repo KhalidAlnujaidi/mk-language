@@ -208,6 +208,40 @@ class PrintVar:
     node_type: str = "Terminal"
 
 
+
+# --- v03.3: Text transformation nodes ---
+
+@dataclass(frozen=True)
+class ReplaceText:
+    """Terminal — replace all occurrences of old with new in file content."""
+    name: str
+    old: str
+    new: str
+    node_type: str = "Terminal"
+
+
+@dataclass(frozen=True)
+class TransformCase:
+    """Terminal — transform text to upper/lower/title case."""
+    name: str
+    mode: str  # "upper", "lower", "title"
+    node_type: str = "Terminal"
+
+
+@dataclass(frozen=True)
+class UniqueLines:
+    """Terminal — remove duplicate lines, preserving first occurrence order."""
+    name: str
+    node_type: str = "Terminal"
+
+
+@dataclass(frozen=True)
+class ReverseLines:
+    """Terminal — reverse the order of lines in a file."""
+    name: str
+    node_type: str = "Terminal"
+
+
 # Union type for type checking
 ASGNode = Union[
     CreateFile, ReadFile, AppendFile, CountLines, CopyFile,
@@ -215,6 +249,7 @@ ASGNode = Union[
     CountWords, SortLines, HeadLines, SumNumbers, ExtractPattern,
     GlobFiles, ForEachFile,
     SetVar, PrintVar,
+    ReplaceText, TransformCase, UniqueLines, ReverseLines,
 ]
 
 
@@ -329,6 +364,27 @@ def parse_line(line: str) -> ASGNode | None:
             else_branch=[else_node] if else_node else [],
         )
 
+
+    # --- v03.3: Text transformation patterns ---
+
+    # replace "OLD" with "NEW" in NAME
+    if m := re.match(r'replace "([^"]*)" with "([^"]*)" in (\S+)', line):
+        return ReplaceText(name=m.group(3), old=m.group(1), new=m.group(2))
+
+    # uppercase NAME / lowercase NAME / titlecase NAME
+    if m := re.match(r'(uppercase|lowercase|titlecase) (\S+)', line):
+        mode_map = {"uppercase": "upper", "lowercase": "lower", "titlecase": "title"}
+        return TransformCase(name=m.group(2), mode=mode_map[m.group(1)])
+
+    # unique lines in NAME
+    if m := re.match(r'unique lines in (\S+)', line):
+        return UniqueLines(name=m.group(1))
+
+    # reverse lines in NAME
+    if m := re.match(r'reverse lines in (\S+)', line):
+        return ReverseLines(name=m.group(1))
+
+    # glob files matching "PATTERN"
     # glob files matching "PATTERN"
     if m := re.match(r'glob files matching "([^"]*)"', line):
         return GlobFiles(pattern=m.group(1))

@@ -84,6 +84,12 @@ Compound shortcuts (deterministic — no model needed):
   first line of NAME           show first 1 line
   total NAME                   sum numbers in file
   sort NAME                    sort lines alphabetically
+  dedupe NAME                  remove duplicate lines
+  uppercase NAME               convert to UPPERCASE
+  lowercase NAME               convert to lowercase
+  titlecase NAME               convert to Title Case
+  replace "X" with "Y" in NAME find & replace text
+  reverse lines in NAME        reverse line order
   grep "TEXT" in NAME          extract matching lines
   search for "TEXT"            find files containing text
 

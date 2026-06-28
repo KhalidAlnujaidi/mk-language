@@ -30,6 +30,7 @@ from asg import (
     CountWords, SortLines, HeadLines, SumNumbers, ExtractPattern,
     GlobFiles, ForEachFile,
     SetVar, PrintVar,
+    ReplaceText, TransformCase, UniqueLines, ReverseLines,
 )
 
 
@@ -46,6 +47,56 @@ def _compile_node(node: ASGNode) -> str:
     """Compile a single ASG node to its shell equivalent."""
 
     match node:
+
+
+        case ReplaceText(name=name, old=old, new=new):
+            qname = shlex.quote(name)
+            # Use sed with proper escaping; old/new are literal strings
+            old_esc = old.replace('/', '\\/')
+            new_esc = new.replace('/', '\\/')
+            return (
+                'if [ -f ' + qname + ' ]; then\n'
+                '    sed "s/' + old_esc + '/' + new_esc + '/g" ' + qname + ' | grep -v "^$" | tr "\\n" " "\n'
+                'else\n'
+                '    printf "%s" ""\n'
+                'fi'
+            )
+
+        case TransformCase(name=name, mode=mode):
+            qname = shlex.quote(name)
+            if mode == "upper":
+                cmd = "tr '[:lower:]' '[:upper:]'"
+            elif mode == "lower":
+                cmd = "tr '[:upper:]' '[:lower:]'"
+            else:
+                cmd = "awk '{for(i=1;i<=NF;i++){$i=toupper(substr($i,1,1)) tolower(substr($i,2))};print}'"
+            return (
+                'if [ -f ' + qname + ' ]; then\n'
+                '    ' + cmd + ' < ' + qname + ' | grep -v "^$" | tr "\\n" " "\n'
+                'else\n'
+                '    printf "%s" ""\n'
+                'fi'
+            )
+
+        case UniqueLines(name=name):
+            qname = shlex.quote(name)
+            return (
+                'if [ -f ' + qname + ' ]; then\n'
+                "    awk '!seen[$0]++' " + qname + ' | tr "\\n" " "\n'
+                'else\n'
+                '    printf "%s" ""\n'
+                'fi'
+            )
+
+        case ReverseLines(name=name):
+            qname = shlex.quote(name)
+            return (
+                'if [ -f ' + qname + ' ]; then\n'
+                '    grep -v "^$" ' + qname + ' | tac | tr "\\n" " "\n'
+                'else\n'
+                '    printf "%s" ""\n'
+                'fi'
+            )
 
         # --- v03.2: Variable binding ---
 

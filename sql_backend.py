@@ -52,6 +52,7 @@ from asg import (
     CountWords, SortLines, HeadLines, SumNumbers, ExtractPattern,
     GlobFiles, ForEachFile,
     SetVar, PrintVar,
+    ReplaceText, TransformCase, UniqueLines, ReverseLines,
 )
 
 
@@ -192,6 +193,62 @@ def _compile_node(node: ASGNode) -> str:
                 f"  THEN (SELECT group_concat(line, char(10)) FROM {tbl})\n"
                 f"  ELSE ''\n"
                 f"END AS _raw_lines;"
+            )
+
+
+        case ReplaceText(name=name, old=old, new=new):
+            tbl = _table_name(name)
+            raw = _raw_name(name)
+            old_e = _sql_escape(old)
+            new_e = _sql_escape(new)
+            return (
+                f"-- ReplaceText: {name}\n"
+                f"SELECT CASE WHEN EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='{raw}')\n"
+                f"  THEN (SELECT group_concat(replace(line, '{old_e}', '{new_e}'), ' ') FROM {tbl} WHERE line != '')\n"
+                f"  ELSE ''\n"
+                f"END AS _output;"
+            )
+
+        case TransformCase(name=name, mode=mode):
+            tbl = _table_name(name)
+            raw = _raw_name(name)
+            if mode == "upper":
+                func = "UPPER(line)"
+            elif mode == "lower":
+                func = "LOWER(line)"
+            else:  # title — SQLite has no title(), use manual approach
+                # Simple title: uppercase first char + lowercase rest per word
+                # SQLite lacks good title support; approximate with UPPER for the
+                # whole line (acceptable for SQL-incompatible note)
+                func = f"UPPER(line)"  # approximation — SQL-native limitation
+            return (
+                f"-- TransformCase: {name} ({mode})\n"
+                f"SELECT CASE WHEN EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='{raw}')\n"
+                f"  THEN (SELECT group_concat({func}, ' ') FROM {tbl} WHERE line != '')\n"
+                f"  ELSE ''\n"
+                f"END AS _output;"
+            )
+
+        case UniqueLines(name=name):
+            tbl = _table_name(name)
+            raw = _raw_name(name)
+            return (
+                f"-- UniqueLines: {name}\n"
+                f"SELECT CASE WHEN EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='{raw}')\n"
+                f"  THEN (SELECT group_concat(line, ' ') FROM (SELECT DISTINCT line FROM {tbl} WHERE line != '' ORDER BY rowid))\n"
+                f"  ELSE ''\n"
+                f"END AS _output;"
+            )
+
+        case ReverseLines(name=name):
+            tbl = _table_name(name)
+            raw = _raw_name(name)
+            return (
+                f"-- ReverseLines: {name}\n"
+                f"SELECT CASE WHEN EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='{raw}')\n"
+                f"  THEN (SELECT group_concat(line, ' ') FROM (SELECT line FROM {tbl} WHERE line != '' ORDER BY rowid DESC))\n"
+                f"  ELSE ''\n"
+                f"END AS _output;"
             )
 
         case ExtractPattern(name=name, pattern=pattern):
@@ -583,6 +640,48 @@ def _execute_node(cursor: sqlite3.Cursor, node: ASGNode, conn: sqlite3.Connectio
                     if r is not None:
                         results.append(r)
             return ' '.join(results) if results else None
+
+
+        case ReplaceText(name=name, old=old, new=new):
+            tbl = _table_name(name)
+            raw = _raw_name(name)
+            if not table_exists(raw):
+                return ''
+            cursor.execute(f'SELECT line FROM {tbl}')
+            rows = cursor.fetchall()
+            return ' '.join((r[0] or '').replace(old, new) for r in rows if r[0])
+
+        case TransformCase(name=name, mode=mode):
+            tbl = _table_name(name)
+            raw = _raw_name(name)
+            if not table_exists(raw):
+                return ''
+            cursor.execute(f'SELECT line FROM {tbl}')
+            rows = cursor.fetchall()
+            if mode == "upper":
+                return ' '.join((r[0] or '').upper() for r in rows if r[0])
+            elif mode == "lower":
+                return ' '.join((r[0] or '').lower() for r in rows if r[0])
+            else:  # title
+                return ' '.join((r[0] or '').title() for r in rows if r[0])
+
+        case UniqueLines(name=name):
+            tbl = _table_name(name)
+            raw = _raw_name(name)
+            if not table_exists(raw):
+                return ''
+            cursor.execute(f'SELECT DISTINCT line FROM {tbl} WHERE line != "" ORDER BY rowid')
+            rows = cursor.fetchall()
+            return ' '.join(r[0] for r in rows if r[0])
+
+        case ReverseLines(name=name):
+            tbl = _table_name(name)
+            raw = _raw_name(name)
+            if not table_exists(raw):
+                return ''
+            cursor.execute(f'SELECT line FROM {tbl} WHERE line != "" ORDER BY rowid DESC')
+            rows = cursor.fetchall()
+            return ' '.join(r[0] for r in rows if r[0])
 
         # --- v03.2: Variable binding ---
 

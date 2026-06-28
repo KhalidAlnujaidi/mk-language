@@ -40,6 +40,7 @@ from asg import (
     CountWords, SortLines, HeadLines, SumNumbers, ExtractPattern,
     GlobFiles, ForEachFile,
     SetVar, PrintVar,
+    ReplaceText, TransformCase, UniqueLines, ReverseLines,
 )
 
 
@@ -178,6 +179,19 @@ def _substitute_in_node(node: ASGNode, sub_fn) -> ASGNode:
         case PrintVar(var_name=var_name):
             return node  # PrintVar is resolved at execution time, not substituted
 
+
+        case ReplaceText(name=name, old=old, new=new):
+            return ReplaceText(name=sub_fn(name), old=sub_fn(old), new=sub_fn(new))
+
+        case TransformCase(name=name, mode=mode):
+            return TransformCase(name=sub_fn(name), mode=mode)
+
+        case UniqueLines(name=name):
+            return UniqueLines(name=sub_fn(name))
+
+        case ReverseLines(name=name):
+            return ReverseLines(name=sub_fn(name))
+
         case _:
             return node  # SetVar, Conditional, ForEachFile, GlobFiles — handled elsewhere
 
@@ -253,6 +267,21 @@ def _substitute_placeholder(node: ASGNode, placeholder: str, filename: str) -> A
             return Conditional(condition_file=condition_file.replace(ph, filename),
                                then_branch=sub_then,
                                else_branch=sub_else)
+
+        case ReplaceText(name=name, old=old, new=new):
+            return ReplaceText(name=name.replace(ph, filename),
+                              old=old.replace(ph, filename),
+                              new=new.replace(ph, filename))
+
+        case TransformCase(name=name, mode=mode):
+            return TransformCase(name=name.replace(ph, filename), mode=mode)
+
+        case UniqueLines(name=name):
+            return UniqueLines(name=name.replace(ph, filename))
+
+        case ReverseLines(name=name):
+            return ReverseLines(name=name.replace(ph, filename))
+
 
         case _:
             return node
@@ -415,7 +444,51 @@ def _execute_node(node: ASGNode, emit, state: _ExecState) -> None:
             else:
                 _execute_nodes(else_branch, emit, state)
 
-        # --- v03.1: Iteration nodes ---
+        case ReplaceText(name=name, old=old, new=new):
+            if not os.path.exists(name):
+                _emit_result(emit, "")
+                return
+            with open(name, 'r') as f:
+                lines = [l.rstrip('\n') for l in f.readlines() if l.strip()]
+            _emit_result(emit, ' '.join(l.replace(old, new) for l in lines))
+
+        case TransformCase(name=name, mode=mode):
+            if not os.path.exists(name):
+                _emit_result(emit, "")
+                return
+            with open(name, 'r') as f:
+                lines = [l.rstrip('\n') for l in f.readlines() if l.strip()]
+            if mode == "upper":
+                transformed = [l.upper() for l in lines]
+            elif mode == "lower":
+                transformed = [l.lower() for l in lines]
+            elif mode == "title":
+                transformed = [l.title() for l in lines]
+            else:
+                transformed = lines
+            _emit_result(emit, ' '.join(transformed))
+
+        case UniqueLines(name=name):
+            if not os.path.exists(name):
+                _emit_result(emit, "")
+                return
+            with open(name, 'r') as f:
+                lines = [l.rstrip('\n') for l in f.readlines() if l.strip()]
+            seen = set()
+            unique = []
+            for l in lines:
+                if l not in seen:
+                    seen.add(l)
+                    unique.append(l)
+            _emit_result(emit, ' '.join(unique))
+
+        case ReverseLines(name=name):
+            if not os.path.exists(name):
+                _emit_result(emit, "")
+                return
+            with open(name, 'r') as f:
+                lines = [l.rstrip('\n') for l in f.readlines() if l.strip()]
+            _emit_result(emit, ' '.join(list(reversed(lines))))
 
         case GlobFiles(pattern=pattern):
             """List files matching a glob pattern, sorted, space-joined."""
@@ -424,6 +497,7 @@ def _execute_node(node: ASGNode, emit, state: _ExecState) -> None:
                 if os.path.isfile(f) and fnmatch.fnmatch(f, pattern)
             )
             _emit_result(emit, ' '.join(files) if files else "(none)")
+
 
         case ForEachFile(glob_pattern=glob_pattern,
                          body_template=body_template,

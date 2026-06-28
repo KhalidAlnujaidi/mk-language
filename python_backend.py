@@ -20,6 +20,7 @@ from asg import (
     CountWords, SortLines, HeadLines, SumNumbers, ExtractPattern,
     GlobFiles, ForEachFile,
     SetVar, PrintVar,
+    ReplaceText, TransformCase, UniqueLines, ReverseLines,
 )
 
 
@@ -65,6 +66,62 @@ def _compile_node(node: ASGNode, indent: str) -> str:
         return '\n'.join(indent + line if line.strip() else line for line in code.split('\n'))
 
     match node:
+
+
+        case ReplaceText(name=name, old=old, new=new):
+            name_r = repr(name)
+            old_r = repr(old)
+            new_r = repr(new)
+            return ind(
+                f"if not os.path.exists({name_r}):\n"
+                f"    sys.stdout.write('')\n"
+                f"else:\n"
+                f"    with open({name_r}, 'r') as _f:\n"
+                f"        _lines = [l.rstrip('\\n') for l in _f.readlines() if l.strip()]\n"
+                f"    sys.stdout.write(' '.join(l.replace({old_r}, {new_r}) for l in _lines))"
+            )
+
+        case TransformCase(name=name, mode=mode):
+            name_r = repr(name)
+            mode_r = repr(mode)
+            return ind(
+                f"if not os.path.exists({name_r}):\n"
+                f"    sys.stdout.write('')\n"
+                f"else:\n"
+                f"    with open({name_r}, 'r') as _f:\n"
+                f"        _lines = [l.rstrip('\\n') for l in _f.readlines() if l.strip()]\n"
+                f"    _m = {mode_r}\n"
+                f"    _t = [l.upper() if _m == 'upper' else l.lower() if _m == 'lower' else l.title() for l in _lines]\n"
+                f"    sys.stdout.write(' '.join(_t))"
+            )
+
+        case UniqueLines(name=name):
+            name_r = repr(name)
+            return ind(
+                f"if not os.path.exists({name_r}):\n"
+                f"    sys.stdout.write('')\n"
+                f"else:\n"
+                f"    with open({name_r}, 'r') as _f:\n"
+                f"        _lines = [l.rstrip('\\n') for l in _f.readlines() if l.strip()]\n"
+                f"    _seen = set()\n"
+                f"    _uniq = []\n"
+                f"    for _l in _lines:\n"
+                f"        if _l not in _seen:\n"
+                f"            _seen.add(_l)\n"
+                f"            _uniq.append(_l)\n"
+                f"    sys.stdout.write(' '.join(_uniq))"
+            )
+
+        case ReverseLines(name=name):
+            name_r = repr(name)
+            return ind(
+                f"if not os.path.exists({name_r}):\n"
+                f"    sys.stdout.write('')\n"
+                f"else:\n"
+                f"    with open({name_r}, 'r') as _f:\n"
+                f"        _lines = [l.rstrip('\\n') for l in _f.readlines() if l.strip()]\n"
+                f"    sys.stdout.write(' '.join(reversed(_lines)))"
+            )
 
         # --- v03.2: Variable binding ---
 
