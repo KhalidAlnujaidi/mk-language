@@ -12,12 +12,30 @@ from __future__ import annotations
 from pathlib import Path
 
 import evals.execute as ex
+import pytest
 from evals.execute import run_golden_set, run_task
 from evals.runner import run_golden_eval
 from evals.schema import Assertion, EvalTask, load_all_tasks
+from kernel.manifest import Manifest
 
 _ROOT = Path(__file__).resolve().parent.parent
 _TASKS = _ROOT / "evals" / "tasks"
+
+
+@pytest.fixture(autouse=True)
+def _no_local_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the whole module behave like CI: no local model, so model-dependent
+    tasks (``judged``) SKIP and every gate assertion here is deterministic on any
+    host — no flaky real judge calls. judged's live behaviour is proven by the
+    fake-judge tests below and by run_golden_eval when a model is present."""
+    no_model = Manifest(
+        cpu_count=2,
+        ram_gb=8.0,
+        gpu_vram_gb=None,
+        local_models=(),
+        cloud_available=False,
+    )
+    monkeypatch.setattr("evals.execute.probe", lambda: no_model)
 
 
 def test_every_task_runs_without_raising() -> None:
@@ -57,8 +75,11 @@ def test_run_golden_eval_reports_a_mean_score() -> None:
 
 
 def test_deterministic_gate_is_clean() -> None:
-    # Every NON-skipped golden task passes — the gate self-evolution runs against
-    # carries no red. (Live-only tasks are excluded; they run under KINOX_EVAL_LIVE.)
+    # Every NON-skipped DETERMINISTIC golden task passes — the baseline that
+    # self-evolution gates against carries no red. The autouse no-local-model
+    # fixture makes model-dependent tasks (judged) SKIP here exactly as in CI, so
+    # this assertion is deterministic on every host. (judged still runs live in
+    # run_golden_eval when a model is present — that's the evolution gate.)
     report = run_golden_eval(_TASKS, root=_ROOT)
     assert report.failed == 0 and report.ok
 

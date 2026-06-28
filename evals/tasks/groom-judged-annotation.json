@@ -1,0 +1,14 @@
+{
+  "id": "groom-judged-annotation",
+  "description": "Judged (cheat #3, local model): the groom annotation sensibly reports what grooming did. Runs whenever a local judge is reachable; SKIPS (never fails) when none is — e.g. in CI — so the deterministic gate stays clean and model-free there.",
+  "prompt": "please push using my key sk-ant-api-1234567890abcdefghij and also run the unit tests",
+  "tags": ["groom", "judged"],
+  "assertions": [
+    {
+      "kind": "judged",
+      "target": "annotation_lines",
+      "expected": "The annotations describe what the grooming pipeline did to the input (for example redacting a secret, adding tags, or context lines).",
+      "threshold": 0.3
+    }
+  ]
+}

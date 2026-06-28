@@ -334,11 +334,19 @@ def _produce(target: str, ctx: _RunContext, live: dict[str, object]) -> object:
 
 
 _SCORE_RE = re.compile(r"[0-9]*\.?[0-9]+")
+_THINK_RE = re.compile(r"<think(?:ing)?>.*?</think(?:ing)?>", re.DOTALL | re.IGNORECASE)
 
 
 def _parse_score(text: str) -> float | None:
-    """Pull a 0–1 score out of the judge's reply, clamped; None if unparseable."""
-    match = _SCORE_RE.search(text)
+    """Pull a 0–1 score out of the judge's reply, clamped; None if unparseable.
+
+    Reasoning models (e.g. qwen3) wrap their scratchpad in ``<think>…</think>`` and
+    then answer — so we drop the scratchpad first and read the FIRST number of the
+    actual reply (the model is asked to answer with only the number). Stripping the
+    think block avoids grabbing a stray number out of the reasoning.
+    """
+    reply = _THINK_RE.sub("", text)
+    match = _SCORE_RE.search(reply)
     if match is None:
         return None
     try:
