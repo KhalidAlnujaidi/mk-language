@@ -15,6 +15,10 @@ Safety model (unchanged from v02 — fail-CLOSED on all irreversible ops):
   - MakeDirectory when exists         → REFUSED
   - MoveFile when src missing/dest exists → REFUSED
   - DeleteFile without confirm        → REFUSED
+
+Output convention: each Terminal node emits its result followed by a newline,
+so consecutive Terminal outputs are separated. Process/Decision nodes that emit
+REFUSED also get a trailing newline.
 """
 
 from __future__ import annotations
@@ -56,118 +60,129 @@ def _execute_nodes(nodes: list[ASGNode], emit) -> None:
         _execute_node(node, emit)
 
 
+def _emit_result(emit, value: str) -> None:
+    """Emit a Terminal/Process result with trailing newline.
+
+    This is the key fix: consecutive Terminal outputs are now separated.
+    - "2" then "4" → "2\\n4\\n" instead of "24"
+    - Empty results (e.g. from Process nodes that don't emit) produce nothing.
+    """
+    if value is not None and value != "":
+        emit(value + "\n")
+
+
 def _execute_node(node: ASGNode, emit) -> None:
     """Execute a single ASG node."""
     match node:
 
         case CreateFile(name=name, content=content):
             if os.path.exists(name):
-                emit("REFUSED")
+                _emit_result(emit, "REFUSED")
                 return
             with open(name, 'w') as f:
                 f.write(content)
 
         case ReadFile(name=name):
             if not os.path.exists(name):
-                emit("")
+                _emit_result(emit, "")
                 return
             with open(name, 'r') as f:
                 content = f.read()
-            emit(content.replace('\n', ' '))
+            _emit_result(emit, content.replace('\n', ' '))
 
         case AppendFile(text=text, name=name):
             if not os.path.exists(name):
-                emit("REFUSED")
+                _emit_result(emit, "REFUSED")
                 return
             with open(name, 'a') as f:
                 f.write('\n' + text)
 
         case CountLines(name=name):
             if not os.path.exists(name):
-                emit("0")
+                _emit_result(emit, "0")
                 return
             with open(name, 'r') as f:
                 lines = f.readlines()
-            emit(str(len(lines)))
+            _emit_result(emit, str(len(lines)))
 
         case CountWords(name=name):
             if not os.path.exists(name):
-                emit("0")
+                _emit_result(emit, "0")
                 return
             with open(name, 'r') as f:
                 content = f.read()
-            emit(str(len(content.split())))
+            _emit_result(emit, str(len(content.split())))
 
         case SortLines(name=name):
             if not os.path.exists(name):
-                emit("")
+                _emit_result(emit, "")
                 return
             with open(name, 'r') as f:
                 lines = [l.rstrip('\n') for l in f.readlines() if l.strip()]
-            emit(' '.join(sorted(lines)))
+            _emit_result(emit, ' '.join(sorted(lines)))
 
         case HeadLines(name=name, count=count):
             if not os.path.exists(name):
-                emit("")
+                _emit_result(emit, "")
                 return
             with open(name, 'r') as f:
                 lines = [l.rstrip('\n') for l in f.readlines()]
-            emit(' '.join(lines[:count]))
+            _emit_result(emit, ' '.join(lines[:count]))
 
         case SumNumbers(name=name):
             if not os.path.exists(name):
-                emit("0")
+                _emit_result(emit, "0")
                 return
             with open(name, 'r') as f:
                 content = f.read()
             import re as _re
             numbers = [int(x) for x in _re.findall(r'\d+', content)]
-            emit(str(sum(numbers)))
+            _emit_result(emit, str(sum(numbers)))
 
         case ExtractPattern(name=name, pattern=pattern):
             if not os.path.exists(name):
-                emit("")
+                _emit_result(emit, "")
                 return
             with open(name, 'r') as f:
                 lines = [l.rstrip('\n') for l in f.readlines() if l.strip()]
             matching = [l for l in lines if pattern in l]
-            emit(' '.join(matching))
+            _emit_result(emit, ' '.join(matching))
 
         case CopyFile(source=source, dest=dest):
             if not os.path.exists(source) or os.path.exists(dest):
-                emit("REFUSED")
+                _emit_result(emit, "REFUSED")
                 return
             with open(source, 'r') as fs, open(dest, 'w') as fd:
                 fd.write(fs.read())
 
         case MakeDirectory(name=name):
             if os.path.exists(name):
-                emit("REFUSED")
+                _emit_result(emit, "REFUSED")
                 return
             os.makedirs(name, exist_ok=False)
 
         case MoveFile(source=source, dest=dest):
             if not os.path.exists(source):
-                emit("REFUSED")
+                _emit_result(emit, "REFUSED")
                 return
             if os.path.isdir(dest):
                 final_dest = os.path.join(dest, os.path.basename(source))
             else:
                 final_dest = dest
             if os.path.exists(final_dest):
-                emit("REFUSED")
+                _emit_result(emit, "REFUSED")
                 return
             os.rename(source, final_dest)
 
         case ListFiles(directory=directory):
             if not os.path.isdir(directory):
-                emit("(empty)")
+                _emit_result(emit, "(empty)")
                 return
             files = sorted(
                 f for f in os.listdir(directory)
                 if os.path.isfile(os.path.join(directory, f))
             )
-            emit(' '.join(files) if files else "(empty)")
+            _emit_result(emit, ' '.join(files) if files else "(empty)")
 
         case FindFiles(text=text):
             matches = []
@@ -180,11 +195,11 @@ def _execute_node(node: ASGNode, emit) -> None:
                             matches.append(fname)
                 except (OSError, UnicodeDecodeError):
                     continue
-            emit(' '.join(sorted(matches)) if matches else "(none)")
+            _emit_result(emit, ' '.join(sorted(matches)) if matches else "(none)")
 
         case DeleteFile(name=name, confirm=confirm):
             if not confirm:
-                emit("REFUSED")
+                _emit_result(emit, "REFUSED")
                 return
             if os.path.isfile(name):
                 os.remove(name)
