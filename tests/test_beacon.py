@@ -11,7 +11,7 @@ from pathlib import Path
 
 from products.beacon.axioms import CORE_AXIOMS, load_axioms, pledge
 from products.beacon.bible import Bible
-from products.beacon.ledger import Ledger
+from products.beacon.ledger import Ledger, resume_state
 
 
 def test_ledger_appends_and_tails(tmp_path: Path) -> None:
@@ -31,6 +31,44 @@ def test_ledger_skips_corrupt_lines(tmp_path: Path) -> None:
     led.record("cycle", cycle=0)
     p.write_text(p.read_text() + "{ not json\n", encoding="utf-8")
     assert len(led.read()) == 1  # the bad line is skipped, not fatal
+
+
+def test_resume_empty_ledger_is_cold_start(tmp_path: Path) -> None:
+    state = resume_state(Ledger(tmp_path / "l.jsonl"))
+    assert (state.cycle, state.idle_streak, state.uptime_offset) == (0, 0, 0.0)
+
+
+def test_resume_continues_cycle_uptime_and_idle(tmp_path: Path) -> None:
+    led = Ledger(tmp_path / "l.jsonl")
+    # Two completed cycles: cycle 0 kept, cycle 1 rejected (idle streak now 1).
+    led.record("cycle", cycle=0)
+    led.record("health", cycle=0, decision="kept", uptime_s=10.0)
+    led.record("cycle", cycle=1)
+    led.record("health", cycle=1, decision="rejected:no-improvement", uptime_s=25.0)
+
+    state = resume_state(led)
+    assert state.cycle == 2  # next index, never a reused number
+    assert state.idle_streak == 1  # trailing non-kept run since the last "kept"
+    assert state.uptime_offset == 25.0  # last health uptime → monotonic across boot
+
+
+def test_resume_counts_full_trailing_idle_run(tmp_path: Path) -> None:
+    led = Ledger(tmp_path / "l.jsonl")
+    led.record("health", cycle=0, decision="kept", uptime_s=5.0)
+    for c in range(1, 4):  # three non-kept cycles after the last keep
+        led.record("health", cycle=c, decision="all-pass", uptime_s=5.0 + c)
+    assert resume_state(led).idle_streak == 3
+
+
+def test_resume_advances_past_crashed_cycle_without_health(tmp_path: Path) -> None:
+    led = Ledger(tmp_path / "l.jsonl")
+    led.record("health", cycle=0, decision="kept", uptime_s=8.0)
+    led.record("cycle", cycle=1)  # started then crashed: pitfall, no health
+    led.record("pitfall", cycle=1, cause="boom")
+
+    state = resume_state(led)
+    assert state.cycle == 2  # crashed cycle's number is not reused
+    assert state.uptime_offset == 8.0  # falls back to the last good health uptime
 
 
 def test_bible_retrieves_relevant_passage(tmp_path: Path) -> None:
