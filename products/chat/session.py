@@ -65,6 +65,10 @@ class ChatSession:
     #: default) builds a fresh ``broker_tag()`` lazily when a local model is
     #: available; tests inject a fake to prove the wire without a network call.
     model_tag: ModelTag | None = None
+    #: Cumulative model tokens spent by agent turns this session — carried across
+    #: ``run_agent`` calls (each otherwise starts cold) so a per-session token
+    #: budget can govern the whole conversation, not one turn (vision §9).
+    tokens_spent: int = 0
 
     def send(self, user_text: str) -> tuple[str, list[str], Tier | None]:
         """Process one user message through groom → dispatch.

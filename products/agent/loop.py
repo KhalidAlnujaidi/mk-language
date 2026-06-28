@@ -155,13 +155,15 @@ class AgentStep:
 @dataclass
 class AgentResult:
     """The outcome of a run: the final text, the full step trace, the turn count,
-    and why it stopped (``"complete"`` | ``"max_turns"`` | ``"budget"`` |
-    ``"stuck"`` | ``"error"``)."""
+    why it stopped (``"complete"`` | ``"max_turns"`` | ``"budget"`` | ``"stuck"``
+    | ``"error"``), and the cumulative tokens spent (seeded by *spent_offset*, so
+    a multi-run session can carry it forward — vision §9 per-session budget)."""
 
     final_text: str
     steps: list[AgentStep] = field(default_factory=list[AgentStep])
     turns: int = 0
     stopped: str = "complete"
+    tokens_spent: int = 0
 
 
 def _default_call_factory() -> CallFactory:
@@ -230,6 +232,7 @@ async def run_agent(
     stall_edit_fails: int = 3,
     context_soft_chars: int = 40_000,
     token_budget: TokenBudget | None = None,
+    spent_offset: int = 0,
     guard: Guard | None = None,
     call_factory: CallFactory | None = None,
     on_step: Callable[[AgentStep], None] | None = None,
@@ -265,6 +268,13 @@ async def run_agent(
     returns what it has with ``stopped="budget"`` rather than starting another
     expensive turn — a run may overshoot by at most the turn in flight. ``None``
     (default) is unlimited, so an unset budget never changes a run.
+
+    *spent_offset* seeds the running token tally so a *budget continues across
+    runs* (vision §9's per-**session** budget). A multi-turn caller — e.g. an
+    interactive ``kx`` session, where each user message is a fresh ``run_agent`` —
+    passes the cumulative spend so far; the budget then governs the whole session,
+    not one run, and ``AgentResult.tokens_spent`` returns the new cumulative total
+    to carry into the next run. ``0`` (default) is a fresh tally, unchanged.
 
     Context is governed deterministically to fight rot (no model judging
     relevance): an idempotent read repeated with the same arguments returns a
@@ -321,7 +331,7 @@ async def run_agent(
                 ),
             }
         )
-    result = AgentResult(final_text="")
+    result = AgentResult(final_text="", tokens_spent=spent_offset)
 
     # Context governance (fights rot, not breadth): remember idempotent reads so a
     # repeat costs a pointer instead of the payload, and track how much tool output
@@ -342,9 +352,10 @@ async def run_agent(
     edit_fail_streak = 0  # failed edit attempts since the last successful write
 
     # Running token tally for *token_budget* (vision §9). Summed from each model
-    # turn's EventRecord (prompt + completion). Checked at the TOP of a turn so an
-    # exhausted budget stops the run *before* spending another expensive call.
-    spent_tokens = 0
+    # turn's EventRecord (prompt + completion). Seeded by *spent_offset* so the
+    # budget continues across runs (per-session). Checked at the TOP of a turn so
+    # an exhausted budget stops the run *before* spending another expensive call.
+    spent_tokens = spent_offset
 
     # The "agent.run" span of the end-to-end trace (vision §7): one per run, with
     # a child per model turn (broker.execute) and per tool (agent.tool). A no-op
@@ -400,6 +411,7 @@ async def run_agent(
             spent_tokens += (exec_result.event.tokens_in or 0) + (
                 exec_result.event.tokens_out or 0
             )
+            result.tokens_spent = spent_tokens  # current on every return below
             tool_calls = exec_result.tool_calls
             if not tool_calls:
                 # Plain-text answer → the task is done.
