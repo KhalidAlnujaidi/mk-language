@@ -792,6 +792,20 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
         "0", "off", "false", "no"
     )
 
+    # Per-SESSION token budget (vision §9): KINOX_SESSION_TOKEN_BUDGET caps the
+    # total model tokens across ALL agent turns this session, not one run. Opt-in
+    # — unset/invalid → unlimited, so the default operator shell is unchanged. The
+    # cumulative tally lives on the session and is carried into each run via
+    # spent_offset; a spent budget ends the turn fail-soft (stopped="budget").
+    from products.agent.budget import TokenBudget
+
+    _raw_budget = os.environ.get("KINOX_SESSION_TOKEN_BUDGET", "").strip()
+    session_budget = (
+        TokenBudget(limit=int(_raw_budget))
+        if _raw_budget.isdigit() and int(_raw_budget) > 0
+        else None
+    )
+
     def work() -> object:
         async def _go() -> object:
             base_id = uuid.uuid4().hex[:12]
@@ -828,6 +842,8 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
                 ),
                 fallback=local_tier,
                 max_turns=int(os.environ.get("KINOX_MAX_TURNS", "30")),
+                token_budget=session_budget,
+                spent_offset=session.tokens_spent,
                 on_step=steps_q.append,
                 on_token=tokens_q.append if stream_on else None,
             )
@@ -888,9 +904,18 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
         while len(session.history) > _MAX_HISTORY_PAIRS * 2:
             session.history.pop(0)  # drop oldest pair
 
+    # Carry this run's cumulative spend forward so the NEXT turn's budget continues
+    # from here (the run already includes spent_offset in result.tokens_spent).
+    session.tokens_spent = getattr(result, "tokens_spent", session.tokens_spent)
+
     # Summary: the final answer, framed in a panel with a status footer.
     _render_summary(
-        result, console, tools=tools_done, elapsed=time.monotonic() - start
+        result,
+        console,
+        tools=tools_done,
+        elapsed=time.monotonic() - start,
+        session_tokens=session.tokens_spent,
+        budget_limit=session_budget.limit if session_budget else None,
     )
     console.print()
 
@@ -1117,12 +1142,22 @@ def _strip_reasoning(text: str) -> str:
 
 
 def _render_summary(
-    result: object, console: object, *, tools: int, elapsed: float
+    result: object,
+    console: object,
+    *,
+    tools: int,
+    elapsed: float,
+    session_tokens: int | None = None,
+    budget_limit: int | None = None,
 ) -> None:
     """Render the run as a GENERATED view (vision §5.2 Layer 3): the markdown
     answer framed in a panel with a status + per-tool footer composed from the
     run's structure, and — under KINOX_VERBOSE — a generated trace tree of what
-    the agent did. Falls back to plain print if rich is unavailable."""
+    the agent did. Falls back to plain print if rich is unavailable.
+
+    *session_tokens* (the cumulative session spend) is shown in the footer when
+    given — with the budget ceiling when one is set — so a per-session budget is
+    visible as it accrues instead of silently enforced."""
     from products.chat.output import build_run_view
 
     view = build_run_view(result, tools=tools, elapsed_s=elapsed)
@@ -1133,6 +1168,9 @@ def _render_summary(
     subtitle = view.footer
     if view.tool_summary:
         subtitle = f"{view.tool_summary}  ·  {view.footer}"
+    if session_tokens:
+        budget_note = f"/{budget_limit}" if budget_limit else ""
+        subtitle = f"{subtitle}  ·  {session_tokens}{budget_note} tok"
     try:
         from rich.panel import Panel
 

@@ -130,3 +130,64 @@ def test_no_budget_runs_to_max_turns() -> None:
     )
     assert result.stopped == "max_turns"
     assert result.turns == 4
+
+
+# --- continuation accrual (per-session budget across runs) ------------------
+
+
+def test_result_reports_cumulative_tokens_spent() -> None:
+    result = _run(
+        run_agent(
+            "do the thing",
+            tier=TIER,
+            registry=_echo_registry(),
+            sink=MetricsSink(Path("/dev/null")),
+            task_id="t",
+            max_turns=3,
+            stall_repeats=100,
+            call_factory=_always_tool_factory(tokens_per_turn=100),  # type: ignore[arg-type]
+        )
+    )
+    # 3 turns × 100 tok each, summed and returned for the caller to carry forward.
+    assert result.tokens_spent == 300
+
+
+def test_spent_offset_seeds_the_tally_and_carries_across_runs() -> None:
+    # A fresh run starting already-spent from a prior turn keeps accruing on top.
+    result = _run(
+        run_agent(
+            "do the thing",
+            tier=TIER,
+            registry=_echo_registry(),
+            sink=MetricsSink(Path("/dev/null")),
+            task_id="t",
+            max_turns=2,
+            stall_repeats=100,
+            spent_offset=500,
+            call_factory=_always_tool_factory(tokens_per_turn=100),  # type: ignore[arg-type]
+        )
+    )
+    assert result.tokens_spent == 700  # 500 carried in + 2×100 this run
+
+
+def test_session_budget_stops_a_later_run_via_offset() -> None:
+    # The budget governs the SESSION: with 240 already spent and a 250 ceiling,
+    # the next run stops almost immediately — the offset alone nearly exhausts it.
+    result = _run(
+        run_agent(
+            "do the thing",
+            tier=TIER,
+            registry=_echo_registry(),
+            sink=MetricsSink(Path("/dev/null")),
+            task_id="t",
+            max_turns=50,
+            stall_repeats=100,
+            token_budget=TokenBudget(limit=250),
+            spent_offset=240,
+            call_factory=_always_tool_factory(tokens_per_turn=100),  # type: ignore[arg-type]
+        )
+    )
+    # Turn 0 runs (240→340), turn 1 top sees 340 ≥ 250 → stop. 1 completed turn.
+    assert result.stopped == "budget"
+    assert result.turns == 1
+    assert result.tokens_spent == 340
