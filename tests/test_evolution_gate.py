@@ -15,9 +15,26 @@ import evals.evolve as evolve
 import pytest
 from evals.evolve import Proposal, run_evolution_gate
 from evals.runner import EvalReport
+from kernel.manifest import Manifest
 
 _ROOT = Path(__file__).resolve().parent.parent
 _TASKS = _ROOT / "evals" / "tasks"
+
+
+@pytest.fixture(autouse=True)
+def _no_local_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force the no-local-model (CI) path for the real-golden-set tests below, so a
+    model-dependent ``judged`` task SKIPS and before/after measurements are
+    deterministic — no flaky real judge call inside the gate. (judged's live
+    behaviour is covered in test_eval_execute + run_golden_eval with a model.)"""
+    no_model = Manifest(
+        cpu_count=2,
+        ram_gb=8.0,
+        gpu_vram_gb=None,
+        local_models=(),
+        cloud_available=False,
+    )
+    monkeypatch.setattr("evals.execute.probe", lambda: no_model)
 
 
 def test_code_proposal_is_human_gated_and_never_applied(tmp_path: Path) -> None:
