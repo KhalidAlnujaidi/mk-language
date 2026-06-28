@@ -21,12 +21,14 @@ so consecutive Terminal outputs are separated. Process/Decision nodes that emit
 REFUSED also get a trailing newline.
 
 v03.1: Added GlobFiles + ForEachFile execution.
+v03.2: Added SetVar + PrintVar + {var} substitution for data-dependent workflows.
 """
 
 from __future__ import annotations
 
 import fnmatch
 import os
+import re
 import sys
 from dataclasses import replace as dc_replace
 from typing import Any
@@ -37,6 +39,7 @@ from asg import (
     MakeDirectory, MoveFile, ListFiles, FindFiles, DeleteFile, Conditional,
     CountWords, SortLines, HeadLines, SumNumbers, ExtractPattern,
     GlobFiles, ForEachFile,
+    SetVar, PrintVar,
 )
 
 
@@ -44,25 +47,34 @@ from asg import (
 # Executor — walk the ASG and produce OS effects + output
 # ---------------------------------------------------------------------------
 
+class _ExecState:
+    """Mutable state threaded through execution — holds variable bindings."""
+    def __init__(self):
+        self.variables: dict[str, str] = {}
+
+
 def execute(nodes: list[ASGNode], out=None) -> str:
     """Execute a list of ASG nodes, collecting output.
 
     Writes to `out` (a writable stream) if provided, else to a buffer.
     Returns the full output string.
     """
+    state = _ExecState()
     if out is None:
         buf = []
-        _execute_nodes(nodes, buf.append)
+        _execute_nodes(nodes, buf.append, state)
         return ''.join(buf)
     else:
-        _execute_nodes(nodes, out.write)
+        _execute_nodes(nodes, out.write, state)
         return ''  # caller reads from out
 
 
-def _execute_nodes(nodes: list[ASGNode], emit) -> None:
+def _execute_nodes(nodes: list[ASGNode], emit, state: _ExecState) -> None:
     """Execute nodes sequentially, calling emit(chunk) for output."""
     for node in nodes:
-        _execute_node(node, emit)
+        # Apply variable substitution before execution
+        node = _substitute_variables(node, state)
+        _execute_node(node, emit, state)
 
 
 def _emit_result(emit, value: str) -> None:
@@ -74,6 +86,100 @@ def _emit_result(emit, value: str) -> None:
     """
     if value is not None and value != "":
         emit(value + "\n")
+
+
+# ---------------------------------------------------------------------------
+# Variable substitution — replace {varname} in all string fields
+# ---------------------------------------------------------------------------
+
+_VAR_PATTERN = re.compile(r'\{(\w+)\}')
+
+
+def _substitute_variables(node: ASGNode, state: _ExecState) -> ASGNode:
+    """Replace {varname} placeholders in node string fields with bound values.
+
+    If no variables are set, or the node has no placeholders, returns the
+    original node unchanged (fast path).
+    """
+    if not state.variables:
+        return node
+
+    # Find all {var} references in the node's string representation
+    needed = set()
+    for field_name in getattr(node, '__dataclass_fields__', {}):
+        val = getattr(node, field_name, None)
+        if isinstance(val, str):
+            found = _VAR_PATTERN.findall(val)
+            needed.update(found)
+
+    # Check if any needed var is actually set
+    relevant = needed & set(state.variables.keys())
+    if not relevant:
+        return node
+
+    # Do the substitution on each string field
+    def _sub_str(s: str) -> str:
+        def _replacer(m):
+            key = m.group(1)
+            return state.variables.get(key, m.group(0))
+        return _VAR_PATTERN.sub(_replacer, s)
+
+    return _substitute_in_node(node, _sub_str)
+
+
+def _substitute_in_node(node: ASGNode, sub_fn) -> ASGNode:
+    """Apply sub_fn to all string fields in a node, returning a new node."""
+    match node:
+        case CreateFile(name=name, content=content):
+            return CreateFile(name=sub_fn(name), content=sub_fn(content))
+
+        case ReadFile(name=name):
+            return ReadFile(name=sub_fn(name))
+
+        case AppendFile(text=text, name=name):
+            return AppendFile(text=sub_fn(text), name=sub_fn(name))
+
+        case CountLines(name=name):
+            return CountLines(name=sub_fn(name))
+
+        case CountWords(name=name):
+            return CountWords(name=sub_fn(name))
+
+        case SortLines(name=name):
+            return SortLines(name=sub_fn(name))
+
+        case HeadLines(name=name, count=count):
+            return HeadLines(name=sub_fn(name), count=count)
+
+        case SumNumbers(name=name):
+            return SumNumbers(name=sub_fn(name))
+
+        case ExtractPattern(name=name, pattern=pattern):
+            return ExtractPattern(name=sub_fn(name), pattern=sub_fn(pattern))
+
+        case CopyFile(source=source, dest=dest):
+            return CopyFile(source=sub_fn(source), dest=sub_fn(dest))
+
+        case MakeDirectory(name=name):
+            return MakeDirectory(name=sub_fn(name))
+
+        case MoveFile(source=source, dest=dest):
+            return MoveFile(source=sub_fn(source), dest=sub_fn(dest))
+
+        case ListFiles(directory=directory):
+            return ListFiles(directory=sub_fn(directory))
+
+        case FindFiles(text=text):
+            return FindFiles(text=sub_fn(text))
+
+        case DeleteFile(name=name, confirm=confirm):
+            return DeleteFile(name=sub_fn(name), confirm=confirm)
+
+        case PrintVar(var_name=var_name):
+            return node  # PrintVar is resolved at execution time, not substituted
+
+        case _:
+            return node  # SetVar, Conditional, ForEachFile, GlobFiles — handled elsewhere
 
 
 # ---------------------------------------------------------------------------
@@ -152,9 +258,26 @@ def _substitute_placeholder(node: ASGNode, placeholder: str, filename: str) -> A
             return node
 
 
-def _execute_node(node: ASGNode, emit) -> None:
+# ---------------------------------------------------------------------------
+# Node execution
+# ---------------------------------------------------------------------------
+
+def _execute_node(node: ASGNode, emit, state: _ExecState) -> None:
     """Execute a single ASG node."""
     match node:
+
+        # --- v03.2: Variable binding ---
+
+        case SetVar(var_name=var_name, source_node=source_node):
+            # Execute the source node, capture its output
+            capture_buf = []
+            _execute_node(source_node, capture_buf.append, state)
+            captured = ''.join(capture_buf).rstrip('\n')
+            state.variables[var_name] = captured
+
+        case PrintVar(var_name=var_name):
+            val = state.variables.get(var_name, "")
+            _emit_result(emit, val)
 
         case CreateFile(name=name, content=content):
             if os.path.exists(name):
@@ -216,9 +339,8 @@ def _execute_node(node: ASGNode, emit) -> None:
                 return
             with open(name, 'r') as f:
                 content = f.read()
-            import re as _re
-            numbers = [int(x) for x in _re.findall(r'\d+', content)]
-            _emit_result(emit, str(sum(numbers)))
+            nums = re.findall(r'-?\d+', content)
+            _emit_result(emit, str(sum(int(n) for n in nums)))
 
         case ExtractPattern(name=name, pattern=pattern):
             if not os.path.exists(name):
@@ -289,9 +411,9 @@ def _execute_node(node: ASGNode, emit) -> None:
                          then_branch=then_branch,
                          else_branch=else_branch):
             if os.path.exists(condition_file):
-                _execute_nodes(then_branch, emit)
+                _execute_nodes(then_branch, emit, state)
             else:
-                _execute_nodes(else_branch, emit)
+                _execute_nodes(else_branch, emit, state)
 
         # --- v03.1: Iteration nodes ---
 
@@ -314,7 +436,8 @@ def _execute_node(node: ASGNode, emit) -> None:
             for fname in files:
                 for tmpl in body_template:
                     substituted = _substitute_placeholder(tmpl, placeholder, fname)
-                    _execute_node(substituted, emit)
+                    substituted = _substitute_variables(substituted, state)
+                    _execute_node(substituted, emit, state)
 
         case _:
             pass  # Unknown node type — silently skip

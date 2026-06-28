@@ -45,8 +45,6 @@ PLANNER_TIMEOUT = 120.0
 
 # ---------------------------------------------------------------------------
 # ASG vocabulary — the exact NL syntax the parser accepts
-# ---------------------------------------------------------------------------
-
 ASG_VOCABULARY = """\
 The following intent types are ALL the parser understands. Every line you output
 MUST match exactly one of these patterns (substitute actual values for the
@@ -70,9 +68,14 @@ uppercase placeholders):
   delete NAME                               — refused unless confirmed
   delete NAME confirm                       — delete with confirmation
   if NAME exists then INTENT otherwise INTENT — conditional execution
+  set VAR = INTENT                          — capture output of INTENT into VAR
+  print $VAR                                — print the value of a variable
+
+Variable substitution: any string field in later nodes can contain {VARNAME}
+which gets replaced with the captured value. Example:
+  set N = count lines in data.txt
+  create file result.txt with content "Has {N} lines"
 """
-
-
 # ---------------------------------------------------------------------------
 # Deterministic decomposition rules
 # ---------------------------------------------------------------------------
@@ -297,6 +300,40 @@ _COMPOUND_RULES: list[tuple[re.Pattern, list[str]]] = [
     ),
 ]
 
+# ---------------------------------------------------------------------------
+# Variable binding rules — produce SetVar/PrintVar via NL lines
+# ---------------------------------------------------------------------------
+# These match patterns like "count lines in NAME as VAR" or "save NAME as VAR"
+# and emit the NL syntax the parser understands for set/print.
+
+_VAR_RULES: list[tuple[re.Pattern, list[str]]] = [
+    # "count lines in NAME as VAR" → set VAR = count lines in NAME
+    (
+        re.compile(r'^count lines in (\S+) as (\w+)$', re.IGNORECASE),
+        ['set {1} = count lines in {0}'],
+    ),
+    # "count words in NAME as VAR" → set VAR = count words in NAME
+    (
+        re.compile(r'^count words in (\S+) as (\w+)$', re.IGNORECASE),
+        ['set {1} = count words in {0}'],
+    ),
+    # "read file NAME as VAR" → set VAR = read file NAME
+    (
+        re.compile(r'^read file (\S+) as (\w+)$', re.IGNORECASE),
+        ['set {1} = read file {0}'],
+    ),
+    # "sum numbers in NAME as VAR" → set VAR = sum numbers in NAME
+    (
+        re.compile(r'^sum numbers in (\S+) as (\w+)$', re.IGNORECASE),
+        ['set {1} = sum numbers in {0}'],
+    ),
+    # "show VAR" / "print VAR" → emit PrintVar
+    (
+        re.compile(r'^(?:show|print|echo) \$(\w+)$', re.IGNORECASE),
+        ['print ${0}'],
+    ),
+]
+
 
 # ---------------------------------------------------------------------------
 # Iteration rules — produce ForEachFile nodes (not plain NL lines)
@@ -356,9 +393,15 @@ _ITERATION_RULES: list[tuple[re.Pattern, str, list[str], str]] = [
     ),
 ]
 
-
 def _try_compound_rules(text: str) -> Optional[list[str]]:
     """Try matching against compound intent rules. Returns list of NL lines or None."""
+    # Try variable binding rules first (they're more specific)
+    for pattern, template_lines in _VAR_RULES:
+        m = pattern.match(text.strip())
+        if m:
+            groups = m.groups()
+            return [tpl.format(*groups) for tpl in template_lines]
+    # Then try regular compound rules
     for pattern, template_lines in _COMPOUND_RULES:
         m = pattern.match(text.strip())
         if m:
@@ -528,20 +571,28 @@ class Planner:
                 notes=f"foreach {iter_nodes[0].glob_pattern}",
                 extra_nodes=iter_nodes,
             )
-
-        # Pass 1: Try deterministic compound rules first
-        # Pass 1: Try deterministic compound rules first
         compound = _try_compound_rules(request)
         if compound:
             steps = compound if not self.validate else _validate_steps(compound)
             if steps:
                 return Plan(request=request, steps=steps, source="deterministic")
 
-        # Pass 2: Try conjunction splitting
+        # Pass 2: Try conjunction splitting + compound rules per part
         parts = _split_conjunctions(request)
         if len(parts) > 1:
-            steps = parts if not self.validate else _validate_steps(parts)
+            all_steps = []
+            for part in parts:
+                # Try compound rules on each part
+                part_compound = _try_compound_rules(part)
+                if part_compound:
+                    all_steps.extend(part_compound)
+                elif asg.parse_line(part) is not None:
+                    all_steps.append(part)
+                else:
+                    all_steps.append(part)  # passthrough — parser may reject
+            steps = all_steps if not self.validate else _validate_steps(all_steps)
             if steps:
+                return Plan(request=request, steps=steps, source="deterministic")
                 return Plan(request=request, steps=steps, source="deterministic")
 
         # Pass 3: Check if the original line already parses

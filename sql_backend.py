@@ -46,12 +46,12 @@ import fnmatch
 import re
 import sqlite3
 from typing import Any
-
 from asg import (
     ASGNode, CreateFile, ReadFile, AppendFile, CountLines, CopyFile,
     MakeDirectory, MoveFile, ListFiles, FindFiles, DeleteFile, Conditional,
     CountWords, SortLines, HeadLines, SumNumbers, ExtractPattern,
     GlobFiles, ForEachFile,
+    SetVar, PrintVar,
 )
 
 
@@ -584,5 +584,28 @@ def _execute_node(cursor: sqlite3.Cursor, node: ASGNode, conn: sqlite3.Connectio
                         results.append(r)
             return ' '.join(results) if results else None
 
+        # --- v03.2: Variable binding ---
+
+        case SetVar(var_name=var_name, source_node=source_node):
+            # SQL variables: compile source node into a temp table, then
+            # store the result in a _mk_vars table for later retrieval.
+            var_tbl = f"_mk_var_{var_name}"
+            source_sql = _compile_node(source_node)
+            return (
+                f"-- SetVar: {var_name}\n"
+                f"CREATE TEMP TABLE IF NOT EXISTS {var_tbl} (val TEXT);\n"
+                f"DELETE FROM {var_tbl};\n"
+                f"INSERT INTO {var_tbl} (val) SELECT _output FROM (\n"
+                f"{source_sql}\n"
+                f");"
+            )
+
+        case PrintVar(var_name=var_name):
+            var_tbl = f"_mk_var_{var_name}"
+            return (
+                f"-- PrintVar: {var_name}\n"
+                f"SELECT COALESCE((SELECT val FROM {var_tbl} LIMIT 1), '') AS _output;"
+            )
+
         case _:
-            return None
+            return f"-- Unknown node type: {type(node).__name__}"

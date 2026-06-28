@@ -9,6 +9,7 @@ be saved to a .py file and run independently. This proves the ASG is
 target-independent: the same graph compiles to both shell and Python.
 
 v03.1: Added GlobFiles + ForEachFile compilation (Python for-loop with fnmatch).
+v03.2: Added SetVar + PrintVar compilation (variable capture/emit with dict).
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from asg import (
     MakeDirectory, MoveFile, ListFiles, FindFiles, DeleteFile, Conditional,
     CountWords, SortLines, HeadLines, SumNumbers, ExtractPattern,
     GlobFiles, ForEachFile,
+    SetVar, PrintVar,
 )
 
 
@@ -29,6 +31,8 @@ def compile_to_python(nodes: list[ASGNode]) -> str:
         "# Source: ASG → Python",
         "import os",
         "import sys",
+        "",
+        "_vars = {}",
         "",
         "",
         "def main():",
@@ -61,6 +65,31 @@ def _compile_node(node: ASGNode, indent: str) -> str:
         return '\n'.join(indent + line if line.strip() else line for line in code.split('\n'))
 
     match node:
+
+        # --- v03.2: Variable binding ---
+
+        case SetVar(var_name=var_name, source_node=source_node):
+            var_r = repr(var_name)
+            # Capture stdout from source_node into _vars dict
+            inner_indent = indent + "    "
+            # We compile the source node, then wrap it in a StringIO capture
+            source_code = _compile_node(source_node, inner_indent)
+            block = (
+                f"import io as _io\n"
+                f"_old = sys.stdout\n"
+                f"_buf = _io.StringIO()\n"
+                f"sys.stdout = _buf\n"
+                f"try:\n"
+                f"{source_code}\n"
+                f"finally:\n"
+                f"    sys.stdout = _old\n"
+                f"_vars[{var_r}] = _buf.getvalue().rstrip('\\n')"
+            )
+            return ind(block)
+
+        case PrintVar(var_name=var_name):
+            var_r = repr(var_name)
+            return ind(f"sys.stdout.write(_vars.get({var_r}, ''))")
 
         case CreateFile(name=name, content=content):
             name_r = repr(name)
@@ -211,17 +240,16 @@ def _compile_node(node: ASGNode, indent: str) -> str:
             text_r = repr(text)
             return ind(
                 f"_matches = []\n"
-                f"for _fn in os.listdir('.'):\n"
-                f"    if not os.path.isfile(_fn):\n"
+                f"for _fname in os.listdir('.'):\n"
+                f"    if not os.path.isfile(_fname):\n"
                 f"        continue\n"
                 f"    try:\n"
-                f"        with open(_fn, 'r') as _f:\n"
+                f"        with open(_fname, 'r') as _f:\n"
                 f"            if {text_r} in _f.read():\n"
-                f"                _matches.append(_fn)\n"
+                f"                _matches.append(_fname)\n"
                 f"    except (OSError, UnicodeDecodeError):\n"
-                f"        continue\n"
-                f"_matches.sort()\n"
-                f"sys.stdout.write(' '.join(_matches) if _matches else '(none)')"
+                f"        pass\n"
+                f"sys.stdout.write(' '.join(sorted(_matches)) if _matches else '(none)')"
             )
 
         case DeleteFile(name=name, confirm=confirm):
@@ -237,8 +265,6 @@ def _compile_node(node: ASGNode, indent: str) -> str:
                          then_branch=then_branch,
                          else_branch=else_branch):
             cond_r = repr(condition_file)
-            # Body is compiled at fixed "    " relative indent — the outer
-            # ind() call adds the actual indent level.
             then_code = _compile_nodes(then_branch, "    ")
             else_code = _compile_nodes(else_branch, "    ")
             block = (
@@ -248,6 +274,10 @@ def _compile_node(node: ASGNode, indent: str) -> str:
                 f"{else_code}"
             )
             return ind(block)
+
+        # --- v03.1: Iteration nodes ---
+
+        case GlobFiles(pattern=pattern):
             pat_r = repr(pattern)
             return ind(
                 f"import fnmatch as _fnmatch\n"
@@ -260,7 +290,6 @@ def _compile_node(node: ASGNode, indent: str) -> str:
                          body_template=body_template,
                          placeholder=placeholder):
             pat_r = repr(glob_pattern)
-            ph_r = repr(placeholder)
             inner_indent = indent + "    "
             lines = [
                 f"import fnmatch as _fnmatch",
@@ -270,7 +299,6 @@ def _compile_node(node: ASGNode, indent: str) -> str:
             ]
             for tmpl in body_template:
                 code = _compile_node(tmpl, inner_indent)
-                # Replace placeholder references in the generated Python code
                 code = code.replace(placeholder, "' + _mk_f + '")
                 lines.append(code)
             return '\n'.join(lines)

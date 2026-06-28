@@ -14,6 +14,7 @@ The CoRE structured-intent unit maps cleanly:
   Connection → implicit in list order; explicit in Decision.then/else branches
 
 v03.1: Added GlobFiles + ForEachFile for iteration support.
+v03.2: Added SetVar + PrintVar for variable binding (data-dependent workflows).
 """
 
 from __future__ import annotations
@@ -180,12 +181,40 @@ class ForEachFile:
     node_type: str = "Decision"  # Decision because it contains branches
 
 
+# --- v03.2: Variable binding nodes ---
+
+@dataclass(frozen=True)
+class SetVar:
+    """Decision — execute source_node, capture its Terminal output into var_name.
+
+    The source_node is executed normally; its output is captured (stripped of
+    trailing newline) and stored in the interpreter's variable dict under var_name.
+
+    Subsequent nodes whose string fields contain {var_name} will have the
+    placeholder replaced with the captured value at execution time.
+    """
+    var_name: str
+    source_node: ASGNode  # the node to execute and capture output from
+    node_type: str = "Decision"
+
+
+@dataclass(frozen=True)
+class PrintVar:
+    """Terminal — emit the value of a previously-set variable.
+
+    If the variable hasn't been set, emits empty string (fail-soft).
+    """
+    var_name: str
+    node_type: str = "Terminal"
+
+
 # Union type for type checking
 ASGNode = Union[
     CreateFile, ReadFile, AppendFile, CountLines, CopyFile,
     MakeDirectory, MoveFile, ListFiles, FindFiles, DeleteFile, Conditional,
     CountWords, SortLines, HeadLines, SumNumbers, ExtractPattern,
     GlobFiles, ForEachFile,
+    SetVar, PrintVar,
 ]
 
 
@@ -211,6 +240,19 @@ def parse(source: str) -> list[ASGNode]:
 
 def parse_line(line: str) -> ASGNode | None:
     """Parse a single NL line into one ASG node. Returns None for unparseable."""
+
+    # --- v03.2: Variable binding syntax ---
+
+    # set VAR = count lines in NAME
+    if m := re.match(r'set (\w+) = (.+)', line):
+        var_name = m.group(1)
+        inner = parse_line(m.group(2).strip())
+        if inner is not None:
+            return SetVar(var_name=var_name, source_node=inner)
+
+    # print VAR  (or: show VAR, echo VAR)
+    if m := re.match(r'(?:print|show|echo) \$(\w+)', line):
+        return PrintVar(var_name=m.group(1))
 
     # create file NAME with content "TEXT"
     if m := re.match(r'create file (\S+) with content "([^"]*)"', line):
@@ -269,11 +311,11 @@ def parse_line(line: str) -> ASGNode | None:
     if m := re.match(r'find files containing "([^"]*)"', line):
         return FindFiles(text=m.group(1))
 
-    # delete NAME confirm  (check this BEFORE bare delete)
-    if m := re.match(r'delete (\S+) confirm\s*$', line):
+    # delete NAME confirm
+    if m := re.match(r'delete (\S+) confirm', line):
         return DeleteFile(name=m.group(1), confirm=True)
 
-    # delete NAME (without confirm)
+    # delete NAME (no confirm — will fail closed)
     if m := re.match(r'delete (\S+)\s*$', line):
         return DeleteFile(name=m.group(1), confirm=False)
 

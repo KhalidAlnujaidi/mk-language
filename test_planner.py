@@ -26,6 +26,7 @@ HERE = Path(__file__).resolve().parent
 PYTHON = sys.executable
 sys.path.insert(0, str(HERE))
 import asg
+from interpreter import execute
 from planner import (
     Planner, Plan, _try_compound_rules, _split_conjunctions,
     _validate_steps, ASG_VOCABULARY,
@@ -1047,6 +1048,167 @@ def phase_o():
          f"got: {sql_code[:200]}")
 
 
+def phase_p():
+    results.append("\nPhase P: Variable Binding")
+    planner = Planner(use_llm=False)
+
+    # Planner rules: "count lines in NAME as VAR"
+    plan = planner.plan("count lines in data.txt as N")
+    test("var-rule: count lines as VAR",
+         plan.source == "deterministic" and len(plan.steps) == 1 and
+         'set N = count lines in data.txt' in plan.steps[0],
+         f"got {plan}")
+
+    # Planner rules: "sum numbers in NAME as VAR"
+    plan = planner.plan("sum numbers in sales.txt as TOTAL")
+    test("var-rule: sum numbers as VAR",
+         plan.source == "deterministic" and len(plan.steps) == 1 and
+         'set TOTAL = sum numbers in sales.txt' in plan.steps[0],
+         f"got {plan}")
+
+    # Planner rules: "read file NAME as VAR"
+    plan = planner.plan("read file config.txt as CONFIG")
+    test("var-rule: read file as VAR",
+         plan.source == "deterministic" and len(plan.steps) == 1 and
+         'set CONFIG = read file config.txt' in plan.steps[0],
+         f"got {plan}")
+
+    # Planner rules: "count words in NAME as VAR"
+    plan = planner.plan("count words in doc.txt as WC")
+    test("var-rule: count words as VAR",
+         plan.source == "deterministic" and len(plan.steps) == 1 and
+         'set WC = count words in doc.txt' in plan.steps[0],
+         f"got {plan}")
+
+    # Planner rules: "print $VAR"
+    plan = planner.plan("print $N")
+    test("var-rule: print VAR",
+         plan.source == "deterministic" and len(plan.steps) == 1 and
+         'print $N' in plan.steps[0],
+         f"got {plan}")
+
+    # Planner rules: "show $VAR"
+    plan = planner.plan("show $TOTAL")
+    test("var-rule: show VAR",
+         plan.source == "deterministic" and len(plan.steps) == 1 and
+         'print $TOTAL' in plan.steps[0],
+         f"got {plan}")
+
+    # Parser: set VAR = count lines in NAME
+    node = asg.parse_line("set N = count lines in data.txt")
+    test("parser: SetVar node",
+         node is not None and isinstance(node, asg.SetVar) and
+         node.var_name == "N" and isinstance(node.source_node, asg.CountLines),
+         f"got {node}")
+
+    # Parser: print $VAR
+    node = asg.parse_line("print $N")
+    test("parser: PrintVar node",
+         node is not None and isinstance(node, asg.PrintVar) and
+         node.var_name == "N",
+         f"got {node}")
+
+    # Parser: echo $VAR
+    node = asg.parse_line("echo $FOO")
+    test("parser: PrintVar via echo",
+         node is not None and isinstance(node, asg.PrintVar) and
+         node.var_name == "FOO",
+         f"got {node}")
+
+
+def phase_q():
+    results.append("\nPhase Q: Variable Binding — End-to-End Execution")
+
+    def sandbox(fn):
+        work = Path(tempfile.mkdtemp(prefix="var_test_"))
+        old = os.getcwd()
+        try:
+            os.chdir(str(work))
+            return fn()
+        finally:
+            os.chdir(old)
+            shutil.rmtree(work, ignore_errors=True)
+
+    # Test 1: set + print
+    def t1():
+        with open('data.txt', 'w') as f:
+            f.write('a\nb\nc\n')
+        nodes = asg.parse("set N = count lines in data.txt\nprint $N")
+        result = execute(nodes)
+        return result.strip() == "3"
+    test("e2e: set+print count lines", sandbox(t1))
+
+    # Test 2: variable substitution in CreateFile
+    def t2():
+        with open('data.txt', 'w') as f:
+            f.write('x\ny\n')
+        nodes = asg.parse(
+            'set L = count lines in data.txt\n'
+            'create file result.txt with content "Lines: {L}"\n'
+            'read file result.txt')
+        result = execute(nodes)
+        return 'Lines: 2' in result
+    test("e2e: var substitution in content", sandbox(t2))
+
+    # Test 3: sum numbers → variable → use in filename
+    def t3():
+        with open('nums.txt', 'w') as f:
+            f.write('10\n20\n30\n')
+        nodes = asg.parse(
+            'set TOTAL = sum numbers in nums.txt\n'
+            'create file summary.txt with content "Total: {TOTAL}"\n'
+            'read file summary.txt')
+        result = execute(nodes)
+        return 'Total: 60' in result
+    test("e2e: sum→var→create", sandbox(t3))
+
+    # Test 4: read file content into variable
+    def t4():
+        with open('config.txt', 'w') as f:
+            f.write('production')
+        nodes = asg.parse(
+            'set ENV = read file config.txt\n'
+            'create file env_report.txt with content "Env is {ENV}"\n'
+            'read file env_report.txt')
+        result = execute(nodes)
+        return 'Env is production' in result
+    test("e2e: read→var→create", sandbox(t4))
+
+    # Test 5: count words into variable
+    def t5():
+        with open('doc.txt', 'w') as f:
+            f.write('hello world foo bar')
+        nodes = asg.parse(
+            'set WC = count words in doc.txt\n'
+            'print $WC')
+        result = execute(nodes)
+        return result.strip() == "4"
+    test("e2e: count words→var→print", sandbox(t5))
+
+    # Test 6: planner end-to-end (plan + execute)
+    def t6():
+        with open('items.txt', 'w') as f:
+            f.write('apple\nbanana\ncherry\n')
+        planner = Planner(use_llm=False)
+        plan = planner.plan(
+            'count lines in items.txt as N '
+            'then create file out.txt with content "{N} items" '
+            'then read file out.txt')
+        if not plan.steps:
+            return False
+        nodes = plan.to_nodes()
+        result = execute(nodes)
+        return '3 items' in result
+    test("e2e: planner count+create+read", sandbox(t6))
+
+    # Test 7: PrintVar when var is unset (fail-soft)
+    def t7():
+        nodes = asg.parse('print $UNSET')
+        result = execute(nodes)
+        return result.strip() == ""
+    test("e2e: unset var fails soft", sandbox(t7))
+
+
 def main():
     print("=" * 60)
     print("MK Planner Test Suite")
@@ -1062,7 +1224,8 @@ def main():
     phase_m()
     phase_n()
     phase_o()
-    phase_n()
+    phase_p()
+    phase_q()
 
     total = passed + failed
     print()

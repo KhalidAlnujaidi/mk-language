@@ -16,6 +16,7 @@ Key nuances (learned from v02's plateau):
   - create_file: guards against overwrite (refuses if file exists).
 
 v03.1: Added GlobFiles + ForEachFile compilation (shell for-loop).
+v03.2: Added SetVar + PrintVar compilation (shell variable capture/emit).
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ from asg import (
     MakeDirectory, MoveFile, ListFiles, FindFiles, DeleteFile, Conditional,
     CountWords, SortLines, HeadLines, SumNumbers, ExtractPattern,
     GlobFiles, ForEachFile,
+    SetVar, PrintVar,
 )
 
 
@@ -35,7 +37,8 @@ def compile_to_shell(nodes: list[ASGNode]) -> str:
     """Compile a list of ASG nodes into a shell script string."""
     lines = ["#!/bin/sh", "set -e"]
     for node in nodes:
-        lines.append(_compile_node(node))
+        compiled = _compile_node(node)
+        lines.append(compiled)
     return '\n'.join(lines)
 
 
@@ -43,6 +46,20 @@ def _compile_node(node: ASGNode) -> str:
     """Compile a single ASG node to its shell equivalent."""
 
     match node:
+
+        # --- v03.2: Variable binding ---
+
+        case SetVar(var_name=var_name, source_node=source_node):
+            # Capture output of source_node into a shell variable.
+            # We compile the source node, then use command substitution $(...).
+            shell_var = f"_mk_var_{var_name}"
+            inner_code = _compile_node(source_node)
+            # Wrap the inner code in $() for capture
+            return f'{shell_var}=$(\n{inner_code}\n)'
+
+        case PrintVar(var_name=var_name):
+            shell_var = f"$_mk_var_{var_name}"
+            return f'printf "%s" "{shell_var}"'
 
         case CreateFile(name=name, content=content):
             # Fail-closed: refuse if file already exists
@@ -233,9 +250,9 @@ def _compile_node(node: ASGNode) -> str:
             )
 
         case DeleteFile(name=name, confirm=confirm):
-            if not confirm:
-                return 'printf "%s" "REFUSED"'
             qname = shlex.quote(name)
+            if not confirm:
+                return f'printf "%s" "REFUSED"'
             return (
                 f'if [ -f {qname} ]; then\n'
                 f'    rm {qname}\n'
@@ -248,14 +265,11 @@ def _compile_node(node: ASGNode) -> str:
             qcond = shlex.quote(condition_file)
             then_code = '\n'.join('    ' + _compile_node(n) for n in then_branch)
             else_code = '\n'.join('    ' + _compile_node(n) for n in else_branch)
-            # Indent the body for the if/else
-            then_indented = '\n'.join('    ' + line for line in then_code.split('\n'))
-            else_indented = '\n'.join('    ' + line for line in else_code.split('\n'))
             return (
                 f'if [ -e {qcond} ]; then\n'
-                f'{then_indented}\n'
+                f'{then_code}\n'
                 f'else\n'
-                f'{else_indented}\n'
+                f'{else_code}\n'
                 f'fi'
             )
 
@@ -264,15 +278,15 @@ def _compile_node(node: ASGNode) -> str:
         case GlobFiles(pattern=pattern):
             qpat = shlex.quote(pattern)
             return (
-                f'_glob_result=""\n'
-                f'for f in {qpat}; do\n'
-                f'    [ -f "$f" ] && _glob_result="$_glob_result $f"\n'
+                f'_mk_glob=""\n'
+                f'for _mk_f in {qpat}; do\n'
+                f'    [ -f "$_mk_f" ] && _mk_glob="$_mk_glob $_mk_f"\n'
                 f'done\n'
-                f'_glob_result=$(echo "$_glob_result" | xargs -n1 2>/dev/null | sort | tr "\\n" " " | sed \'s/ $//\')\n'
-                f'if [ -z "$_glob_result" ]; then\n'
+                f'_mk_glob=$(echo "$_mk_glob" | xargs -n1 2>/dev/null | sort | tr "\\n" " " | sed \'s/ $//\')\n'
+                f'if [ -z "$_mk_glob" ]; then\n'
                 f'    printf "%s" "(none)"\n'
                 f'else\n'
-                f'    printf "%s" "$_glob_result"\n'
+                f'    printf "%s" "$_mk_glob"\n'
                 f'fi'
             )
 
@@ -280,18 +294,12 @@ def _compile_node(node: ASGNode) -> str:
                          body_template=body_template,
                          placeholder=placeholder):
             qpat = shlex.quote(glob_pattern)
-            # Generate the body by compiling each template node, then wrapping
-            # in a for loop. The placeholder is replaced via shell variable
-            # substitution: we use $_mk_f as the loop variable.
             lines = [
                 f'for _mk_f in {qpat}; do',
                 f'    [ -f "$_mk_f" ] || continue',
             ]
             for tmpl in body_template:
-                # Compile the template node to shell, then replace placeholder
-                # with "$_mk_f" in the generated shell code.
                 shell_code = _compile_node(tmpl)
-                # Replace the literal placeholder string with shell variable ref
                 shell_code = shell_code.replace(placeholder, '$_mk_f')
                 for code_line in shell_code.split('\n'):
                     lines.append(f'    {code_line}')
