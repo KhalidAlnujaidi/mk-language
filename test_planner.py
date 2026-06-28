@@ -9,6 +9,7 @@ Phase J:  LLM integration (if Ollama is available — marked as integration)
 Phase K:  New compound rules (conditional, batch, rename, shortcuts)
 Phase L:  End-to-end for new rules (conditional + batch + rename)
 Phase M:  mk.py CLI smoke tests
+Phase N:  Multi-backend CLI (--backend shell/python/sql, --show-all)
 
 Run: python3 test_planner.py
 """
@@ -729,6 +730,117 @@ def phase_m():
 
 
 # ---------------------------------------------------------------------------
+# Phase N: Multi-backend CLI tests
+# ---------------------------------------------------------------------------
+
+def phase_n():
+    results.append("\nPhase N: Multi-Backend CLI")
+
+    def run_cli(args: list[str], cwd: Path) -> tuple[int, str]:
+        proc = subprocess.run(
+            [PYTHON, str(HERE / "mk.py")] + args,
+            capture_output=True, text=True, cwd=str(cwd), timeout=10,
+        )
+        return proc.returncode, (proc.stdout + proc.stderr).strip()
+
+    def backend_test(name: str, args: list[str], setup_fn,
+                     expected_contains: str):
+        def _run():
+            if setup_fn:
+                setup_fn()
+            code, output = run_cli(args, Path(os.getcwd()))
+            ok = code == 0 and expected_contains in output
+            test(f"backend:{name}", ok,
+                 f"exit={code}, looking for '{expected_contains}' "
+                 f"in '{output[:160]}'")
+        run_in_sandbox(_run)
+
+    # --backend shell: compile to shell script
+    backend_test("shell-count-lines",
+                 ['-q', '--backend', 'shell', 'count lines in data.txt'],
+                 lambda: _create_file("data.txt", "a\nb\nc"),
+                 "awk")
+
+    # --backend shell: create file
+    backend_test("shell-create",
+                 ['-q', '--backend', 'shell',
+                  'create file x.txt with content "hello"'],
+                 None,
+                 "printf")
+
+    # --backend python: compile to Python source
+    backend_test("python-count-lines",
+                 ['-q', '--backend', 'python', 'count lines in data.txt'],
+                 lambda: _create_file("data.txt", "a\nb"),
+                 "len(")
+
+    # --backend python: create file
+    backend_test("python-create",
+                 ['-q', '--backend', 'python',
+                  'create file y.txt with content "world"'],
+                 None,
+                 "open(")
+
+    # --backend sql: compile to SQL
+    backend_test("sql-count-lines",
+                 ['-q', '--backend', 'sql', 'count lines in data.txt'],
+                 lambda: _create_file("data.txt", "a\nb"),
+                 "COUNT")
+
+    # --backend sql: create table
+    backend_test("sql-create",
+                 ['-q', '--backend', 'sql',
+                  'create file z.txt with content "data"'],
+                 None,
+                 "CREATE TABLE")
+
+    # --show-all: shows all 4 backends
+    backend_test("show-all-backends",
+                 ['-q', '--show-all', 'count lines in f.txt'],
+                 lambda: _create_file("f.txt", "x"),
+                 "shell")
+
+    def test_show_all_content():
+        """Verify --show-all contains markers for all backends."""
+        def _run():
+            _create_file("test.txt", "hello\nworld")
+            code, output = run_cli(
+                ['-q', '--show-all', 'count lines in test.txt'],
+                Path(os.getcwd()))
+            has_shell = "shell" in output
+            has_python = "python" in output
+            has_sql = "sql" in output
+            has_direct = "direct" in output
+            ok = code == 0 and has_shell and has_python and has_sql and has_direct
+            test("backend:show-all-has-all-4",
+                 ok,
+                 f"shell={has_shell} python={has_python} "
+                 f"sql={has_sql} direct={has_direct}")
+        run_in_sandbox(_run)
+    test_show_all_content()
+
+    # REPL :backend switching
+    def test_repl_backend_switch():
+        work = Path(tempfile.mkdtemp(prefix="mk_be_"))
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(str(work))
+            _create_file("d.txt", "one\ntwo")
+            proc = subprocess.run(
+                [PYTHON, str(HERE / "mk.py")],
+                input=':backend shell\ncount lines in d.txt\n:quit\n',
+                capture_output=True, text=True, timeout=10,
+            )
+            ok = "awk" in proc.stdout
+            test("backend:repl-switch", ok,
+                 f"output='{proc.stdout[:200]}'")
+        finally:
+            os.chdir(old_cwd)
+            shutil.rmtree(work, ignore_errors=True)
+    test_repl_backend_switch()
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -748,6 +860,7 @@ def main():
     phase_k()
     phase_l()
     phase_m()
+    phase_n()
 
     total = passed + failed
     print()

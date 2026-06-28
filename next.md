@@ -1,6 +1,6 @@
 # Next Steps — v03 and beyond
 
-> Working memory for what is actionable now. Updated post-planner.
+> Working memory for what is actionable now. Updated post-unified-CLI.
 
 ## Completed
 
@@ -8,37 +8,42 @@
 - Scale the data pipeline: Done (v2). 40 filenames, 45 short contents, 24 number sets, 17 templates, ~12.7K candidate instances. SQL added as 4th verification backend.
 - Wire scored conformance: Done. 5-tier gradient scoring through council.py + run.py.
 - Planner/composer: Done. planner.py decomposes complex NL into ASG-parseable steps.
-  46 test rungs (deterministic + conjunction + passthrough + e2e + LLM integration).
-  17 compound rules, conjunction splitting, Ollama LLM fallback.
+  82 test rungs (deterministic + conjunction + passthrough + e2e + LLM integration + new rules + CLI).
+  37 compound rules, conjunction splitting, Ollama LLM fallback.
+- Unified CLI front-door: Done. mk.py — one-shot + REPL mode. Full pipeline NL->Planner->ASG->Interpreter.
 
-Current state: 89/89 v03 rungs green, 11/11 v02 rungs green, 46/46 planner rungs green.
-16 ASG node types, 4 backends, planner/composer with deterministic + LLM decomposition.
+Current state: 89/89 v03 rungs, 11/11 v02 rungs, 82/82 planner rungs green.
+Total: 182 rungs. 16 ASG node types, 4 backends, 37 compound planner rules, unified CLI.
 
 ## Now (immediate, high-leverage)
 
-### 1. Expand planner compound rules + test with more complex NL
-- Action: Add more deterministic decomposition patterns (conditional compound,
-  iterative patterns, multi-file batch operations).
-- Add planner rungs to the main test_v03.py suite.
-- Test the LLM fallback against harder novel requests (multi-sentence descriptions).
+### 1. Model distillation: train specialist translators
+- Fine-tune small models from triples.jsonl for NL->shell, NL->Python, NL->SQL.
+- ~12.7K verified triples — enough for fine-tuning.
+- Format: {nl_intent, ast_or_asg, target_code} triples -> LoRA fine-tune a 7B model.
 
-### 2. Model distillation: train specialist translators
-- Action: Fine-tune small models from triples.jsonl for NL->shell, NL->Python, NL->SQL.
-- The data pipeline now produces ~12.7K verified triples — enough for fine-tuning.
+### 2. Multi-backend CLI: mk.py backend selection
+- Add: mk.py --backend python "create file x with content hello"
+  -> shows what Python code WOULD be generated
+- Add: mk.py --backend sql "count lines in data.txt"
+  -> shows what SQL query WOULD be generated
+- Makes the multi-backend architecture visible/demonstrable.
+
+### 3. Add planner rungs to the main test_v03.py suite
+- Fold a representative subset into the main suite so there is one test command.
 
 ## Next (medium-term)
 
-### 3. Wire the planner into the council loop
-- The planner can serve as a pre-processor: complex NL -> planner -> simple NL lines ->
-  council interpreter. This would let the council handle multi-step compound intents.
-
 ### 4. The planner as a reasoning agent
-- Extend the planner to handle truly complex requests that require conditional logic,
-  loops, or data-dependent branching (beyond what deterministic rules can express).
+- Handle complex requests requiring loops, data-dependent branching.
+- E.g. "compress all .log files" requires listing, filtering, iterating.
+
+### 5. Wire the planner into the council loop
+- Planner as pre-processor for council interpreter.
 
 ## Later (ambitious)
 
-### 5. Experiment 2: governed self-enhancement
+### 6. Experiment 2: governed self-enhancement
 - Build the ENFORCER/DEVELOPER loop from EXP2-DESIGN.md.
 
 ## Boundaries (protected files)
