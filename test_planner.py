@@ -6,6 +6,9 @@ Phase G+: Conjunction splitting (multi-clause sentences)
 Phase H:  Passthrough (single valid intents pass through unchanged)
 Phase I:  End-to-end plan→execute (deterministic plans produce correct output)
 Phase J:  LLM integration (if Ollama is available — marked as integration)
+Phase K:  New compound rules (conditional, batch, rename, shortcuts)
+Phase L:  End-to-end for new rules (conditional + batch + rename)
+Phase M:  mk.py CLI smoke tests
 
 Run: python3 test_planner.py
 """
@@ -236,29 +239,29 @@ def phase_g_plus():
 # ---------------------------------------------------------------------------
 
 def phase_h():
-    results.append("\nPhase H: Passthrough (Single Valid Intents)")
+    results.append("\nPhase H: Passthrough (single intents)")
     planner = Planner(use_llm=False)
 
-    single_intents = [
-        'create file test.txt with content "hello"',
-        'read file notes.txt',
-        'append "more" to data.txt',
-        'count lines in log.txt',
-        'list files',
-        'find files containing "error"',
-        'delete old.txt confirm',
-        'make directory backups',
-        'sum numbers in receipt.txt',
-        'sort lines in items.txt',
+    passthrough_tests = [
+        ('create file test.txt with content "hello"'),
+        ('read file data.txt'),
+        ('append "more" to log.txt'),
+        ('count lines in report.txt'),
+        ('count words in essay.txt'),
+        ('sort lines in names.txt'),
+        ('show first 5 lines of log.txt'),
+        ('sum numbers in prices.txt'),
+        ('extract lines matching "error" from system.log'),
+        ('copy source.txt to dest.txt'),
     ]
 
-    for intent in single_intents:
+    for intent in passthrough_tests:
         plan = planner.plan(intent)
         test(f"passthrough: {intent[:40]}",
              plan.source == "passthrough" and
              len(plan.steps) == 1 and
              plan.steps[0] == intent,
-             f"got {plan}")
+             f"got source={plan.source}, steps={plan.steps}")
 
 
 # ---------------------------------------------------------------------------
@@ -269,38 +272,33 @@ def phase_i():
     results.append("\nPhase I: End-to-End Plan→Execute")
     planner = Planner(use_llm=False)
 
-    def e2e_test(name, request, setup_fn, expected_output):
-        def run():
+    def e2e_test(name: str, request: str, setup_fn, expected: str):
+        def _run():
             if setup_fn:
                 setup_fn()
             output = planner.plan_and_execute(request)
-            return output.strip() if output else ""
-        try:
-            output = run_in_sandbox(run)
-            norm_actual = " ".join(output.split())
-            norm_expected = " ".join(expected_output.split())
-            test(f"e2e: {name}", norm_actual == norm_expected,
-                 f"expected '{norm_expected}', got '{norm_actual}'")
-        except Exception as e:
-            test(f"e2e: {name}", False, f"exception: {e}")
+            test(f"e2e:{name}",
+                 output.strip() == expected,
+                 f"expected '{expected}', got '{output.strip()}'")
+        run_in_sandbox(_run)
 
-    # backup: create file then backup it → copy should succeed
-    e2e_test("backup-data",
-             "backup source.txt",
-             lambda: _create_file("source.txt", "data"),
+    # backup: create file → backup it → verify backup exists
+    e2e_test("backup",
+             "backup data.txt",
+             lambda: _create_file("data.txt", "content"),
              "")
 
     # file info: create file with known content → count lines + words
     e2e_test("file-info",
              "file info for doc.txt",
              lambda: _create_file("doc.txt", "hello world\nfoo bar"),
-             "2 4")
+             "2\n4")
 
     # stats: same
     e2e_test("stats",
              "stats for data.txt",
              lambda: _create_file("data.txt", "one two three"),
-             "1 3")
+             "1\n3")
 
     # create and read
     e2e_test("create-and-read",
@@ -312,13 +310,13 @@ def phase_i():
     e2e_test("inspect",
              "inspect page.txt",
              lambda: _create_file("page.txt", "alpha beta\ngamma"),
-             "alpha beta gamma 2 3")
+             "alpha beta gamma\n2\n3")
 
     # wc
     e2e_test("wc",
              "wc doc.txt",
              lambda: _create_file("doc.txt", "one two\nthree four five"),
-             "2 5")
+             "2\n5")
 
     # wordcount
     e2e_test("wordcount",
@@ -408,12 +406,334 @@ def phase_j():
             test(f"llm:{name}", False, f"exception: {e}")
 
 
-import json  # needed by phase_j
+# ---------------------------------------------------------------------------
+# Phase K: New compound rules (conditional, batch, rename, shortcuts)
+# ---------------------------------------------------------------------------
+
+def phase_k():
+    results.append("\nPhase K: New Compound Rules (v2)")
+    planner = Planner(use_llm=False)
+
+    # summarize NAME → read + lines + words + sum
+    plan = planner.plan("summarize sales.txt")
+    test("summarize → 4 steps",
+         plan.source == "deterministic" and len(plan.steps) == 4 and
+         "read file sales.txt" in plan.steps[0],
+         f"got {plan}")
+
+    # first line of NAME → show first 1 lines
+    plan = planner.plan("first line of readme.txt")
+    test("first-line-of → show first 1",
+         plan.source == "deterministic" and
+         "show first 1 lines of readme.txt" in plan.steps[0],
+         f"got {plan}")
+
+    # ensure NAME exists → conditional
+    plan = planner.plan("ensure config.txt exists")
+    test("ensure-exists → conditional",
+         plan.source == "deterministic" and len(plan.steps) == 1 and
+         "if config.txt exists" in plan.steps[0] and
+         "otherwise create file config.txt" in plan.steps[0],
+         f"got {plan}")
+
+    # ensure NAME with content TEXT → conditional
+    plan = planner.plan('ensure app.conf with content "debug=true"')
+    test("ensure-with-content → conditional",
+         plan.source == "deterministic" and len(plan.steps) == 1 and
+         "if app.conf exists" in plan.steps[0] and
+         'create file app.conf with content "debug=true"' in plan.steps[0],
+         f"got {plan}")
+
+    # touch NAME → conditional
+    plan = planner.plan("touch new.txt")
+    test("touch → conditional",
+         plan.source == "deterministic" and len(plan.steps) == 1 and
+         "if new.txt exists" in plan.steps[0] and
+         "otherwise create file new.txt" in plan.steps[0],
+         f"got {plan}")
+
+    # upsert NAME with TEXT → conditional append/create
+    plan = planner.plan('upsert log.txt with "new entry"')
+    test("upsert → conditional append/create",
+         plan.source == "deterministic" and len(plan.steps) == 1 and
+         "if log.txt exists" in plan.steps[0] and
+         'append "new entry" to log.txt' in plan.steps[0] and
+         'create file log.txt with content "new entry"' in plan.steps[0],
+         f"got {plan}")
+
+    # rename OLD to NEW → copy + delete
+    plan = planner.plan("rename old.txt to new.txt")
+    test("rename → copy + delete",
+         plan.source == "deterministic" and len(plan.steps) == 2 and
+         "copy old.txt to new.txt" in plan.steps[0] and
+         "delete old.txt confirm" in plan.steps[1],
+         f"got {plan}")
+
+    # create empty NAME → create with empty content
+    plan = planner.plan("create empty placeholder.txt")
+    test("create-empty → create with empty content",
+         plan.source == "deterministic" and len(plan.steps) == 1 and
+         'create file placeholder.txt with content ""' in plan.steps[0],
+         f"got {plan}")
+
+    # write TEXT to NAME → create file
+    plan = planner.plan('write "hello world" to greeting.txt')
+    test("write → create file",
+         plan.source == "deterministic" and len(plan.steps) == 1 and
+         'create file greeting.txt with content "hello world"' in plan.steps[0],
+         f"got {plan}")
+
+    # linecount NAME → count lines
+    plan = planner.plan("linecount report.txt")
+    test("linecount → count lines",
+         plan.source == "deterministic" and
+         "count lines in report.txt" in plan.steps[0],
+         f"got {plan}")
+
+    # lines in NAME → count lines
+    plan = planner.plan("lines in report.txt")
+    test("lines-in → count lines",
+         plan.source == "deterministic" and
+         "count lines in report.txt" in plan.steps[0],
+         f"got {plan}")
+
+    # words in NAME → count words
+    plan = planner.plan("words in report.txt")
+    test("words-in → count words",
+         plan.source == "deterministic" and
+         "count words in report.txt" in plan.steps[0],
+         f"got {plan}")
+
+    # backup A and B → two copies
+    plan = planner.plan("backup alpha.txt and beta.txt")
+    test("backup-ab → batch copy",
+         plan.source == "deterministic" and len(plan.steps) == 2 and
+         "copy alpha.txt to backup_alpha.txt" in plan.steps[0] and
+         "copy beta.txt to backup_beta.txt" in plan.steps[1],
+         f"got {plan}")
+
+    # inspect A and B → 6 steps (3 per file)
+    plan = planner.plan("inspect file1.txt and file2.txt")
+    test("inspect-ab → batch inspect",
+         plan.source == "deterministic" and len(plan.steps) == 6 and
+         "read file file1.txt" in plan.steps[0] and
+         "read file file2.txt" in plan.steps[3],
+         f"got {plan}")
+
+
+# ---------------------------------------------------------------------------
+# Phase L: End-to-end for new rules
+# ---------------------------------------------------------------------------
+
+def phase_l():
+    results.append("\nPhase L: New Rules End-to-End")
+    planner = Planner(use_llm=False)
+
+    def e2e_test(name: str, request: str, setup_fn, expected: str):
+        def _run():
+            if setup_fn:
+                setup_fn()
+            output = planner.plan_and_execute(request)
+            test(f"e2e:{name}",
+                 output.strip() == expected,
+                 f"expected '{expected}', got '{output.strip()}'")
+        run_in_sandbox(_run)
+
+    # summarize: read + lines + words + sum
+    e2e_test("summarize",
+             "summarize sales.txt",
+             lambda: _create_file("sales.txt", "10 20\n30 40"),
+             "10 20 30 40\n2\n4\n100")
+
+    # first line of NAME
+    e2e_test("first-line-of",
+             "first line of config.txt",
+             lambda: _create_file("config.txt", "first_setting=true\nsecond=false"),
+             "first_setting=true")
+
+    # ensure NAME exists — file missing → creates it
+    e2e_test("ensure-creates",
+             "ensure new.txt exists",
+             None,
+             "")
+
+    # ensure NAME exists — file already exists → reads it
+    e2e_test("ensure-reads",
+             "ensure data.txt exists",
+             lambda: _create_file("data.txt", "hello"),
+             "hello")
+
+    # touch NAME — file exists → counts lines
+    e2e_test("touch-exists",
+             "touch existing.txt",
+             lambda: _create_file("existing.txt", "line1\nline2"),
+             "2")
+
+    # touch NAME — file missing → creates empty
+    e2e_test("touch-creates",
+             "touch fresh.txt",
+             None,
+             "")
+
+    # upsert — file exists → appends
+    e2e_test("upsert-appends",
+             'upsert notes.txt with "new"',
+             lambda: _create_file("notes.txt", "old"),
+             "")
+
+    # upsert — file missing → creates
+    e2e_test("upsert-creates",
+             'upsert fresh.txt with "first"',
+             None,
+             "")
+
+    # rename → copy + delete original
+    e2e_test("rename",
+             "rename old.dat to new.dat",
+             lambda: _create_file("old.dat", "payload"),
+             "")
+
+    # create empty → creates empty file
+    e2e_test("create-empty",
+             "create empty blank.txt",
+             None,
+             "")
+
+    # write "TEXT" to NAME → creates file
+    e2e_test("write-to",
+             'write "test data" to sample.txt',
+             None,
+             "")
+
+    # linecount
+    e2e_test("linecount",
+             "linecount code.py",
+             lambda: _create_file("code.py", "a\nb\nc\nd"),
+             "4")
+
+    # lines in NAME
+    e2e_test("lines-in",
+             "lines in data.txt",
+             lambda: _create_file("data.txt", "x\ny"),
+             "2")
+
+    # words in NAME
+    e2e_test("words-in",
+             "words in data.txt",
+             lambda: _create_file("data.txt", "one two three"),
+             "3")
+
+    # backup A and B → both copied
+    e2e_test("backup-ab",
+             "backup a.txt and b.txt",
+             lambda: (
+                 _create_file("a.txt", "A"),
+                 _create_file("b.txt", "B"),
+             ),
+             "")
+
+
+# ---------------------------------------------------------------------------
+# Phase M: mk.py CLI smoke tests
+# ---------------------------------------------------------------------------
+
+def phase_m():
+    results.append("\nPhase M: mk.py CLI Smoke Tests")
+
+    def run_cli(args: list[str], cwd: Path) -> tuple[int, str]:
+        """Run mk.py in a specific cwd, return (exit_code, combined output)."""
+        proc = subprocess.run(
+            [PYTHON, str(HERE / "mk.py")] + args,
+            capture_output=True, text=True, cwd=str(cwd), timeout=10,
+        )
+        return proc.returncode, (proc.stdout + proc.stderr).strip()
+
+    def cli_test(name: str, args: list[str], setup_fn,
+                 expected_contains: str = None,
+                 expected_exit: int = 0):
+        def _run():
+            if setup_fn:
+                setup_fn()
+            code, output = run_cli(args, Path(os.getcwd()))
+            ok = code == expected_exit
+            if expected_contains is not None:
+                ok = ok and expected_contains in output
+            test(f"cli:{name}", ok,
+                 f"exit={code}, output='{output[:120]}'")
+        run_in_sandbox(_run)
+
+    # One-shot: simple passthrough
+    cli_test("oneshot-create",
+             ['create file hello.txt with content "world"'],
+             None)
+
+    # One-shot: with --quiet flag
+    cli_test("oneshot-quiet",
+             ['-q', 'create file x.txt with content "1"'],
+             None)
+
+    # One-shot: compound rule with --plan (show decomposition)
+    cli_test("plan-inspect",
+             ['-p', 'inspect data.txt'],
+             lambda: _create_file("data.txt", "content"),
+             expected_contains="read file")
+
+    # One-shot: backup
+    cli_test("backup",
+             ['-q', 'backup data.txt'],
+             lambda: _create_file("data.txt", "content"))
+
+    # --help shows shortcuts
+    cli_test("help",
+             ['--help'],
+             None,
+             expected_contains="backup")
+
+    # REPL mode: pipe commands via stdin
+    def test_repl():
+        work = Path(tempfile.mkdtemp(prefix="mk_repl_"))
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(str(work))
+            proc = subprocess.run(
+                [PYTHON, str(HERE / "mk.py")],
+                input='create file test.txt with content "hello"\nread file test.txt\n:quit\n',
+                capture_output=True, text=True, timeout=10,
+            )
+            ok = "hello" in proc.stdout
+            test("cli:repl-basic", ok,
+                 f"output='{proc.stdout[:200]}'")
+        finally:
+            os.chdir(old_cwd)
+            shutil.rmtree(work, ignore_errors=True)
+    test_repl()
+
+    # REPL :help command
+    def test_repl_help():
+        work = Path(tempfile.mkdtemp(prefix="mk_repl_"))
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(str(work))
+            proc = subprocess.run(
+                [PYTHON, str(HERE / "mk.py")],
+                input=':help\n:quit\n',
+                capture_output=True, text=True, timeout=10,
+            )
+            ok = "backup" in proc.stdout.lower()
+            test("cli:repl-help", ok,
+                 f"output='{proc.stdout[:200]}'")
+        finally:
+            os.chdir(old_cwd)
+            shutil.rmtree(work, ignore_errors=True)
+    test_repl_help()
 
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
+import json  # needed by phase_j
+
 
 def main():
     print("=" * 60)
@@ -425,6 +745,9 @@ def main():
     phase_h()
     phase_i()
     phase_j()
+    phase_k()
+    phase_l()
+    phase_m()
 
     total = passed + failed
     print()

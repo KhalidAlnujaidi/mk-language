@@ -14,6 +14,8 @@ Deterministic patterns:
   - Sequential: "create X then read X" → two lines
   - Common compound intents: "backup NAME", "file info NAME", "init project NAME"
   - Pipeline: "read NAME, count lines, and sort" → ordered steps
+  - Conditional: "ensure NAME exists", "touch NAME", "upsert NAME with TEXT"
+  - Batch: "backup A and B", "inspect A then inspect B"
 
 LLM fallback:
   - Prompted with the 16-node ASG vocabulary and their exact NL syntax
@@ -100,6 +102,7 @@ def _split_conjunctions(text: str) -> list[str]:
 
 # Compound intent templates: regex → list of NL lines (with {placeholders})
 _COMPOUND_RULES: list[tuple[re.Pattern, list[str]]] = [
+    # --- Backup / copy ---
     # "backup NAME" → copy NAME to backup of NAME
     (
         re.compile(r'^backup (\S+)$', re.IGNORECASE),
@@ -110,6 +113,13 @@ _COMPOUND_RULES: list[tuple[re.Pattern, list[str]]] = [
         re.compile(r'^backup (\S+) to (\S+)$', re.IGNORECASE),
         ['copy {0} to {1}'],
     ),
+    # "duplicate NAME" → copy to a backup name
+    (
+        re.compile(r'^duplicate (\S+)$', re.IGNORECASE),
+        ['copy {0} to copy_of_{0}'],
+    ),
+
+    # --- Inspection / stats ---
     # "file info NAME" → count lines + count words
     (
         re.compile(r'^file info(?:rmation)? for (\S+)$', re.IGNORECASE),
@@ -120,31 +130,51 @@ _COMPOUND_RULES: list[tuple[re.Pattern, list[str]]] = [
         re.compile(r'^stats for (\S+)$', re.IGNORECASE),
         ['count lines in {0}', 'count words in {0}'],
     ),
-    # "init project NAME" → mkdir + create readme
-    (
-        re.compile(r'^init(?:ialize)? project (\S+)$', re.IGNORECASE),
-        ['make directory {0}', 'create file {0}/README.txt with content "Project: {0}"'],
-    ),
-    # "create and read NAME with TEXT" → create + read
-    (
-        re.compile(r'^create and read (\S+) with content "([^"]*)"$', re.IGNORECASE),
-        ['create file {0} with content "{1}"', 'read file {0}'],
-    ),
-    # "duplicate NAME" → copy to a backup name
-    (
-        re.compile(r'^duplicate (\S+)$', re.IGNORECASE),
-        ['copy {0} to copy_of_{0}'],
-    ),
-    # "safe delete NAME" → delete with confirm
-    (
-        re.compile(r'^safe delete (\S+)$', re.IGNORECASE),
-        ['delete {0} confirm'],
-    ),
     # "inspect NAME" → read + count lines + count words
     (
         re.compile(r'^inspect (\S+)$', re.IGNORECASE),
         ['read file {0}', 'count lines in {0}', 'count words in {0}'],
     ),
+    # "summarize NAME" → read + count lines + count words + sum numbers
+    (
+        re.compile(r'^summarize (\S+)$', re.IGNORECASE),
+        ['read file {0}', 'count lines in {0}', 'count words in {0}',
+         'sum numbers in {0}'],
+    ),
+    # "wc NAME" → count lines + count words
+    (
+        re.compile(r'^wc (\S+)$', re.IGNORECASE),
+        ['count lines in {0}', 'count words in {0}'],
+    ),
+    # "wordcount NAME" → count words
+    (
+        re.compile(r'^wordcount (\S+)$', re.IGNORECASE),
+        ['count words in {0}'],
+    ),
+
+    # --- Project init ---
+    # "init project NAME" → mkdir + create readme
+    (
+        re.compile(r'^init(?:ialize)? project (\S+)$', re.IGNORECASE),
+        ['make directory {0}',
+         'create file {0}/README.txt with content "Project: {0}"'],
+    ),
+
+    # --- Create + read ---
+    # "create and read NAME with TEXT" → create + read
+    (
+        re.compile(r'^create and read (\S+) with content "([^"]*)"$', re.IGNORECASE),
+        ['create file {0} with content "{1}"', 'read file {0}'],
+    ),
+
+    # --- Safe operations ---
+    # "safe delete NAME" → delete with confirm
+    (
+        re.compile(r'^safe delete (\S+)$', re.IGNORECASE),
+        ['delete {0} confirm'],
+    ),
+
+    # --- Search / extract ---
     # "search for TEXT" → find files containing TEXT
     (
         re.compile(r'^search for "([^"]*)"$', re.IGNORECASE),
@@ -155,6 +185,8 @@ _COMPOUND_RULES: list[tuple[re.Pattern, list[str]]] = [
         re.compile(r'^grep "([^"]*)" in (\S+)$', re.IGNORECASE),
         ['extract lines matching "{0}" from {1}'],
     ),
+
+    # --- Head / total / sort shortcuts ---
     # "head NAME" → show first 10 lines
     (
         re.compile(r'^head (\S+)$', re.IGNORECASE),
@@ -164,6 +196,11 @@ _COMPOUND_RULES: list[tuple[re.Pattern, list[str]]] = [
     (
         re.compile(r'^head (\d+) (\S+)$', re.IGNORECASE),
         ['show first {0} lines of {1}'],
+    ),
+    # "first line of NAME" → show first 1 line
+    (
+        re.compile(r'^first line of (\S+)$', re.IGNORECASE),
+        ['show first 1 lines of {0}'],
     ),
     # "total NAME" → sum numbers
     (
@@ -175,15 +212,88 @@ _COMPOUND_RULES: list[tuple[re.Pattern, list[str]]] = [
         re.compile(r'^sort (\S+)$', re.IGNORECASE),
         ['sort lines in {0}'],
     ),
-    # "wordcount NAME" → count words
+
+    # --- Conditional compounds ---
+    # "ensure NAME exists" → if not exists, create empty
     (
-        re.compile(r'^wordcount (\S+)$', re.IGNORECASE),
-        ['count words in {0}'],
+        re.compile(r'^ensure (\S+) exists$', re.IGNORECASE),
+        ['if {0} exists then read file {0} '
+         'otherwise create file {0} with content ""'],
     ),
-    # "wc NAME" → count lines + count words
+    # "ensure NAME with content TEXT" → if exists read, else create
     (
-        re.compile(r'^wc (\S+)$', re.IGNORECASE),
-        ['count lines in {0}', 'count words in {0}'],
+        re.compile(r'^ensure (\S+) with content "([^"]*)"$', re.IGNORECASE),
+        ['if {0} exists then read file {0} '
+         'otherwise create file {0} with content "{1}"'],
+    ),
+    # "touch NAME" → if exists count lines, else create empty
+    (
+        re.compile(r'^touch (\S+)$', re.IGNORECASE),
+        ['if {0} exists then count lines in {0} '
+         'otherwise create file {0} with content ""'],
+    ),
+    # "upsert NAME with TEXT" → if exists append, else create
+    (
+        re.compile(r'^upsert (\S+) with "([^"]*)"$', re.IGNORECASE),
+        ['if {0} exists then append "{1}" to {0} '
+         'otherwise create file {0} with content "{1}"'],
+    ),
+
+    # --- Multi-target batch ---
+    # "backup A and B" → copy A and copy B
+    (
+        re.compile(r'^backup (\S+) and (\S+)$', re.IGNORECASE),
+        ['copy {0} to backup_{0}', 'copy {1} to backup_{1}'],
+    ),
+    # "inspect A then B" (two files)
+    # NOTE: This is handled by conjunction splitting if "then" is present,
+    # so we only handle "inspect A and B" (two files, same operation)
+    (
+        re.compile(r'^inspect (\S+) and (\S+)$', re.IGNORECASE),
+        ['read file {0}', 'count lines in {0}', 'count words in {0}',
+         'read file {1}', 'count lines in {1}', 'count words in {1}'],
+    ),
+
+    # --- Rename ---
+    # "rename A to B" → copy A to B then safe delete A
+    (
+        re.compile(r'^rename (\S+) to (\S+)$', re.IGNORECASE),
+        ['copy {0} to {1}', 'delete {0} confirm'],
+    ),
+    # "move NAME to DEST" — already a passthrough to move SRC to DEST
+    # No rule needed: the parser handles it directly.
+
+    # --- Content shortcuts ---
+    # "create empty NAME" → create with empty content
+    (
+        re.compile(r'^create empty (\S+)$', re.IGNORECASE),
+        ['create file {0} with content ""'],
+    ),
+    # "write TEXT to NAME" → alias for create (overwrites logic not in ASG,
+    # so this creates if not exists; if exists, it's refused by the executor)
+    (
+        re.compile(r'^write "([^"]*)" to (\S+)$', re.IGNORECASE),
+        ['create file {1} with content "{0}"'],
+    ),
+    # "prepend TEXT to NAME" → not directly possible in ASG, but we can:
+    # read existing, create new. Too complex for deterministic decomposition.
+    # Skip.
+
+    # --- Count shortcuts ---
+    # "linecount NAME" → count lines
+    (
+        re.compile(r'^linecount (\S+)$', re.IGNORECASE),
+        ['count lines in {0}'],
+    ),
+    # "lines in NAME" → count lines
+    (
+        re.compile(r'^lines in (\S+)$', re.IGNORECASE),
+        ['count lines in {0}'],
+    ),
+    # "words in NAME" → count words
+    (
+        re.compile(r'^words in (\S+)$', re.IGNORECASE),
+        ['count words in {0}'],
     ),
 ]
 
@@ -213,21 +323,19 @@ def _validate_steps(steps: list[str]) -> list[str]:
 
 _LLM_SYSTEM = """\
 You are a PLANNER for the MK NL→OS translation system. Your job: take a complex \
-natural-language request and decompose it into a sequence of SIMPLE single-line \
-intents that the MK parser can handle.
+natural-language request and decompose it into a sequence of SIMPLE single-\
+line intents that match the parser's exact syntax. You are NOT an executor — \
+you never run anything. You only PLAN: output the steps.
 
 Rules:
-1. Output ONLY intent lines — one per line. No explanations, no markdown, no \
-commentary.
-2. Every line MUST match one of the documented intent patterns EXACTLY.
-3. Use realistic filenames and content derived from the request.
-4. If the request involves a safety-sensitive operation (delete), include \
-`confirm` if the user clearly wants it done, or omit it if they're just asking \
-about it (the system will refuse, which is correct).
-5. Preserve the LOGICAL ORDER of operations (create before read, etc.).
-6. If the request is ambiguous, make a reasonable interpretation and decompose \
-it. Do not ask questions.
+1. Output one intent per line.
+2. Each line must exactly match one of the parser's known patterns (below).
+3. Use actual filenames and text values from the user's request.
+4. Do not add explanation, commentary, or markdown.
+5. Preserve the order of operations the user requested.
+6. If the request is already a single valid intent, output it unchanged.
 """
+
 
 _LLM_USER_TEMPLATE = """\
 Decompose this request into MK intent lines:
