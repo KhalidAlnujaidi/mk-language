@@ -25,7 +25,15 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from daemon.exec import BackendError, Call, ChainExhausted, Messages, execute
+from daemon.exec import (
+    BackendError,
+    Call,
+    ChainExhausted,
+    ExecResult,
+    Messages,
+    execute,
+    tier_label,
+)
 from kernel.contracts import EventRecord, Tier
 from kernel.jsonutil import as_dict
 from kernel.metrics import MetricsSink
@@ -166,6 +174,45 @@ def _default_call_factory() -> CallFactory:
     return factory
 
 
+async def _streamed_turn(
+    tier: Tier,
+    messages: Messages,
+    tools: list[dict[str, object]],
+    task_id: str,
+    on_token: Callable[[str], None],
+) -> ExecResult | None:
+    """Stream one agent turn on *tier*: push content to *on_token* live and return
+    an ``ExecResult`` identical in shape to :func:`execute`'s (tool_calls
+    reassembled). Returns ``None`` on a stream failure so the caller falls back to
+    the non-streaming chain — streaming is a fast primary path, never the only one.
+    """
+    from daemon.streaming import stream_agent_turn
+
+    started = time.perf_counter()
+    try:
+        resp = await stream_agent_turn(
+            tier, messages, on_content=on_token, tools=tools
+        )
+    except BackendError:
+        return None
+    event = EventRecord(
+        task_id=task_id,
+        kind="agent",
+        tier=tier_label(tier),
+        tokens_in=resp.tokens_in,
+        tokens_out=resp.tokens_out,
+        tokens_exact=resp.tokens_exact,
+        latency_ms=(time.perf_counter() - started) * 1000.0,
+    )
+    return ExecResult(
+        content=resp.content,
+        tier_used=tier,
+        event=event,
+        tool_calls=resp.tool_calls,
+        finish_reason=resp.finish_reason,
+    )
+
+
 async def run_agent(
     task: str,
     *,
@@ -186,6 +233,7 @@ async def run_agent(
     guard: Guard | None = None,
     call_factory: CallFactory | None = None,
     on_step: Callable[[AgentStep], None] | None = None,
+    on_token: Callable[[str], None] | None = None,
     fallback: Tier | None = None,
 ) -> AgentResult:
     """Run the tool-calling loop for *task* and return an :class:`AgentResult`.
@@ -317,13 +365,22 @@ async def run_agent(
                 return result
             result.turns = turn + 1
             try:
-                exec_result = await execute(
-                    chain,
-                    messages,
-                    call=factory(schema),
-                    task_id=f"{task_id}-t{turn}",
-                    kind="agent",
-                )
+                # Stream the turn when a token sink is wired (live answer, vision
+                # §5.2): content renders as it arrives, tool_calls are reassembled.
+                # None back means the stream failed → fall back to the full chain.
+                exec_result = None
+                if on_token is not None:
+                    exec_result = await _streamed_turn(
+                        chain[0], messages, schema, f"{task_id}-t{turn}", on_token
+                    )
+                if exec_result is None:
+                    exec_result = await execute(
+                        chain,
+                        messages,
+                        call=factory(schema),
+                        task_id=f"{task_id}-t{turn}",
+                        kind="agent",
+                    )
             except ChainExhausted as exc:
                 # Honest observability (vision §4.6): the failure boundary is logged
                 # too, so the metrics log never has a silent gap.
