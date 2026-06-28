@@ -141,8 +141,9 @@ def write_capabilities(state: State) -> None:
     lines = [
         "# The Council Language — capability ladder (executed, not voted)",
         "",
-        f"**{score}/{len(names)} capabilities pass** under the council's own "
-        "reference interpreter (`interpreter.py`).",
+        f"**{score}/{len(names)} capabilities pass** "
+        f"(gradient score: {state.incumbent_score:.1f}/{len(names)}) "
+        "under the council's own reference interpreter (`interpreter.py`).",
         "",
     ]
     for name, program, expected in CONFORMANCE:
@@ -234,6 +235,7 @@ def main() -> None:
                 state.incumbent_src = ""
                 state.incumbent_passing = []
                 state.stall_count = 0
+                state.incumbent_score = 0.0
                 state.goal = GOAL
 
             prev_pass = list(state.incumbent_passing)
@@ -243,29 +245,40 @@ def main() -> None:
             # goal, carrying the anonymized memory — exactly the user's "begin again from
             # what worked" loop.
             fresh = state.stall_count >= PLATEAU_PATIENCE
-            log, new_src, new_pass = run_build_round(
+            prev_score = state.incumbent_score
+            log, new_src, new_pass, new_score = run_build_round(
                 state.round, scope_text(), state.incumbent_src,
                 state.incumbent_passing, CONFORMANCE, seed, reference, fresh,
             )
             state.incumbent_src = new_src
             state.incumbent_passing = new_pass
+            state.incumbent_score = new_score
             if new_src:
                 (HERE / "interpreter.py").write_text(new_src, encoding="utf-8")
             write_capabilities(state)
 
             gained = sorted(set(new_pass) - set(prev_pass))
+            score_gain = new_score - prev_score
             if gained:  # a real capability milestone — record it, reset the plateau gauge
                 append_progress(
-                    f"- Round {log.index}: reached **{len(new_pass)}/{len(CONFORMANCE)}**. "
-                    f"Newly working: {', '.join(gained)}."
+                    f"- Round {log.index}: reached **{len(new_pass)}/{len(CONFORMANCE)}** "
+                    f"(score {new_score:.1f}). Newly working: {', '.join(gained)}."
                 )
                 state.stall_count = 0
+            elif score_gain > 1e-9:  # gradient improved even without a new full PASS
+                append_progress(
+                    f"- Round {log.index}: gradient gain {prev_score:.1f} -> "
+                    f"{new_score:.1f}/{len(CONFORMANCE)} ({len(new_pass)} fully passing). "
+                    f"A near-miss improved — progress on the gradient."
+                )
+                state.stall_count = 0  # gradient gain counts as progress
             elif fresh:  # plateau breaker fired — document the agreed goal, reset gauge
                 nxt = next((n for n, _, _ in CONFORMANCE if n not in new_pass), "—")
                 append_progress(
                     f"- Round {log.index}: PLATEAU at {len(new_pass)}/{len(CONFORMANCE)} "
-                    f"after {state.stall_count} rounds with no gain. Agreed foundation "
-                    f"passes: {new_pass or '[]'}. Fresh-start goal: `{nxt}`."
+                    f"(score {new_score:.1f}) after {state.stall_count} rounds with no "
+                    f"gain. Agreed foundation passes: {new_pass or '[]'}. "
+                    f"Fresh-start goal: `{nxt}`."
                 )
                 state.stall_count = 0
             else:  # no gain this round — inch toward the plateau threshold
@@ -275,7 +288,8 @@ def main() -> None:
                 state.phase = "done"
                 append_progress(
                     f"- Round {log.index}: **COMPLETE — {len(new_pass)}/"
-                    f"{len(CONFORMANCE)}.** The council built a working NL→OS layer."
+                    f"{len(CONFORMANCE)} (score {new_score:.1f}).** "
+                    "The council built a working NL→OS layer."
                 )
                 # Finish this round's checkpoint below, then exit the loop.
 

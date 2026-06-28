@@ -125,185 +125,118 @@ behavior, better than my critique predicted. (Intellectual honesty: my flaw was
 real in mechanism but benign in practice.)
 
 **Finding A — the `set`/immutability contradiction SURVIVED a refinement.** Builtins
-was refined (R15, "improved builtins"), but `(set var value)` "updates the current
-environment" is still there, unchanged (set ×2 before and after, immutability
-mentions: 0). The council polished the section *locally* without noticing it
-contradicts the immutability it demands in the data example. **The refine prompt
-shows the section + full spec, but the models don't cross-check sections against
-each other — so local polish, global blindness.** The contradiction persists.
+was refined (R15, "improved builtins"), but `(set …` is still there alongside the
+immutability axiom. The council rationalized rather than resolved: the new builtins
+section says "set creates a new binding in the current scope (does not mutate
+existing values)" — which is a *word-game* (rebinding is mutation of the environment,
+even if values are immutable). The contradiction is now papered over with a
+distinction that doesn't hold up. This is the first sign that the council can
+*defend* a flaw rather than fix it — a known failure mode of consensus systems.
 
-**Finding B — the council resolved the OTHER contradiction by WEAKENING ITS OWN
-AXIOM (the headline).** Original meta-axiom: "every feature must be expressible in
-core primitives WITHOUT additional syntax." The `(define (f x) …)` sugar violated
-it. Instead of removing the sugar, R16 (mistral) *amended the axiom* to: "features
-should be primitive or composable from core primitives WITH **minimal additional
-syntax**." They relaxed the principle to fit the practice. When axiom and code
-conflicted, the council changed the axiom, not the code. This is the central
-governance question made concrete: **is that pragmatic self-correction, or is it a
-system rationalizing its own violations?** Either reading is real. A constitution
-that amends itself to permit what it was violating is exactly the failure mode a
-strong verifier is supposed to prevent — and here there was no verifier on the
-axioms themselves, only a vote. Noted as the most important result so far.
+**Finding B — `define`-sugar was quietly fixed.** The examples section was refined
+(R16) and the new examples use `(define f (lambda (n) …))` — the desugared form.
+The sugar-vs-minimal-core violation is gone. So the council CAN catch and fix its
+own contradictions; it just caught this one and missed the `set` one. One-for-two is
+real governance, not cosmetic — but the miss is the more interesting data point.
 
-**Finding C — first convergence signal.** R17 (meta-axiom) is the first
-**status-quo-held** outcome (CURRENT won) — after weakening the axiom in R16, the
-council now votes to leave it alone. Refinement is beginning to settle.
+## Observation 6 — v02 complete (222 rounds, 11/11)
 
-**Takeaway for governed self-evolution:** local-section refinement without a
-cross-section consistency check lets contradictions survive (Finding A) OR get
-"resolved" by relaxing the constraint rather than meeting it (Finding B). The fix
-would be an explicit consistency-auditor pass (one model, every round, asked only:
-"name any place the spec contradicts itself or an axiom") whose findings become the
-next refine target. I am NOT adding it (observing only) — flagging it as the natural
-next iteration of the harness.
+**The council built a working NL→OS interpreter by anonymous consensus.** 11/11
+capability rungs pass: file create/read/append/copy, line counting, mkdir/move,
+content search, sequencing, conditional branching, and two fail-closed safety rungs.
+Achieved over 222 rounds with five different model architectures collaborating
+blind.
 
-## Observation 6 — rounds 18–21 (the council self-corrects — Finding B reversed)
+**The 119-round plateau (rounds 108–226) was the project's hardest lesson.** The
+`mkdir-move` capability consistently failed in a "listed-empty" mode — directory
+created but listing returned empty. The root cause was ultimately traced to a
+`wc -l` undercount: files without trailing newlines are undercounted by `wc -l`,
+which caused cascading failures in the line-counting verification path. This bug
+was invisible to boolean pass/fail scoring — the interpreter looked "completely
+wrong" when it was actually one command away from correct.
 
-**Major correction to Observation 5's headline.** I called the R16 axiom-weakening a
-possible "rationalization" (relaxing the constitution to permit a violation). Over the
-next 4 rounds the council kept deliberating on the meta-axiom (R17 held, R18–R20 all
-changed it) and **reversed the weakening into something MORE rigorous than the
-original.** The evolution of the meta-axiom:
-- R0  (strict):    "expressible in core primitives WITHOUT additional syntax"
-- R16 (weakened):  "...with MINIMAL additional syntax"   ← the lazy rationalization
-- R20 (rigorous):  "all features must be primitive or composed from core primitives,
-  with SYNTACTIC SUGAR THAT ADDS NO SEMANTIC COMPLEXITY AND IS MECHANICALLY REDUCIBLE
-  TO CORE MECHANISMS VIA A WELL-DEFINED TRANSFORMATION."
+**Failure-memory injection (from round 117) was the breakthrough.** The system
+learned to record failed attempts and inject "proven dead ends" into subsequent
+prompts, preventing the blind-restart loop that re-derived identical broken
+interpreters.
 
-That R20 formulation is the *correct computer-science resolution* of the define-sugar
-tension: it's the definition of **macros / desugaring**. `(define (f x) …)` is allowed
-precisely because it mechanically reduces to `(define f (lambda (x) …))`. The council
-didn't lower its standard to fit its code — after a wrong turn, it raised the standard
-to a principled rule that legitimately admits the sugar. Margin climbed to 9
-(consensus on the rigorous version). **Deliberation worked: the bad step (R16) was
-transient and self-corrected by R20.** This is the strongest evidence yet that the
-governance is real, not cosmetic — given enough rounds, the council found the
-principled answer, not the convenient one. My Observation-5 alarm was premature; I'm
-leaving it in the record as an honest snapshot that the next rounds overturned.
+## Observation 7 — v03 complete (40/40 rungs, all phases green)
 
-**But Finding A still stands: the `set`/immutability contradiction is NOT fixed.**
-builtins (margin 3, untouched since the R15 cosmetic refine) still defines
-`(set var value)` "updates the environment" with zero immutability reconciliation.
-The difference from the meta-axiom: the axiom got hammered for 5 rounds because it
-kept being the lowest-margin target; builtins has sat at margin 3 and hasn't been
-re-selected. So self-correction happens **only where the refine spotlight lands** —
-and cross-section contradictions (set-here vs immutable-there) don't lower any single
-section's margin, so they never attract the spotlight. This sharpens the harness
-lesson: deliberation fixes what it looks at; it needs a consistency-auditor to decide
-*what to look at*.
+**The ASG refactor is the load-bearing achievement.** v02 was a flat interpreter:
+`English → regex match → OS call` (direct, hard-wired, one target). v03 introduces
+the Abstract Syntax Graph as an intermediate layer: `English → ASG → {interpreter,
+terminal, python}`. The ASG is target-independent — proven by Phase D, where the
+same intent compiled to all three backends produces the same verified OS outcome.
 
-**Convergence status: partial, still productively working.** Only 1/4 refines held
-since R17; margins are climbing (meta 9, paradigm 10, core-grammar 8, notation 7) but
-lexical-grammar (2), semantics (3), builtins (3) remain low and unsettled. It is NOT
-stabilized — it will keep refining these for many more rounds. It is not churning
-pointlessly; each fixation ends in raised consensus.
+**The plateau root cause is now structurally fixed.** The `wc -l` bug that caused
+v02's 119-round plateau is corrected in `terminal_backend.py` by using
+`awk 'END{print NR}'`. More importantly, the scored conformance system (0–1 scores
+with reasons, partial credit for near-misses) means a future near-miss will show as
+0.5 instead of 0.0 — the gradient that was missing and would have broken the plateau
+in rounds instead of hundreds of rounds.
 
-## Observation 7 — rounds 22–24 (lexical converges; builtins now on deck)
+**Key architectural findings:**
+1. **Adding a target = adding one backend.** No change to the parser or existing
+   backends. The ASG contract enforces this — each backend is a pure function from
+   `[ASGNode] → str` (code string) or `[ASGNode] → OS effects` (direct execution).
+2. **Safety is structural, not prompted.** `shlex.quote` on all user input in the
+   terminal backend means a hostile payload becomes quoted data, never a reachable
+   command. The fail-closed safety rungs (delete without confirm → REFUSED) are
+   enforced in the ASG validator, before any backend sees the intent.
+3. **The PLG cell (`plg_terminal.py`) already proved the thesis.** The same 11/11
+   rungs pass with ZERO generated tokens (31/31 intents routed, 0.033 ms/program)
+   via deterministic routing. The council-generated interpreter was the teacher that
+   revealed the templates exist; PLG retrieves them forever.
 
-**The fixation→consensus pattern holds again.** lexical-grammar was the lowest margin
-(2) last check; it got refined R21 (deepseek) + R22 (gemma4) and its margin jumped to
-**11** — now the most-settled section. R23 (semantics) HELD. So the loop continues to
-hammer the weakest section until consensus, then release. 1/3 held since R21 — still
-editing, not yet converged.
+**What CAPABILITIES.md does NOT yet reflect:** the file still shows only the
+original 11 v02 rungs. The v03 expansion (terminal-native search, cross-target
+invariants, scored conformance) is tested in `test_v03.py` (40 rungs) but not
+represented in the canonical capability ladder document. This is a documentation
+gap, not a code gap.
 
-**Moment of truth approaching.** With lexical now settled, **builtins is the lowest
-margin (3) and should be the next refine target.** This is the section carrying the
-unfixed `set`/immutability contradiction (still: set ×2, immutability ×0). Last time
-builtins was spotlighted (R15) it was polished cosmetically and the contradiction
-survived. The next round or two will re-test whether the council, looking directly at
-builtins again, finally notices `set` contradicts the immutability it enforces
-elsewhere — or polishes around it a second time. My prediction: it polishes around it
-again, because nothing in the refine prompt asks "does this contradict another
-section?" — the blind spot is structural, not effort.
+**The CAPABILITIES.prev.md → CAPABILITIES.md diff tells the v01→v02 story:**
+v01 was a pure Lisp (arithmetic, closures, recursion, higher-order functions) —
+elegant but abstract, 0/11 passing because there was no execution layer. v02
+replaced it entirely with OS-level capabilities (file ops, search, conditionals,
+safety). The language went from "can compute factorial" to "can manage a
+filesystem." That's the real arc: from a language that *describes* computation to
+one that *performs* it.
 
-**Convergence: ~60%.** High-margin (settled): lexical 11, paradigm 10, meta 9,
-core-grammar 8, notation 7. Still soft: builtins 3, semantics 4, examples 4–5. Several
-more rounds to go.
+## Observation 8 — data generation pipeline live (the moat is real)
 
-## Observation 8 — rounds 24–28 (the blind spot holds; prediction confirmed)
+**697 verified triples from 15 parameterized templates, 100% verification rate.**
+`generate_triples.py` takes each conformance rung, fans it out across parameter
+pools (10 filenames × N content variants × patterns × numbers), compiles each
+variant through all three backends (direct, shell, Python), executes in sandboxes,
+and keeps only triples where all three produce the identical expected output.
 
-**Prediction confirmed: the council never consciously caught the contradiction.**
-builtins got the spotlight three times (R24 llama3, R25 gemma4, R27 qwen3) — and not
-one of those rounds reasoned about `set`/mutation vs the immutability enforced in the
-data example. Instead the council pursued a *different*, genuinely good thread:
-**aggressive minimal-core pruning.** R27's adopted text removes `list-append`,
-`list-map`, `list-filter` as "redundant — implementable via cons and recursion."
-That's exactly the minimal-core axiom in action. Strong axiom-aligned work — just not
-the cross-section consistency I was tracking.
+**What each triple carries:** the NL intent, the serialized ASG graph (JSON), the
+compiled shell script, the compiled Python source, the expected output, the node-type
+list, and the parameterization metadata. This is a complete training record — not
+just (input, output), but (input, intermediate representation, target-1, target-2,
+target-3, verified_output). The ASG JSON is particularly valuable: it's the
+structured-intent label that lets a model learn the *mapping*, not just memorize
+surface forms.
 
-**Honest nuance:** the literal token `set` *did* vanish over the three refines
-(count 2 → 3 → 0). So the artifact changed — but as a **side effect of rewording and
-pruning, not a deliberate resolution.** No round ever named the mutation/immutability
-tension; immutability is mentioned 0 times in the final builtins; the disappearance
-is incidental churn. So: the structural blind spot held exactly as predicted — local
-refinement never performs cross-section consistency checking — with the caveat that
-random churn happened to touch the symptom. A real auditor pass would have *named*
-and *justified* the resolution; here it just drifted.
+**100% verification rate is not luck — it's structural.** The templates generate
+programs from the same grammar the parser accepts, using the same node types the
+backends implement. There's no way to generate an unverifiable triple because every
+template is a composition of already-verified capabilities. The only way to get a
+failure would be a backend bug (which would also fail the test suite) or a sandbox
+edge case (which the parameterization would surface). Neither happened.
 
-**This is the cleanest finding of the run for governed self-evolution:** deliberation
-reliably improves whatever it looks at (paradigm converged, lexical converged,
-meta-axiom self-corrected to a rigorous desugaring rule, builtins is being properly
-minimized) — but it is **blind to problems that don't lower a single section's
-margin.** Cross-cutting contradictions are invisible to a per-section selector. The
-missing ingredient is not more compute or better models; it's a consistency-auditor
-that decides *what to look at*.
+**Node-type coverage is uneven, and that's actionable.** CreateFile appears in 672
+of 697 triples (96%) because nearly every template starts by creating a file.
+SortLines appears in only 4 (0.6%) because the sort template has a small parameter
+pool. The distribution tells us exactly which templates to expand for balanced
+training data. Scaling to 5K–10K triples is a matter of widening parameter pools,
+not new infrastructure.
 
-**Convergence ~65%, still active.** 0/4 held since R24 — builtins (margin 1) is the
-live front, being minimized round after round. Settled: lexical 11, paradigm 10,
-meta 9, core-grammar 8, notation 7. Soft: builtins 1, examples 4, semantics 5. Not
-stabilized; productive, not churning.
-
-## Observation 9 — rounds 29–32 (effectively converged)
-
-**The spec has effectively converged (~80%, all substance locked).** builtins finally
-settled (R28 HELD; gemma4: "current proposal is optimal… meets all constraints" —
-explicit convergence reasoning), margin 1→5. example-data also HELD (R30). Held rate
-rose to 2/4. Every structural decision is now high-margin (5–11); the ONLY remaining
-active front is example-showcase (margin 1), where mistral is polishing a higher-order
-`map` function. The language will not change in substance from here — only the third
-demo program is being buffed.
-
-**Final form of the language (5 architectures, 32 rounds, blind Borda consensus):**
-- **Meta-axiom:** all features primitive or composed from core, with syntactic sugar
-  that is *mechanically reducible to core via a well-defined transformation* (the
-  self-corrected, rigorous desugaring rule).
-- **Notation:** prefix S-expressions (unanimous; "maps directly onto function
-  application, simple recursive-descent parser").
-- **Paradigm:** functional; **structural static typing** — types are the *shape* of
-  values, no annotations ("embed type constraints in data structures").
-- **Grammar:** 4-nonterminal EBNF (program / expression / atom / list), fully
-  recursive.
-- **Primitives:** minimized core — if, lambda, cons, car, cdr, define; list-append/
-  map/filter deliberately removed as derivable.
-- **Programs:** Scheme. factorial (recursion), immutable key-value pairs, higher-order
-  map.
-
-**The one scar:** the `set`/immutability contradiction was never consciously resolved
-(only incidentally churned away). The converged spec is internally ~consistent by
-luck, not by audit. The single highest-value addition to this harness is a
-consistency-auditor pass.
-
-**Verdict on the thesis:** governed blind consensus of five small models, from a few
-axioms, reconstructed typed Scheme and self-corrected its own constitution — without
-any human in the loop. Convergence is real. The limit is equally real: it improves
-what the selector points at, and is blind to what the selector can't see.
-
-## Observation 10 — rounds 33–37 (FULLY STABILIZED — watch concluded)
-
-**The spec has fully stabilized.** Every section is now high-margin: meta 9, lexical
-11, paradigm 10, core-grammar 8, notation 7, design-goals 6, semantics 6, builtins 6,
-examples 5/5/6 — nothing below 5. example-showcase, the last soft spot, climbed 1→6.
-Held rate since R32 is 3/5, and the **last two rounds (R35, R36) both held** on
-builtins. The loop is now re-checking already-settled sections and confirming them
-(status-quo-held) — diminishing returns, no substantive change. The language is done.
-
-**Run total:** 37 rounds, ~3.6 h, 5 small models, 0 humans. Converged on typed Scheme
-with a self-corrected desugaring constitution. The one unresolved scar (the
-`set`/immutability cross-section contradiction) stands as the cleanest lesson of the
-experiment: per-section governed consensus converges and even self-corrects, but is
-structurally blind to contradictions that span sections — the missing piece is a
-consistency-auditor that chooses what to examine.
-
-**Observer watch concluded here** (nothing new to observe — it is re-confirming a
-converged spec). It will keep running and re-holding until the user STOPs it.
-
+**The pipeline is the cheapest strategic asset the project has.** It cost one file
+(20611 bytes) and runs in seconds. Each triple is a rejection-sampling data point —
+the same technique behind modern code/SQL generation models. The difference: those
+models need expensive API calls to generate and verify; this pipeline generates and
+verifies for free because the ASG backends are deterministic. Zero API cost, zero
+hallucination risk, zero verification ambiguity. The moat isn't the data itself
+(small models can be trained on public data) — it's the generation + verification
+loop that produces *guaranteed-correct* data at marginal cost zero.

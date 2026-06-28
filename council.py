@@ -281,6 +281,7 @@ class RoundLog:
     winner_author: str = ""
     winner_text: str = ""
     note: str = ""
+    total_score: float = 0.0  # sum of fractional capability scores (gradient)
 
 
 def _anonymize(
@@ -605,13 +606,49 @@ def extract_code(text: str) -> str:
     return ""
 
 
+def _score_capability(proc_stdout: str, proc_stderr: str, returncode: int,
+                        expected: str) -> tuple[float, str]:
+    """Score a single capability result on a 0–1 scale with a reason.
+
+    This is the GRADIENT that replaces boolean pass/fail. The 0.5 tier is the
+    critical one: it surfaces a near-miss (produced output but wrong) so the
+    council sees it's close, not identical to garbage.
+
+    | Score | Meaning |
+    |-------|---------|
+    | 1.0   | Exact match — expected output produced |
+    | 0.5   | Ran without error, produced output, but wrong (near-miss) |
+    | 0.3   | Program crashed (nonzero exit with traceback) |
+    | 0.1   | Produced empty output or timed out |
+    | 0.0   | No code / runner error |
+    """
+    out = _normalize(proc_stdout)
+    exp = _normalize(expected)
+    if out == exp:
+        return 1.0, "PASS"
+    if returncode == 0 and proc_stdout.strip():
+        return 0.5, f"near-miss: got={proc_stdout!r}"
+    if returncode != 0 and proc_stderr.strip():
+        err = proc_stderr.strip().splitlines()
+        tail = err[-1] if err else ""
+        return 0.3, f"crash: {tail[:140]}"
+    if not proc_stdout.strip():
+        return 0.1, "no output produced"
+    return 0.0, "unknown failure"
+
+
 def score_interpreter(
     src: str, suite: tuple[tuple[str, str, str], ...], mode: str = VERIFY_MODE
-) -> tuple[list[str], dict[str, str]]:
+) -> tuple[list[str], dict[str, str], dict[str, tuple[float, str]]]:
     """Ground truth: execute a candidate against the conformance suite in an isolated
     subprocess (wall-clock timeout + the runner's CPU/mem rlimits). Returns
-    (names_passed, per-capability detail). This is the verifier — it never trusts a
-    model's claim that something is 'optimal'; it runs the code and checks the output.
+    (names_passed, per-capability detail, scored) where `scored` maps each capability
+    name to a (score 0–1, reason). This is the verifier — it never trusts a model's
+    claim that something is 'optimal'; it runs the code and checks the output.
+
+    The scored dict replaces boolean pass/fail with a GRADIENT (v03 §4). A near-miss
+    interpreter that got 10/11 capabilities right but is one line off on the 11th now
+    scores 10.5/11, not 10/11 — the gradient is visible to the models.
 
     ``mode='python'`` (v02) runs the interpreter's ``run(source)`` directly;
     ``mode='shell'`` (v03 terminal backend) calls ``translate(source)`` to get a shell
@@ -619,8 +656,12 @@ def score_interpreter(
     runner = SHELL_SANDBOX if mode == "shell" else SANDBOX
     passing: list[str] = []
     details: dict[str, str] = {}
+    scored: dict[str, tuple[float, str]] = {}
     if not src.strip():
-        return passing, {name: "no code" for name, _, _ in suite}
+        for name, _, _ in suite:
+            details[name] = "no code"
+            scored[name] = (0.0, "no code")
+        return passing, details, scored
     # The interpreter file lives OUTSIDE every test's working dir (system temp), so it
     # never shows up in a `list files` result and the sandbox dirs hold only what the
     # program creates. Each test gets a fresh, empty working dir that is wiped after —
@@ -640,31 +681,32 @@ def score_interpreter(
                     timeout=20,
                     cwd=work,
                 )
-                out = _normalize(proc.stdout)
-                ok = proc.returncode == 0 and out == _normalize(expected)
-                if ok:
+                score, reason = _score_capability(
+                    proc.stdout, proc.stderr, proc.returncode, expected
+                )
+                scored[name] = (score, reason)
+                details[name] = reason
+                if score == 1.0:
                     passing.append(name)
-                    details[name] = "PASS"
-                else:
-                    err = (proc.stderr or "").strip().splitlines()
-                    tail = err[-1] if err else ""
-                    details[name] = f"got={proc.stdout!r} err={tail[:140]}"
             except subprocess.TimeoutExpired:
+                scored[name] = (0.1, "timeout")
                 details[name] = "timeout"
             except Exception as exc:  # pragma: no cover - defensive
+                scored[name] = (0.0, f"runner-error: {exc!r}"[:160])
                 details[name] = f"runner-error: {exc!r}"[:160]
             finally:
                 shutil.rmtree(work, ignore_errors=True)
     finally:
         with contextlib.suppress(OSError):
             os.unlink(interp_path)
-    return passing, details
+    return passing, details, scored
 
 
 def gather_interpreters(
     spec: str, incumbent_src: str, inc_details: dict[str, str],
     suite: tuple[tuple[str, str, str], ...], reference: str = "",
-    fresh_start: bool = False
+    fresh_start: bool = False,
+    inc_scored: dict[str, tuple[float, str]] | None = None,
 ) -> list[tuple[str, str]]:
     """Each model proposes a full interpreter (high temp). The prompt carries the
     council's ANONYMOUS institutional memory (`reference` — every milestone reached,
@@ -709,14 +751,41 @@ def gather_interpreters(
         )
     elif incumbent_src:
         n_pass = len(proven)
-        results = "\n".join(f"- {k}: {v[:160]}" for k, v in inc_details.items())
-        cur = (
-            f"CURRENT BEST INTERPRETER (passes {n_pass}/{len(suite)}):\n"
-            f"```python\n{incumbent_src}\n```\n"
-            f"Per-capability result:\n{results}\n\n"
-            f"Improve it: pass MORE capabilities (aim next at `{next_failing}`) without "
-            "breaking any already-passing one."
-        )
+        # Scored gradient: surface HOW CLOSE each near-miss is, not just pass/fail.
+        if inc_scored:
+            score_lines = []
+            total_score = 0.0
+            for name, _, _ in suite:
+                sc, reason = inc_scored.get(name, (0.0, "?"))
+                total_score += sc
+                if sc == 1.0:
+                    score_lines.append(f"- {name}: PASS (1.0)")
+                elif sc > 0:
+                    score_lines.append(
+                        f"- {name}: {sc:.1f} — {reason[:140]}"
+                    )
+                else:
+                    score_lines.append(f"- {name}: {reason[:140]}")
+            gradient = "\n".join(score_lines)
+            cur = (
+                f"CURRENT BEST INTERPRETER (score {total_score:.1f}/{len(suite)}, "
+                f"{n_pass} fully passing):\n"
+                f"```python\n{incumbent_src}\n```\n"
+                f"SCORED RESULTS (0-1 per capability — near-misses show HOW CLOSE):\n"
+                f"{gradient}\n\n"
+                f"Improve it: push near-misses to full PASS (aim next at `{next_failing}`). "
+                "A score of 0.5 means you're CLOSE — the program ran and produced output "
+                "but it was wrong. Focus on the exact expected output."
+            )
+        else:
+            results = "\n".join(f"- {k}: {v[:160]}" for k, v in inc_details.items())
+            cur = (
+                f"CURRENT BEST INTERPRETER (passes {n_pass}/{len(suite)}):\n"
+                f"```python\n{incumbent_src}\n```\n"
+                f"Per-capability result:\n{results}\n\n"
+                f"Improve it: pass MORE capabilities (aim next at `{next_failing}`) without "
+                "breaking any already-passing one."
+            )
     else:
         cur = "No interpreter exists yet — write the first one."
     system = (
@@ -778,33 +847,43 @@ def run_build_round(
     index: int, spec: str, incumbent_src: str, incumbent_passing: list[str],
     suite: tuple[tuple[str, str, str], ...], seed: int, reference: str = "",
     fresh_start: bool = False
-) -> tuple[RoundLog, str, list[str]]:
+) -> tuple[RoundLog, str, list[str], float]:
     """One variation+selection cycle. Returns (log, new_incumbent_src, new_passing).
 
     Normal rounds adopt a proposal only if it passes STRICTLY MORE capabilities than
     the incumbent (the monotonic don't-break-what-works ratchet). A plateau-breaking
     `fresh_start` round additionally accepts an EQUAL-scoring re-derivation — a
     deliberate sideways move onto a different foundation, so a dead-end local optimum
-    can be escaped without ever dropping below what the council already proved."""
+    can be escaped without ever dropping below what the council already proved.
+
+    Returns (log, new_incumbent_src, new_passing, new_total_score). The
+    total_score is the sum of fractional capability scores — the gradient.
+    """
     title = "build:fresh-start" if fresh_start else "build:interpreter"
     log = RoundLog(index=index, title=title)
     inc_details: dict[str, str] = {}
+    inc_scored: dict[str, tuple[float, str]] = {}
+    inc_total = 0.0
     if incumbent_src:
-        _, inc_details = score_interpreter(incumbent_src, suite)
+        _, inc_details, inc_scored = score_interpreter(incumbent_src, suite)
+        inc_total = sum(sc for sc, _ in inc_scored.values())
     props = gather_interpreters(
-        spec, incumbent_src, inc_details, suite, reference, fresh_start
+        spec, incumbent_src, inc_details, suite, reference, fresh_start,
+        inc_scored=inc_scored,
     )
 
     scored: list[dict[str, object]] = []
     for author, code in props:
-        passing, details = score_interpreter(code, suite)
+        passing, details, cap_scored = score_interpreter(code, suite)
+        total = sum(sc for sc, _ in cap_scored.values())
         scored.append(
             {"author": author, "code": code, "passing": passing,
-             "n": len(passing), "details": details}
+             "n": len(passing), "details": details,
+             "total_score": total, "cap_scored": cap_scored}
         )
         dump(
             f"BUILD eval model={author} round={index} mode={title}",
-            f"score={len(passing)}/{len(suite)} passing={passing}\n"
+            f"score={len(passing)}/{len(suite)} ({total:.1f} gradient) passing={passing}\n"
             + "\n".join(f"{k}: {v[:200]}" for k, v in details.items()),
         )
 
@@ -814,41 +893,54 @@ def run_build_round(
     record_attempts(index, target, scored)
 
     inc_n = len(incumbent_passing)
+    # options show both the count and the gradient score
     log.options = [
         {"label": f"P{i + 1}", "author": str(s["author"]),
-         "text": f"score {s['n']}/{len(suite)} :: {s['passing']}"}
+         "text": f"score {s['n']}/{len(suite)} ({float(s['total_score']):.1f} gradient) :: {s['passing']}"}
         for i, s in enumerate(scored)
     ]
     log.scores = {str(s["author"]): int(s["n"]) for s in scored}  # type: ignore[misc]
 
     if not scored:
         log.note = "no proposals this round"
-        return log, incumbent_src, incumbent_passing
+        return log, incumbent_src, incumbent_passing, inc_total
 
+    best_total = max(float(s["total_score"]) for s in scored)
     best_n = max(int(s["n"]) for s in scored)
-    # Adoption bar: strictly better normally; >= on a fresh-start (sideways escape).
-    adopt = best_n > inc_n or (fresh_start and best_n == inc_n and best_n > 0)
+    # Adoption bar: strictly higher gradient score normally; >= on a fresh-start.
+    # The gradient catches what the integer count missed: a proposal that nudges a
+    # near-miss from 0.5 to 0.8 now shows progress even without a new full PASS.
+    adopt = best_total > inc_total + 1e-9 or (
+        fresh_start and abs(best_total - inc_total) < 1e-9 and best_total > 0
+    )
     if adopt:
-        top = [s for s in scored if int(s["n"]) == best_n]
+        top = [s for s in scored if abs(float(s["total_score"]) - best_total) < 1e-9]
         win = top[0] if len(top) == 1 else _vote_best_interpreter(top, seed)
         win_src = str(win["code"])
         # On a sideways move, only switch foundations if the code actually differs.
-        if best_n == inc_n and win_src.strip() == incumbent_src.strip():
-            log.note = f"fresh start returned the same foundation at {inc_n}/{len(suite)}"
-            return log, incumbent_src, incumbent_passing
+        if abs(best_total - inc_total) < 1e-9 and win_src.strip() == incumbent_src.strip():
+            log.note = (
+                f"fresh start returned the same foundation at {inc_total:.1f}/{len(suite)}"
+            )
+            return log, incumbent_src, incumbent_passing, inc_total
         log.winner_author = str(win["author"])
         log.winner_text = win_src
-        verb = "re-seeded at" if best_n == inc_n else f"adopted: {inc_n} ->"
-        log.note = f"{verb} {best_n}/{len(suite)}"
+        verb = "re-seeded at" if abs(best_total - inc_total) < 1e-9 else (
+            f"adopted: {inc_total:.1f} ->")
+        log.note = f"{verb} {best_total:.1f}/{len(suite)} ({best_n} fully passing)"
+        log.total_score = best_total
         dump(
             f"BUILD ADOPT round={index} mode={title}",
-            f"new incumbent {win['author']} score {best_n}/{len(suite)} "
-            f"passing={win['passing']}",
+            f"new incumbent {win['author']} score {best_total:.1f}/{len(suite)} "
+            f"({best_n} fully passing) passing={win['passing']}",
         )
-        return log, win_src, list(win["passing"])  # type: ignore[arg-type]
+        return log, win_src, list(win["passing"]), best_total  # type: ignore[arg-type]
 
-    log.note = f"status quo held at {inc_n}/{len(suite)} (no proposal beat it)"
-    return log, incumbent_src, incumbent_passing
+    log.note = (
+        f"status quo held at {inc_total:.1f}/{len(suite)} ({inc_n} fully passing)"
+    )
+    log.total_score = inc_total
+    return log, incumbent_src, incumbent_passing, inc_total
 
 
 # --- persistent state --------------------------------------------------------
@@ -874,6 +966,7 @@ class State:
     incumbent_src: str = ""
     incumbent_passing: list[str] = field(default_factory=list[str])
     stall_count: int = 0  # build rounds since the last capability gain (plateau gauge)
+    incumbent_score: float = 0.0  # sum of fractional scores (the gradient)
     goal: str = ""  # which build target the incumbent is for; a change triggers a reset
 
     @classmethod
@@ -895,6 +988,7 @@ class State:
             incumbent_src=raw.get("incumbent_src", ""),
             incumbent_passing=list(raw.get("incumbent_passing", [])),
             stall_count=raw.get("stall_count", 0),
+            incumbent_score=float(raw.get("incumbent_score", 0.0)),
             goal=raw.get("goal", ""),
         )
 
@@ -912,6 +1006,7 @@ class State:
                     "incumbent_src": self.incumbent_src,
                     "incumbent_passing": self.incumbent_passing,
                     "stall_count": self.stall_count,
+                    "incumbent_score": self.incumbent_score,
                     "goal": self.goal,
                 },
                 indent=2,
