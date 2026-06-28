@@ -268,18 +268,26 @@ def _run_live_agent(task: EvalTask, root: Path) -> dict[str, object] | None:
     from kernel.contracts import Tier
     from products.agent.loop import run_agent
     from products.agent.tools import default_registry, project_root_guard
+    from products.capabilities.registry import CapabilityRegistry
 
     models = probe().fitting_local_models() or list(probe().local_models)
     if not models:
         return None
     tier = Tier.model(models[0].name, where="local", backend="ollama")
+    # Give the live-eval agent the SAME skill discovery the interactive agent has
+    # (find_skill/load_skill), so a tool-correctness task can reach the corpus —
+    # parity with chat/app.py. Fail-soft: an empty/missing .claude → no skills.
+    try:
+        skills = CapabilityRegistry.from_claude_dir(root / ".claude")
+    except Exception:  # noqa: BLE001 — skill discovery is best-effort
+        skills = None
 
     def _measure(run_root: Path) -> dict[str, object]:
         for rel, content in task.setup.items():
             p = run_root / rel
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(content, encoding="utf-8")
-        reg = default_registry(run_root, allow_bash=True)
+        reg = default_registry(run_root, allow_bash=True, skills=skills)
         result = asyncio.run(
             run_agent(
                 task.prompt,
