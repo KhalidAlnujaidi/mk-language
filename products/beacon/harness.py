@@ -31,7 +31,7 @@ from products.agent.loop import run_agent
 from products.beacon.axioms import load_axioms, pledge
 from products.beacon.bible import Bible
 from products.beacon.challenges import BEACON_CHALLENGES
-from products.beacon.ledger import Ledger
+from products.beacon.ledger import Ledger, resume_state
 from products.evolve import EvolveReport, default_score, evolve_once
 from products.evolve.challenge import Challenge
 
@@ -256,10 +256,22 @@ async def run_forever() -> None:
     sink = MetricsSink(METRICS_PATH)
     bible = Bible(AIOS)
     axioms = load_axioms(VISION)
-    started_at = time.time()
 
-    cycle = 0
-    idle_streak = 0
+    # Resume from the ledger, not from zero: a restart continues the same
+    # generation count and uptime instead of duplicating cycle numbers in the
+    # append-only history the dashboard reads. Empty ledger → a cold start.
+    state = resume_state(ledger)
+    started_at = time.time() - state.uptime_offset
+    cycle = state.cycle
+    idle_streak = state.idle_streak
+    if cycle:
+        ledger.record(
+            "resume",
+            cycle=cycle,
+            idle_streak=idle_streak,
+            uptime_offset_s=round(state.uptime_offset, 1),
+        )
+
     while True:
         if cycle % PLEDGE_EVERY == 0:
             pledge(ledger, axioms, bible=bible.name, cycle=cycle)
