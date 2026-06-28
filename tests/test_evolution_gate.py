@@ -117,6 +117,69 @@ def test_gate_approves_a_pure_improvement(tmp_path: Path) -> None:
     assert decision.approved and not decision.requires_human
 
 
+def test_gate_rejects_a_quality_regression_with_pass_fail_unchanged(
+    tmp_path: Path,
+) -> None:
+    # Cheat #1: same pass/fail, same failing set — but the mean assertion score
+    # slid (a graduated metric decayed while still passing). Must be rejected.
+    before = EvalReport(total=10, passed=10, failed=0, mean_score=0.92)
+    after = EvalReport(total=10, passed=10, failed=0, mean_score=0.61)
+    decision = evolve.gate(
+        Proposal(target="groom.config", change="quality decay", kind="config"),
+        before=before,
+        after=after,
+        evolutions_dir=tmp_path,
+        eval_id="ev-quality",
+    )
+    assert not decision.approved and not decision.requires_human
+    assert "quality regressed" in decision.reason
+
+
+def test_gate_approves_when_score_improves_or_is_stable(tmp_path: Path) -> None:
+    up = evolve.gate(
+        Proposal(target="groom.config", change="improves", kind="config"),
+        before=EvalReport(total=10, passed=10, failed=0, mean_score=0.70),
+        after=EvalReport(total=10, passed=10, failed=0, mean_score=0.90),
+        evolutions_dir=tmp_path,
+        eval_id="ev-up",
+    )
+    assert up.approved
+    # A sub-epsilon dip is float jitter, not a regression.
+    jitter = evolve.gate(
+        Proposal(target="groom.config", change="noise", kind="config"),
+        before=EvalReport(total=5, passed=5, failed=0, mean_score=0.9000),
+        after=EvalReport(total=5, passed=5, failed=0, mean_score=0.8999),
+        evolutions_dir=tmp_path,
+        eval_id="ev-jitter",
+    )
+    assert jitter.approved
+
+
+def test_run_evolution_gate_records_mean_scores_in_the_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    reports = iter(
+        [
+            EvalReport(total=10, passed=10, failed=0, mean_score=0.80),
+            EvalReport(total=10, passed=10, failed=0, mean_score=0.80),
+        ]
+    )
+    monkeypatch.setattr(evolve, "run_golden_eval", lambda *_a, **_k: next(reports))
+    run_evolution_gate(
+        Proposal(target="groom.config", change="x", kind="config"),
+        root=_ROOT,
+        apply_change=lambda: None,
+        evolutions_dir=tmp_path,
+        eval_id="ev-rec",
+        tasks_dir=_TASKS,
+    )
+    artifact = json.loads((tmp_path / "ev-rec.json").read_text())
+    assert artifact["score"]["before"] == 0.80  # noqa: PLR2004
+    assert artifact["score"]["after"] == 0.80  # noqa: PLR2004
+
+
 def test_run_evolution_gate_rejects_a_task_swap_end_to_end(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

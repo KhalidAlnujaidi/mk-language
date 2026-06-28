@@ -48,6 +48,13 @@ def test_live_only_tasks_are_skipped_not_failed_by_default() -> None:
         assert res.skipped and not res.passed
 
 
+def test_run_golden_eval_reports_a_mean_score() -> None:
+    # Cheat #1: the run-level mean of every assertion's 0–1 score is aggregated
+    # (used by the evolution gate to catch quality decay), in (0, 1].
+    report = run_golden_eval(_TASKS, root=_ROOT)
+    assert 0.0 < report.mean_score <= 1.0
+
+
 def test_deterministic_gate_is_clean() -> None:
     # Every NON-skipped golden task passes — the gate self-evolution runs against
     # carries no red. (Live-only tasks are excluded; they run under KINOX_EVAL_LIVE.)

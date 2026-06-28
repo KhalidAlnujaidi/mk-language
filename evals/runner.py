@@ -30,12 +30,18 @@ class EvalReport:
     that the raw ``failed`` count misses: a change that fixes one task and breaks
     another leaves the count unchanged but must still be rejected. Defaults to
     empty for back-compat with count-only constructions.
+
+    ``mean_score`` is the mean of every assertion's 0–1 score across the run
+    (cheat #1): it surfaces *quality* decay a boolean pass/fail is blind to — a
+    graduated metric (budget, tool_correctness, slop, …) sliding 0.9→0.6 while
+    still nominally passing. ``0.0`` by default (count-only paths don't score).
     """
 
     total: int
     passed: int
     failed: int
     failed_ids: tuple[str, ...] = ()
+    mean_score: float = 0.0
 
     @property
     def ok(self) -> bool:
@@ -99,9 +105,14 @@ def run_golden_eval(
     ran = [r for r in run_golden_set(tasks_dir, root=root) if not r.skipped]
     total = len(ran)
     failing = tuple(sorted(r.task_id for r in ran if not r.passed))
+    # Cheat #1: mean of every assertion's 0–1 score → a quality signal the
+    # boolean tally misses. Reuses the score the checkers already compute.
+    scores = [a.score for r in ran for a in r.assertion_results]
+    mean_score = sum(scores) / len(scores) if scores else 0.0
     return EvalReport(
         total=total,
         passed=total - len(failing),
         failed=len(failing),
         failed_ids=failing,
+        mean_score=mean_score,
     )

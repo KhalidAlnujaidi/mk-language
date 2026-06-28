@@ -28,6 +28,10 @@ from evals.store import record_evolution
 #: Targets the proposer is allowed to touch automatically (config only).
 SANCTIONED_TARGETS: frozenset[str] = frozenset({"groom.config", "prompt"})
 
+#: Below this drop in mean assertion score, a change is a quality regression even
+#: with pass/fail unchanged (cheat #1). Small enough to ignore float jitter.
+_SCORE_EPSILON = 0.005
+
 
 @dataclass(frozen=True)
 class Proposal:
@@ -88,6 +92,10 @@ def gate(
         before=before,
         after=after,
         notes=f"{proposal.kind}:{proposal.target} — {proposal.change}",
+        # Cheat #1: feed the mean scores so the artifact's verdict can flag a
+        # partial (quality) regression, not just a pass/fail one.
+        before_score=before.mean_score,
+        after_score=after.mean_score,
     )
 
     if proposal.kind == "code" or proposal.target not in SANCTIONED_TARGETS:
@@ -123,6 +131,21 @@ def gate(
             approved=False,
             requires_human=False,
             reason=reason,
+        )
+
+    # Cheat #1: with pass/fail unchanged, still reject a meaningful QUALITY drop —
+    # the mean assertion score regressing (e.g. a graduated metric sliding while
+    # still nominally passing). This is the partial regression a boolean gate is
+    # blind to; the per-task and count checks above never see it.
+    if after.mean_score + _SCORE_EPSILON < before.mean_score:
+        return Decision(
+            proposal,
+            approved=False,
+            requires_human=False,
+            reason=(
+                "rejected — quality regressed (mean score "
+                f"{before.mean_score:.3f} → {after.mean_score:.3f})"
+            ),
         )
 
     return Decision(
