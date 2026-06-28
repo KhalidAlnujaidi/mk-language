@@ -42,6 +42,7 @@ the SQLite CLI, or collected by the Python executor).
 
 from __future__ import annotations
 
+import fnmatch
 import re
 import sqlite3
 from typing import Any
@@ -50,6 +51,7 @@ from asg import (
     ASGNode, CreateFile, ReadFile, AppendFile, CountLines, CopyFile,
     MakeDirectory, MoveFile, ListFiles, FindFiles, DeleteFile, Conditional,
     CountWords, SortLines, HeadLines, SumNumbers, ExtractPattern,
+    GlobFiles, ForEachFile,
 )
 
 
@@ -286,8 +288,75 @@ def _compile_node(node: ASGNode) -> str:
                 f"END AS _branch;"
             )
 
+        case GlobFiles(pattern=pattern):
+            # In SQL, "files" are tables. Glob matches table names.
+            # Convert glob pattern to SQL LIKE pattern.
+            sql_pat = pattern.replace('*', '%').replace('?', '_')
+            return (
+                f"-- GlobFiles: {pattern}\n"
+                f"SELECT CASE WHEN EXISTS ("
+                f"SELECT 1 FROM sqlite_master WHERE type='table' "
+                f"AND name LIKE '{sql_pat}'\n"
+                f") THEN (SELECT group_concat(name, ' ') FROM "
+                f"(SELECT name FROM sqlite_master WHERE type='table' "
+                f"AND name NOT LIKE 'sqlite_%' AND name LIKE '{sql_pat}' "
+                f"ORDER BY name)\n) ELSE '(none)' END AS _output;"
+            )
+
+        case ForEachFile(glob_pattern=glob_pattern, body_template=body_template, placeholder=placeholder):
+            # SQL is declarative — no loops. We emit a comment documenting intent.
+            # The executor handles iteration dynamically.
+            return (
+                f"-- ForEachFile: for each file matching {glob_pattern}, execute body\n"
+                f"-- (Iteration is handled by the SQL executor at runtime)"
+            )
+
         case _:
             return f"-- Unknown node type: {type(node).__name__}"
+
+
+def _substitute_node(node: ASGNode, placeholder: str, filename: str) -> ASGNode:
+    """Return a copy of node with placeholder replaced by filename in all string fields."""
+    from dataclasses import replace as dc_replace
+    ph = placeholder
+    match node:
+        case CreateFile(name=name, content=content):
+            return dc_replace(node, name=name.replace(ph, filename),
+                              content=content.replace(ph, filename))
+        case ReadFile(name=name):
+            return dc_replace(node, name=name.replace(ph, filename))
+        case AppendFile(text=text, name=name):
+            return dc_replace(node, text=text.replace(ph, filename),
+                              name=name.replace(ph, filename))
+        case CountLines(name=name):
+            return dc_replace(node, name=name.replace(ph, filename))
+        case CountWords(name=name):
+            return dc_replace(node, name=name.replace(ph, filename))
+        case SortLines(name=name):
+            return dc_replace(node, name=name.replace(ph, filename))
+        case HeadLines(name=name, count=count):
+            return dc_replace(node, name=name.replace(ph, filename))
+        case SumNumbers(name=name):
+            return dc_replace(node, name=name.replace(ph, filename))
+        case ExtractPattern(name=name, pattern=pattern):
+            return dc_replace(node, name=name.replace(ph, filename),
+                              pattern=pattern.replace(ph, filename))
+        case CopyFile(source=source, dest=dest):
+            return dc_replace(node, source=source.replace(ph, filename),
+                              dest=dest.replace(ph, filename))
+        case MakeDirectory(name=name):
+            return dc_replace(node, name=name.replace(ph, filename))
+        case MoveFile(source=source, dest=dest):
+            return dc_replace(node, source=source.replace(ph, filename),
+                              dest=dest.replace(ph, filename))
+        case DeleteFile(name=name, confirm=confirm):
+            return dc_replace(node, name=name.replace(ph, filename))
+        case ListFiles(directory=directory):
+            return dc_replace(node, directory=directory.replace(ph, filename))
+        case FindFiles(text=text):
+            return dc_replace(node, text=text.replace(ph, filename))
+        case _:
+            return node
 
 
 # ---------------------------------------------------------------------------
@@ -486,6 +555,34 @@ def _execute_node(cursor: sqlite3.Cursor, node: ASGNode, conn: sqlite3.Connectio
                     if r is not None:
                         results.append(r)
                 return ' '.join(results) if results else None
+
+        case GlobFiles(pattern=pattern):
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name NOT LIKE 'sqlite_%' ORDER BY name"
+            )
+            all_tables = [r[0] for r in cursor.fetchall()]
+            matching = [t for t in all_tables if _fnmatch.fnmatch(t, pattern)]
+            return ' '.join(matching) if matching else '(none)'
+
+        case ForEachFile(glob_pattern=glob_pattern,
+                         body_template=body_template,
+                         placeholder=placeholder):
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name NOT LIKE 'sqlite_%' ORDER BY name"
+            )
+            all_tables = [r[0] for r in cursor.fetchall()]
+            matching = [t for t in all_tables if _fnmatch.fnmatch(t, glob_pattern)]
+            results = []
+            for fname in matching:
+                for tmpl in body_template:
+                    # Substitute placeholder in the template node
+                    substituted = _substitute_node(tmpl, placeholder, fname)
+                    r = _execute_node(cursor, substituted, conn)
+                    if r is not None:
+                        results.append(r)
+            return ' '.join(results) if results else None
 
         case _:
             return None

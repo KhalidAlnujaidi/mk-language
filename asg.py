@@ -12,6 +12,8 @@ The CoRE structured-intent unit maps cleanly:
   Type   → Process / Terminal / Decision (the .node_type field)
   Instruction → the dataclass fields (filename, content, etc.)
   Connection → implicit in list order; explicit in Decision.then/else branches
+
+v03.1: Added GlobFiles + ForEachFile for iteration support.
 """
 
 from __future__ import annotations
@@ -148,11 +150,42 @@ class ExtractPattern:
     node_type: str = "Terminal"
 
 
+# --- v03.1: Iteration nodes ---
+
+@dataclass(frozen=True)
+class GlobFiles:
+    """Terminal — list files matching a glob pattern (e.g. '*.txt'), sorted.
+
+    Returns space-joined filenames. This is the iteration source.
+    The pattern uses shell-style globbing: *, ?, character classes not supported.
+    Only simple suffix patterns like '*.txt' or prefix patterns like 'data.*'.
+    """
+    pattern: str
+    node_type: str = "Terminal"
+
+
+@dataclass(frozen=True)
+class ForEachFile:
+    """Decision — iterate over files, executing body for each match.
+
+    The body is a list of ASG nodes where the placeholder NAME is replaced
+    with each matched filename at execution time.
+
+    body_template: list of ASG nodes (frozen, so stored as a tuple)
+    placeholder: the string in body node fields that gets substituted (e.g. '{file}')
+    """
+    glob_pattern: str          # pattern for GlobFiles
+    body_template: tuple       # tuple of ASG nodes
+    placeholder: str           # what to replace in body fields (default '{file}')
+    node_type: str = "Decision"  # Decision because it contains branches
+
+
 # Union type for type checking
 ASGNode = Union[
     CreateFile, ReadFile, AppendFile, CountLines, CopyFile,
     MakeDirectory, MoveFile, ListFiles, FindFiles, DeleteFile, Conditional,
     CountWords, SortLines, HeadLines, SumNumbers, ExtractPattern,
+    GlobFiles, ForEachFile,
 ]
 
 
@@ -253,5 +286,9 @@ def parse_line(line: str) -> ASGNode | None:
             then_branch=[then_node] if then_node else [],
             else_branch=[else_node] if else_node else [],
         )
+
+    # glob files matching "PATTERN"
+    if m := re.match(r'glob files matching "([^"]*)"', line):
+        return GlobFiles(pattern=m.group(1))
 
     return None

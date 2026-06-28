@@ -25,12 +25,14 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 PYTHON = sys.executable
 sys.path.insert(0, str(HERE))
-
 import asg
 from planner import (
     Planner, Plan, _try_compound_rules, _split_conjunctions,
     _validate_steps, ASG_VOCABULARY,
 )
+from terminal_backend import compile_to_shell
+from python_backend import compile_to_python
+from sql_backend import compile_to_sql
 
 # ---------------------------------------------------------------------------
 # Test infrastructure
@@ -847,6 +849,204 @@ def phase_n():
 import json  # needed by phase_j
 
 
+# ---------------------------------------------------------------------------
+# Phase O: Iteration support (ForEachFile + GlobFiles)
+# ---------------------------------------------------------------------------
+
+def phase_o():
+    results.append("\nPhase O: Iteration Support")
+    planner = Planner(use_llm=False)
+
+    # --- Iteration plan structure ---
+
+    # "count lines in all *.txt" → ForEachFile node
+    plan = planner.plan("count lines in all *.txt")
+    test("iter-count-lines → iteration plan",
+         plan.source == "iteration" and
+         len(plan.extra_nodes) == 1 and
+         isinstance(plan.extra_nodes[0], asg.ForEachFile),
+         f"got source={plan.source}, nodes={plan.extra_nodes}")
+
+    # Check the ForEachFile details
+    if plan.extra_nodes:
+        node = plan.extra_nodes[0]
+        test("iter-count-lines → glob *.txt",
+             node.glob_pattern == "*.txt",
+             f"got glob={node.glob_pattern}")
+        test("iter-count-lines → body has CountLines",
+             len(node.body_template) == 1 and
+             isinstance(node.body_template[0], asg.CountLines),
+             f"got body={node.body_template}")
+        test("iter-count-lines → placeholder {file}",
+             node.placeholder == "{file}",
+             f"got placeholder={node.placeholder}")
+
+    # "read all *.log" → ForEachFile with ReadFile body
+    plan = planner.plan("read all *.log")
+    test("iter-read-all → iteration plan",
+         plan.source == "iteration" and
+         len(plan.extra_nodes) == 1 and
+         isinstance(plan.extra_nodes[0], asg.ForEachFile),
+         f"got {plan}")
+    if plan.extra_nodes:
+        node = plan.extra_nodes[0]
+        test("iter-read-all → glob *.log",
+             node.glob_pattern == "*.log",
+             f"got glob={node.glob_pattern}")
+        test("iter-read-all → body has ReadFile",
+             isinstance(node.body_template[0], asg.ReadFile),
+             f"got body={node.body_template}")
+
+    # "inspect all *.txt" → multi-step body
+    plan = planner.plan("inspect all *.txt")
+    test("iter-inspect-all → 3 body nodes",
+         plan.source == "iteration" and
+         len(plan.extra_nodes) == 1 and
+         len(plan.extra_nodes[0].body_template) == 3,
+         f"got {plan}")
+
+    # "backup all *.txt" → ForEachFile with CopyFile body
+    plan = planner.plan("backup all *.txt")
+    test("iter-backup-all → CopyFile body",
+         plan.source == "iteration" and
+         isinstance(plan.extra_nodes[0].body_template[0], asg.CopyFile),
+         f"got {plan}")
+
+    # "delete all *.txt" → ForEachFile with DeleteFile body (confirmed)
+    plan = planner.plan("delete all *.txt")
+    test("iter-delete-all → DeleteFile body",
+         plan.source == "iteration" and
+         isinstance(plan.extra_nodes[0].body_template[0], asg.DeleteFile) and
+         plan.extra_nodes[0].body_template[0].confirm == True,
+         f"got {plan}")
+
+    # "sum numbers in all *.txt" → ForEachFile with SumNumbers body
+    plan = planner.plan("sum numbers in all *.txt")
+    test("iter-sum-all → SumNumbers body",
+         plan.source == "iteration" and
+         isinstance(plan.extra_nodes[0].body_template[0], asg.SumNumbers),
+         f"got {plan}")
+
+    # --- End-to-end execution ---
+
+    def test_count_lines_all():
+        for name, content in [('a.txt', 'line1\nline2'), ('b.txt', 'x\ny\nz'), ('c.log', 'one')]:
+            with open(name, 'w') as f:
+                f.write(content)
+        output = planner.plan_and_execute('count lines in all *.txt')
+        return ' '.join(output.split())
+
+    result = run_in_sandbox(test_count_lines_all)
+    test("e2e: count lines in all *.txt → '2 3'",
+         result == '2 3',
+         f"got '{result}'")
+
+    def test_read_all():
+        with open('x.log', 'w') as f:
+            f.write('hello world')
+        with open('y.log', 'w') as f:
+            f.write('foo bar')
+        with open('z.txt', 'w') as f:
+            f.write('skip me')
+        output = planner.plan_and_execute('read all *.log')
+        return ' '.join(output.split())
+
+    result = run_in_sandbox(test_read_all)
+    test("e2e: read all *.log → 'hello world foo bar'",
+         result == 'hello world foo bar',
+         f"got '{result}'")
+
+    def test_inspect_all():
+        with open('d.txt', 'w') as f:
+            f.write('hello world')
+        output = planner.plan_and_execute('inspect all *.txt')
+        return ' '.join(output.split())
+
+    result = run_in_sandbox(test_inspect_all)
+    test("e2e: inspect all *.txt → read+lines+words",
+         result == 'hello world 1 2',
+         f"got '{result}'")
+
+    def test_backup_all():
+        with open('orig.txt', 'w') as f:
+            f.write('data')
+        planner.plan_and_execute('backup all *.txt')
+        # orig.txt should still exist, backup_orig.txt should now exist
+        import os.path
+        return os.path.exists('backup_orig.txt') and os.path.exists('orig.txt')
+
+    result = run_in_sandbox(test_backup_all)
+    test("e2e: backup all *.txt creates backup_ copies",
+         result == True,
+         f"got {result}")
+
+    def test_sum_all():
+        with open('n1.txt', 'w') as f:
+            f.write('10 20')
+        with open('n2.txt', 'w') as f:
+            f.write('5 15')
+        output = planner.plan_and_execute('sum numbers in all *.txt')
+        return ' '.join(output.split())
+
+    result = run_in_sandbox(test_sum_all)
+    test("e2e: sum numbers in all *.txt → '30 20'",
+         result == '30 20',
+         f"got '{result}'")
+
+    def test_delete_all():
+        with open('todelete1.txt', 'w') as f:
+            f.write('x')
+        with open('todelete2.txt', 'w') as f:
+            f.write('y')
+        planner.plan_and_execute('delete all *.txt')
+        import os.path
+        return not os.path.exists('todelete1.txt') and not os.path.exists('todelete2.txt')
+
+    result = run_in_sandbox(test_delete_all)
+    test("e2e: delete all *.txt removes all matching",
+         result == True,
+         f"got {result}")
+
+    # --- GlobFiles direct execution ---
+
+    def test_glob_files():
+        for name in ['a.txt', 'b.txt', 'c.log']:
+            with open(name, 'w') as f:
+                f.write('x')
+        node = asg.GlobFiles(pattern='*.txt')
+        from interpreter import execute
+        output = execute([node])
+        return ' '.join(output.split())
+
+    result = run_in_sandbox(test_glob_files)
+    test("glob *.txt → 'a.txt b.txt'",
+         result == 'a.txt b.txt',
+         f"got '{result}'")
+
+    # --- Shell backend compilation of ForEachFile ---
+
+    plan = planner.plan("count lines in all *.txt")
+    nodes = plan.to_nodes()
+    shell_code = compile_to_shell(nodes)
+    test("shell backend: ForEachFile → for loop",
+         "for _mk_f" in shell_code and "*.txt" in shell_code,
+         f"got: {shell_code[:200]}")
+
+    # --- Python backend compilation of ForEachFile ---
+
+    py_code = compile_to_python(nodes)
+    test("python backend: ForEachFile → for loop",
+         "for _mk_f" in py_code and "fnmatch" in py_code,
+         f"got: {py_code[:200]}")
+
+    # --- SQL backend compilation of ForEachFile ---
+
+    sql_code = compile_to_sql(nodes)
+    test("sql backend: ForEachFile → comment + executor",
+         "ForEachFile" in sql_code,
+         f"got: {sql_code[:200]}")
+
+
 def main():
     print("=" * 60)
     print("MK Planner Test Suite")
@@ -860,6 +1060,8 @@ def main():
     phase_k()
     phase_l()
     phase_m()
+    phase_n()
+    phase_o()
     phase_n()
 
     total = passed + failed

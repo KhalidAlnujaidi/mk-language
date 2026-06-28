@@ -14,6 +14,8 @@ Key nuances (learned from v02's plateau):
   - list_files: filters to files only (not dirs), sorted, space-joined.
   - read_file: replaces newlines with spaces (matches interpreter semantics).
   - create_file: guards against overwrite (refuses if file exists).
+
+v03.1: Added GlobFiles + ForEachFile compilation (shell for-loop).
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from asg import (
     ASGNode, CreateFile, ReadFile, AppendFile, CountLines, CopyFile,
     MakeDirectory, MoveFile, ListFiles, FindFiles, DeleteFile, Conditional,
     CountWords, SortLines, HeadLines, SumNumbers, ExtractPattern,
+    GlobFiles, ForEachFile,
 )
 
 
@@ -230,32 +233,70 @@ def _compile_node(node: ASGNode) -> str:
             )
 
         case DeleteFile(name=name, confirm=confirm):
-            qname = shlex.quote(name)
             if not confirm:
                 return 'printf "%s" "REFUSED"'
-            return f'rm -f {qname}'
+            qname = shlex.quote(name)
+            return (
+                f'if [ -f {qname} ]; then\n'
+                f'    rm {qname}\n'
+                f'fi'
+            )
 
         case Conditional(condition_file=condition_file,
                          then_branch=then_branch,
                          else_branch=else_branch):
             qcond = shlex.quote(condition_file)
-            then_code = '\n'.join(
-                '    ' + line
-                for n in then_branch
-                for line in _compile_node(n).split('\n')
-            ) if then_branch else '    :'
-            else_code = '\n'.join(
-                '    ' + line
-                for n in else_branch
-                for line in _compile_node(n).split('\n')
-            ) if else_branch else '    :'
+            then_code = '\n'.join('    ' + _compile_node(n) for n in then_branch)
+            else_code = '\n'.join('    ' + _compile_node(n) for n in else_branch)
+            # Indent the body for the if/else
+            then_indented = '\n'.join('    ' + line for line in then_code.split('\n'))
+            else_indented = '\n'.join('    ' + line for line in else_code.split('\n'))
             return (
                 f'if [ -e {qcond} ]; then\n'
-                f'{then_code}\n'
+                f'{then_indented}\n'
                 f'else\n'
-                f'{else_code}\n'
+                f'{else_indented}\n'
                 f'fi'
             )
 
+        # --- v03.1: Iteration nodes ---
+
+        case GlobFiles(pattern=pattern):
+            qpat = shlex.quote(pattern)
+            return (
+                f'_glob_result=""\n'
+                f'for f in {qpat}; do\n'
+                f'    [ -f "$f" ] && _glob_result="$_glob_result $f"\n'
+                f'done\n'
+                f'_glob_result=$(echo "$_glob_result" | xargs -n1 2>/dev/null | sort | tr "\\n" " " | sed \'s/ $//\')\n'
+                f'if [ -z "$_glob_result" ]; then\n'
+                f'    printf "%s" "(none)"\n'
+                f'else\n'
+                f'    printf "%s" "$_glob_result"\n'
+                f'fi'
+            )
+
+        case ForEachFile(glob_pattern=glob_pattern,
+                         body_template=body_template,
+                         placeholder=placeholder):
+            qpat = shlex.quote(glob_pattern)
+            # Generate the body by compiling each template node, then wrapping
+            # in a for loop. The placeholder is replaced via shell variable
+            # substitution: we use $_mk_f as the loop variable.
+            lines = [
+                f'for _mk_f in {qpat}; do',
+                f'    [ -f "$_mk_f" ] || continue',
+            ]
+            for tmpl in body_template:
+                # Compile the template node to shell, then replace placeholder
+                # with "$_mk_f" in the generated shell code.
+                shell_code = _compile_node(tmpl)
+                # Replace the literal placeholder string with shell variable ref
+                shell_code = shell_code.replace(placeholder, '$_mk_f')
+                for code_line in shell_code.split('\n'):
+                    lines.append(f'    {code_line}')
+            lines.append('done')
+            return '\n'.join(lines)
+
         case _:
-            return ':  # unknown node type'
+            return '# unknown node type'

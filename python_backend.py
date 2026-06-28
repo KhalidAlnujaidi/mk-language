@@ -7,6 +7,8 @@ This is distinct from the interpreter (which IS Python executing the ASG
 directly). The Python backend generates a *source string* — code that could
 be saved to a .py file and run independently. This proves the ASG is
 target-independent: the same graph compiles to both shell and Python.
+
+v03.1: Added GlobFiles + ForEachFile compilation (Python for-loop with fnmatch).
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ from asg import (
     ASGNode, CreateFile, ReadFile, AppendFile, CountLines, CopyFile,
     MakeDirectory, MoveFile, ListFiles, FindFiles, DeleteFile, Conditional,
     CountWords, SortLines, HeadLines, SumNumbers, ExtractPattern,
+    GlobFiles, ForEachFile,
 )
 
 
@@ -217,7 +220,8 @@ def _compile_node(node: ASGNode, indent: str) -> str:
                 f"                _matches.append(_fn)\n"
                 f"    except (OSError, UnicodeDecodeError):\n"
                 f"        continue\n"
-                f"sys.stdout.write(' '.join(sorted(_matches)) if _matches else '(none)')"
+                f"_matches.sort()\n"
+                f"sys.stdout.write(' '.join(_matches) if _matches else '(none)')"
             )
 
         case DeleteFile(name=name, confirm=confirm):
@@ -233,14 +237,43 @@ def _compile_node(node: ASGNode, indent: str) -> str:
                          then_branch=then_branch,
                          else_branch=else_branch):
             cond_r = repr(condition_file)
-            then_code = _compile_nodes(then_branch, indent + "    ") if then_branch else f"{indent}    pass"
-            else_code = _compile_nodes(else_branch, indent + "    ") if else_branch else f"{indent}    pass"
-            return (
-                f"{indent}if os.path.exists({cond_r}):\n"
+            # Body is compiled at fixed "    " relative indent — the outer
+            # ind() call adds the actual indent level.
+            then_code = _compile_nodes(then_branch, "    ")
+            else_code = _compile_nodes(else_branch, "    ")
+            block = (
+                f"if os.path.exists({cond_r}):\n"
                 f"{then_code}\n"
-                f"{indent}else:\n"
+                f"else:\n"
                 f"{else_code}"
             )
+            return ind(block)
+            pat_r = repr(pattern)
+            return ind(
+                f"import fnmatch as _fnmatch\n"
+                f"_glob_result = sorted(f for f in os.listdir('.') "
+                f"if os.path.isfile(f) and _fnmatch.fnmatch(f, {pat_r}))\n"
+                f"sys.stdout.write(' '.join(_glob_result) if _glob_result else '(none)')"
+            )
+
+        case ForEachFile(glob_pattern=glob_pattern,
+                         body_template=body_template,
+                         placeholder=placeholder):
+            pat_r = repr(glob_pattern)
+            ph_r = repr(placeholder)
+            inner_indent = indent + "    "
+            lines = [
+                f"import fnmatch as _fnmatch",
+                f"_mk_files = sorted(f for f in os.listdir('.') "
+                f"if os.path.isfile(f) and _fnmatch.fnmatch(f, {pat_r}))",
+                f"for _mk_f in _mk_files:",
+            ]
+            for tmpl in body_template:
+                code = _compile_node(tmpl, inner_indent)
+                # Replace placeholder references in the generated Python code
+                code = code.replace(placeholder, "' + _mk_f + '")
+                lines.append(code)
+            return '\n'.join(lines)
 
         case _:
-            return f"{indent}pass  # unknown node type"
+            return ind("pass  # unknown node type")

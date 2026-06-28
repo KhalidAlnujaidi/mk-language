@@ -19,12 +19,16 @@ Safety model (unchanged from v02 — fail-CLOSED on all irreversible ops):
 Output convention: each Terminal node emits its result followed by a newline,
 so consecutive Terminal outputs are separated. Process/Decision nodes that emit
 REFUSED also get a trailing newline.
+
+v03.1: Added GlobFiles + ForEachFile execution.
 """
 
 from __future__ import annotations
 
+import fnmatch
 import os
 import sys
+from dataclasses import replace as dc_replace
 from typing import Any
 
 import asg
@@ -32,6 +36,7 @@ from asg import (
     ASGNode, CreateFile, ReadFile, AppendFile, CountLines, CopyFile,
     MakeDirectory, MoveFile, ListFiles, FindFiles, DeleteFile, Conditional,
     CountWords, SortLines, HeadLines, SumNumbers, ExtractPattern,
+    GlobFiles, ForEachFile,
 )
 
 
@@ -69,6 +74,82 @@ def _emit_result(emit, value: str) -> None:
     """
     if value is not None and value != "":
         emit(value + "\n")
+
+
+# ---------------------------------------------------------------------------
+# Placeholder substitution for ForEachFile
+# ---------------------------------------------------------------------------
+
+def _substitute_placeholder(node: ASGNode, placeholder: str, filename: str) -> ASGNode:
+    """Return a copy of node with {placeholder} replaced by filename in all
+    string fields. Tuples/lists inside ForEachFile/Conditional are recursively substituted."""
+    ph = placeholder
+
+    match node:
+        case CreateFile(name=name, content=content):
+            return CreateFile(name=name.replace(ph, filename),
+                              content=content.replace(ph, filename))
+
+        case ReadFile(name=name):
+            return ReadFile(name=name.replace(ph, filename))
+
+        case AppendFile(text=text, name=name):
+            return AppendFile(text=text.replace(ph, filename),
+                              name=name.replace(ph, filename))
+
+        case CountLines(name=name):
+            return CountLines(name=name.replace(ph, filename))
+
+        case CountWords(name=name):
+            return CountWords(name=name.replace(ph, filename))
+
+        case SortLines(name=name):
+            return SortLines(name=name.replace(ph, filename))
+
+        case HeadLines(name=name, count=count):
+            return HeadLines(name=name.replace(ph, filename), count=count)
+
+        case SumNumbers(name=name):
+            return SumNumbers(name=name.replace(ph, filename))
+
+        case ExtractPattern(name=name, pattern=pattern):
+            return ExtractPattern(name=name.replace(ph, filename),
+                                  pattern=pattern.replace(ph, filename))
+
+        case CopyFile(source=source, dest=dest):
+            return CopyFile(source=source.replace(ph, filename),
+                            dest=dest.replace(ph, filename))
+
+        case MakeDirectory(name=name):
+            return MakeDirectory(name=name.replace(ph, filename))
+
+        case MoveFile(source=source, dest=dest):
+            return MoveFile(source=source.replace(ph, filename),
+                            dest=dest.replace(ph, filename))
+
+        case DeleteFile(name=name, confirm=confirm):
+            return DeleteFile(name=name.replace(ph, filename), confirm=confirm)
+
+        case GlobFiles(pattern=pattern):
+            return node  # no substitution needed
+
+        case ListFiles(directory=directory):
+            return ListFiles(directory=directory.replace(ph, filename))
+
+        case FindFiles(text=text):
+            return FindFiles(text=text.replace(ph, filename))
+
+        case Conditional(condition_file=condition_file,
+                         then_branch=then_branch,
+                         else_branch=else_branch):
+            sub_then = [_substitute_placeholder(n, ph, filename) for n in then_branch]
+            sub_else = [_substitute_placeholder(n, ph, filename) for n in else_branch]
+            return Conditional(condition_file=condition_file.replace(ph, filename),
+                               then_branch=sub_then,
+                               else_branch=sub_else)
+
+        case _:
+            return node
 
 
 def _execute_node(node: ASGNode, emit) -> None:
@@ -212,6 +293,29 @@ def _execute_node(node: ASGNode, emit) -> None:
             else:
                 _execute_nodes(else_branch, emit)
 
+        # --- v03.1: Iteration nodes ---
+
+        case GlobFiles(pattern=pattern):
+            """List files matching a glob pattern, sorted, space-joined."""
+            files = sorted(
+                f for f in os.listdir('.')
+                if os.path.isfile(f) and fnmatch.fnmatch(f, pattern)
+            )
+            _emit_result(emit, ' '.join(files) if files else "(none)")
+
+        case ForEachFile(glob_pattern=glob_pattern,
+                         body_template=body_template,
+                         placeholder=placeholder):
+            """Iterate over files matching the glob, executing body for each."""
+            files = sorted(
+                f for f in os.listdir('.')
+                if os.path.isfile(f) and fnmatch.fnmatch(f, glob_pattern)
+            )
+            for fname in files:
+                for tmpl in body_template:
+                    substituted = _substitute_placeholder(tmpl, placeholder, fname)
+                    _execute_node(substituted, emit)
+
         case _:
             pass  # Unknown node type — silently skip
 
@@ -223,5 +327,4 @@ def _execute_node(node: ASGNode, emit) -> None:
 def run(source: str) -> None:
     """Parse source into ASG and execute it. Output goes to stdout."""
     nodes = asg.parse(source)
-    execute(nodes, out=sys.stdout)
-    return None  # _sandbox_run.py checks for None → uses stdout buffer
+    execute(nodes, sys.stdout)

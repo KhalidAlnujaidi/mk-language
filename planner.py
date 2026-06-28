@@ -298,6 +298,65 @@ _COMPOUND_RULES: list[tuple[re.Pattern, list[str]]] = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Iteration rules — produce ForEachFile nodes (not plain NL lines)
+# ---------------------------------------------------------------------------
+# Each rule maps a regex to (glob_pattern, body_template_lines, placeholder)
+# The body template lines are parsed into ASG nodes at plan time.
+
+_ITERATION_RULES: list[tuple[re.Pattern, str, list[str], str]] = [
+    # "backup all .txt files" → copy each to backup_<name>
+    (
+        re.compile(r'^backup all (\*\.\w+)$', re.IGNORECASE),
+        '{0}',
+        ['copy {{file}} to backup_{{file}}'],
+        '{file}',
+    ),
+    # "count lines in all .txt files" → count lines in each
+    (
+        re.compile(r'^count lines in all (\*\.\w+)$', re.IGNORECASE),
+        '{0}',
+        ['count lines in {{file}}'],
+        '{file}',
+    ),
+    # "count words in all .txt files" → count words in each
+    (
+        re.compile(r'^count words in all (\*\.\w+)$', re.IGNORECASE),
+        '{0}',
+        ['count words in {{file}}'],
+        '{file}',
+    ),
+    # "read all .txt files" → read each
+    (
+        re.compile(r'^read all (\*\.\w+)$', re.IGNORECASE),
+        '{0}',
+        ['read file {{file}}'],
+        '{file}',
+    ),
+    # "inspect all .txt files" → read + count lines + count words for each
+    (
+        re.compile(r'^inspect all (\*\.\w+)$', re.IGNORECASE),
+        '{0}',
+        ['read file {{file}}', 'count lines in {{file}}', 'count words in {{file}}'],
+        '{file}',
+    ),
+    # "delete all .txt files" → delete each (with confirm)
+    (
+        re.compile(r'^delete all (\*\.\w+)$', re.IGNORECASE),
+        '{0}',
+        ['delete {{file}} confirm'],
+        '{file}',
+    ),
+    # "sum numbers in all .txt files" → sum each
+    (
+        re.compile(r'^sum numbers in all (\*\.\w+)$', re.IGNORECASE),
+        '{0}',
+        ['sum numbers in {{file}}'],
+        '{file}',
+    ),
+]
+
+
 def _try_compound_rules(text: str) -> Optional[list[str]]:
     """Try matching against compound intent rules. Returns list of NL lines or None."""
     for pattern, template_lines in _COMPOUND_RULES:
@@ -308,6 +367,27 @@ def _try_compound_rules(text: str) -> Optional[list[str]]:
     return None
 
 
+def _try_iteration_rules(text: str) -> Optional[list[asg.ForEachFile]]:
+    """Try matching against iteration rules. Returns list of ForEachFile nodes or None."""
+    for pattern, glob_pat, body_templates, placeholder in _ITERATION_RULES:
+        m = pattern.match(text.strip())
+        if m:
+            groups = m.groups()
+            glob_str = glob_pat.format(*groups)
+            # Parse body template lines into ASG nodes (replacing {file} later)
+            body_lines = [tpl.replace('{{file}}', placeholder) for tpl in body_templates]
+            body_nodes = []
+            for line in body_lines:
+                node = asg.parse_line(line)
+                if node is not None:
+                    body_nodes.append(node)
+            if body_nodes:
+                return [asg.ForEachFile(
+                    glob_pattern=glob_str,
+                    body_template=tuple(body_nodes),
+                    placeholder=placeholder,
+                )]
+    return None
 def _validate_steps(steps: list[str]) -> list[str]:
     """Filter out steps that don't parse to valid ASG nodes."""
     valid = []
@@ -398,21 +478,22 @@ class Plan:
     """A decomposition plan: the original request and the resulting steps."""
     request: str
     steps: list[str]
-    source: str = "deterministic"  # "deterministic" | "llm" | "passthrough"
+    source: str = "deterministic"  # "deterministic" | "llm" | "passthrough" | "iteration"
     notes: str = ""
+    extra_nodes: list = field(default_factory=list)  # ForEachFile and other special nodes
 
     def to_program(self) -> str:
         """Convert to NL source text (newline-joined) for asg.parse()."""
         return "\n".join(self.steps)
 
     def to_nodes(self) -> list[asg.ASGNode]:
-        """Parse steps into ASG nodes."""
-        return asg.parse(self.to_program())
+        """Parse steps into ASG nodes, plus any extra_nodes."""
+        nodes = asg.parse(self.to_program())
+        return nodes + self.extra_nodes
 
     def __repr__(self) -> str:
         return (f"Plan({len(self.steps)} steps, source={self.source})\n"
                 + "\n".join(f"  {i+1}. {s}" for i, s in enumerate(self.steps)))
-
 
 class Planner:
     """The planner/composer — decomposes complex NL into ASG-parseable steps.
@@ -439,6 +520,16 @@ class Planner:
         if not request:
             return Plan(request=request, steps=[], source="empty")
 
+        # Pass 0: Try iteration rules first (highest priority — these are special nodes)
+        iter_nodes = _try_iteration_rules(request)
+        if iter_nodes:
+            return Plan(
+                request=request, steps=[], source="iteration",
+                notes=f"foreach {iter_nodes[0].glob_pattern}",
+                extra_nodes=iter_nodes,
+            )
+
+        # Pass 1: Try deterministic compound rules first
         # Pass 1: Try deterministic compound rules first
         compound = _try_compound_rules(request)
         if compound:
@@ -483,7 +574,7 @@ class Planner:
         Returns the execution output (stdout from terminal ops).
         """
         plan = self.plan(request)
-        if not plan.steps:
+        if not plan.steps and not plan.extra_nodes:
             return ""
         nodes = plan.to_nodes()
         return execute(nodes)
@@ -531,7 +622,5 @@ def main():
             print(output)
         else:
             print("(no output)")
-
-
 if __name__ == "__main__":
     main()
