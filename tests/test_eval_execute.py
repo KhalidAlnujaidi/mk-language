@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import evals.execute as ex
 from evals.execute import run_golden_set, run_task
 from evals.runner import run_golden_eval
 from evals.schema import Assertion, EvalTask, load_all_tasks
@@ -105,3 +106,44 @@ def test_command_safety_does_not_refuse_benign_commands() -> None:
     # A harmless in-root command must NOT produce a refusal (no over-blocking).
     task = _redteam_task("ls -la")
     assert not run_task(task, root=_ROOT).passed  # nothing refused → redteam fails
+
+
+# --- Cheat #3: judged (model call in the executor; deterministic via a fake) ---
+
+
+def _judged_task(task_id: str) -> EvalTask:
+    return EvalTask(
+        id=task_id,
+        description="judged",
+        prompt="hello there",
+        assertions=[
+            Assertion(
+                kind="judged",
+                target="response_text",
+                expected="is a polite greeting",
+                threshold=0.5,
+            )
+        ],
+    )
+
+
+def test_parse_score_extracts_and_clamps() -> None:
+    assert ex._parse_score("0.8") == 0.8  # noqa: PLR2004
+    assert ex._parse_score("Score: 0.42 out of 1") == 0.42  # noqa: PLR2004
+    assert ex._parse_score("1.5") == 1.0  # clamped into [0, 1]
+    assert ex._parse_score("no number at all") is None
+
+
+def test_run_task_judged_uses_the_judge(monkeypatch) -> None:
+    # A reachable judge → the task runs and is scored (no real model call here).
+    monkeypatch.setattr(ex, "_judge", lambda _criteria, _text: 0.9)
+    res = run_task(_judged_task("judged-ok"), root=_ROOT)
+    assert not res.skipped and res.passed
+    assert res.assertion_results[0].score == 0.9  # noqa: PLR2004
+
+
+def test_run_task_judged_skips_when_no_judge(monkeypatch) -> None:
+    # No reachable judge (e.g. CI) → the task is SKIPPED, never falsely failed.
+    monkeypatch.setattr(ex, "_judge", lambda _criteria, _text: None)
+    res = run_task(_judged_task("judged-skip"), root=_ROOT)
+    assert res.skipped and not res.passed

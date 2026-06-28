@@ -375,6 +375,37 @@ def _check_slop(a: Assertion, actual: str) -> AssertionResult:
     )
 
 
+def _check_judged(a: Assertion, actual: object) -> AssertionResult:
+    """judged (cheat #3): pass when the judge's 0–1 score is at or above threshold.
+
+    The MODEL CALL happens in the executor (``evals/execute.py::_judge``) — THIS
+    checker stays pure (the asymmetry thesis: no I/O here): ``actual`` is the score
+    the judge already produced, and we only compare it to the bar. ``threshold``
+    defaults to 0.5 when a task does not set one.
+    """
+    threshold = a.threshold if a.threshold is not None else 0.5
+    try:
+        score = float(actual)  # type: ignore[arg-type]  # judge score, numeric
+    except (TypeError, ValueError):
+        score = 0.0
+    score = max(0.0, min(1.0, score))
+    passed = score >= threshold
+    return AssertionResult(
+        kind=a.kind,
+        target=a.target,
+        passed=passed,
+        expected=a.expected,
+        actual=f"{score:.3f}",
+        score=score,
+        threshold=threshold,
+        reason=(
+            f"judge scored {score:.2f} ≥ threshold {threshold:.2f}"
+            if passed
+            else f"judge scored {score:.2f} < threshold {threshold:.2f}"
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Dispatch table
 # ---------------------------------------------------------------------------
@@ -399,6 +430,9 @@ _CHECKERS: dict[str, tuple[_Checker, bool]] = {
     "leaked":           (_check_leaked, True),
     "redteam":          (_check_redteam, True),
     "slop":             (_check_slop, True),
+    # judged: actual is the judge's numeric score (produced in execute.py), so it
+    # is passed through, not stringized.
+    "judged":           (_check_judged, False),
 }
 
 

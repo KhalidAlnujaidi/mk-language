@@ -459,3 +459,35 @@ def test_check_unknown_kind_raises() -> None:
     object.__setattr__(assertion, "kind", "fantasy")
     with pytest.raises(ValueError, match="No checker registered"):
         check(assertion, actual_value="whatever")
+
+
+# ---------------------------------------------------------------------------
+# Cheat #3: judged (LLM-as-judge). The checker is PURE — it compares the score
+# the judge already produced (the model call lives in evals/execute.py::_judge).
+# ---------------------------------------------------------------------------
+
+
+def test_check_judged_passes_at_or_above_threshold() -> None:
+    from evals.checkers import check
+
+    a = Assertion(kind="judged", target="response_text", expected="crit", threshold=0.7)
+    r = check(a, 0.8)
+    assert r.passed
+    assert r.score == 0.8  # noqa: PLR2004
+    assert r.threshold == 0.7  # noqa: PLR2004
+
+
+def test_check_judged_fails_below_threshold() -> None:
+    from evals.checkers import check
+
+    a = Assertion(kind="judged", target="response_text", expected="crit", threshold=0.7)
+    assert not check(a, 0.5).passed
+
+
+def test_check_judged_default_threshold_clamps_and_handles_garbage() -> None:
+    from evals.checkers import check
+
+    a = Assertion(kind="judged", target="x", expected="c")  # threshold None → 0.5
+    assert check(a, 0.5).passed  # exactly at the default bar
+    assert check(a, 1.5).score == 1.0  # clamped into [0, 1]
+    assert not check(a, "not-a-number").passed  # unparseable → 0.0 → fail
