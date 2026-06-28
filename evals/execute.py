@@ -333,13 +333,68 @@ def _produce(target: str, ctx: _RunContext, live: dict[str, object]) -> object:
     return ""
 
 
+_SCORE_RE = re.compile(r"[0-9]*\.?[0-9]+")
+
+
+def _parse_score(text: str) -> float | None:
+    """Pull a 0–1 score out of the judge's reply, clamped; None if unparseable."""
+    match = _SCORE_RE.search(text)
+    if match is None:
+        return None
+    try:
+        return max(0.0, min(1.0, float(match.group())))
+    except ValueError:
+        return None
+
+
+def _judge(criteria: str, text: str) -> float | None:
+    """Score 0–1 how well *text* meets *criteria*, via a LOCAL model (cheat #3).
+
+    Local-only on purpose: judging is the fuzzy step, so it uses the smallest
+    fitting local model (the asymmetry thesis) — never the expensive cloud brain,
+    and never a slow cloud round-trip inside the gate. Returns ``None`` when no
+    local model is reachable or the call/parse fails, so the task is SKIPPED (a
+    judge that cannot run must not fabricate a verdict).
+    """
+    import asyncio
+
+    from daemon.backends import make_dispatch
+    from daemon.exec import execute
+    from kernel.contracts import Tier
+
+    fitting = probe().fitting_local_models()
+    if not fitting:
+        return None
+    tier = Tier.model(fitting[0].name, where="local", backend=fitting[0].backend)
+    prompt = (
+        "You are a strict grader. Score from 0.0 to 1.0 how well the TEXT meets "
+        "the CRITERIA. Reply with ONLY the number.\n\n"
+        f"CRITERIA: {criteria}\n\nTEXT:\n{text}"
+    )
+    try:
+        result = asyncio.run(
+            execute(
+                [tier],
+                [{"role": "user", "content": prompt}],
+                call=make_dispatch(),
+                task_id="judge",
+                kind="judge",
+            )
+        )
+    except Exception:  # noqa: BLE001 — a judge failure SKIPS, never falsely fails
+        return None
+    return _parse_score(result.content)
+
+
 def run_task(task: EvalTask, *, root: Path) -> EvalResult:
     """Run one golden task against the real components and check its assertions.
 
     A task whose observables require a live agent (``step_count``/``tools_called``)
     is SKIPPED unless KINOX_EVAL_LIVE is set — and skipped (not failed) too if the
-    live run can't proceed (no local model / error). So the deterministic gate stays
-    clean and CI-safe while the live metric is still measurable on demand.
+    live run can't proceed (no local model / error). A ``judged`` assertion runs a
+    LOCAL judge model (cheat #3); when no local judge is reachable (e.g. CI) the
+    task is likewise SKIPPED, never falsely failed — so the deterministic gate
+    stays clean and CI-safe while the fuzzy judgement runs wherever a model exists.
     """
     t0 = time.perf_counter()
     needs_live = any(a.target in _LIVE_TARGETS for a in task.assertions)
@@ -356,7 +411,31 @@ def run_task(task: EvalTask, *, root: Path) -> EvalResult:
             )
         live = live_result
     ctx = _build_context(task.prompt, root)
-    results = [check(a, _produce(a.target, ctx, live)) for a in task.assertions]
+
+    # Cheat #3: precompute judge scores for any ``judged`` assertions (model call).
+    # If the judge is unreachable, SKIP the whole task (not a fabricated pass/fail).
+    judge_scores: dict[int, float] = {}
+    for i, a in enumerate(task.assertions):
+        if a.kind != "judged":
+            continue
+        score = _judge(a.expected, str(_produce(a.target, ctx, live)))
+        if score is None:
+            return EvalResult(
+                task_id=task.id,
+                passed=False,
+                skipped=True,
+                assertion_results=[],
+                duration_ms=(time.perf_counter() - t0) * 1000.0,
+            )
+        judge_scores[i] = score
+
+    results = [
+        check(
+            a,
+            judge_scores[i] if a.kind == "judged" else _produce(a.target, ctx, live),
+        )
+        for i, a in enumerate(task.assertions)
+    ]
     passed = all(r.passed for r in results)
     duration_ms = (time.perf_counter() - t0) * 1000.0
     return EvalResult(
