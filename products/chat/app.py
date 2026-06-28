@@ -783,6 +783,14 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
     # push those into a thread-safe queue and DRAIN them on the main thread (the
     # spinner loop) so nothing prints across threads while the live status is up.
     steps_q: deque[object] = deque()
+    # Live answer: run_agent fires on_token for each content delta (vision §5.2).
+    # We push tokens onto a thread-safe queue and show a live tail in the status
+    # line, so the final answer is visibly generating instead of a dead spinner.
+    # KINOX_STREAM=0 disables it (on_token=None → the non-streaming chain).
+    tokens_q: deque[str] = deque()
+    stream_on = os.environ.get("KINOX_STREAM", "1").lower() not in (
+        "0", "off", "false", "no"
+    )
 
     def work() -> object:
         async def _go() -> object:
@@ -821,11 +829,13 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
                 fallback=local_tier,
                 max_turns=int(os.environ.get("KINOX_MAX_TURNS", "30")),
                 on_step=steps_q.append,
+                on_token=tokens_q.append if stream_on else None,
             )
 
         return asyncio.run(_go())
 
     tools_done = 0
+    answer_buf: list[str] = []
     with ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(work)
         start = time.monotonic()
@@ -845,12 +855,20 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
                             f"[dim]{step.detail}[/dim]"
                         )
                     # "final" is the summary — rendered in the panel below.
+                # Drain answer tokens → a live tail so the answer is seen forming.
+                while tokens_q:
+                    answer_buf.append(tokens_q.popleft())
+                tail = ""
+                if answer_buf:
+                    flat = _strip_reasoning("".join(answer_buf)).replace("\n", " ")
+                    if flat:
+                        tail = f" · [white]…{flat[-60:]}[/white]"
                 status.update(
                     f"[dim]agent working · {tools_done} tool"
                     f"{'' if tools_done == 1 else 's'} · "
-                    f"{time.monotonic() - start:.1f}s[/dim]"
+                    f"{time.monotonic() - start:.1f}s{tail}[/dim]"
                 )
-                if future.done() and not steps_q:
+                if future.done() and not steps_q and not tokens_q:
                     break
                 time.sleep(0.1)
         try:
