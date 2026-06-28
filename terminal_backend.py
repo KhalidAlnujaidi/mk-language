@@ -31,6 +31,7 @@ from asg import (
     GlobFiles, ForEachFile,
     SetVar, PrintVar,
     ReplaceText, TransformCase, UniqueLines, ReverseLines,
+    TailLines, FilterLines, IfVar,
 )
 
 
@@ -95,6 +96,48 @@ def _compile_node(node: ASGNode) -> str:
                 '    grep -v "^$" ' + qname + ' | tac | tr "\\n" " "\n'
                 'else\n'
                 '    printf "%s" ""\n'
+                'fi'
+            )
+
+
+        # --- v03.4: Tail, Filter, IfVar ---
+
+        case TailLines(name=name, count=count):
+            qname = shlex.quote(name)
+            return (
+                f'if [ -f {qname} ]; then\n'
+                f'    tail -n {count} {qname} | tr "\\n" " "\n'
+                f'else\n'
+                f'    printf "%s" ""\n'
+                f'fi'
+            )
+
+        case FilterLines(name=name, pattern=pattern):
+            qname = shlex.quote(name)
+            qpat = shlex.quote(pattern)
+            return (
+                f'if [ -f {qname} ]; then\n'
+                f'    grep -v {qpat} {qname} | tr "\\n" " "\n'
+                f'else\n'
+                f'    printf "%s" ""\n'
+                f'fi'
+            )
+
+        case IfVar(var_name=var_name, op=op, threshold=threshold,
+                   then_branch=then_branch, else_branch=else_branch):
+            # Shell variable comparison and branch
+            shell_var = "_mk_var_" + var_name
+            # Build then/else blocks
+            then_code = "\n".join(_compile_node(n) for n in then_branch)
+            else_code = "\n".join(_compile_node(n) for n in else_branch)
+            # Map operators to shell test syntax
+            op_map = {">": "-gt", "<": "-lt", ">=": "-ge", "<=": "-le", "==": "-eq", "!=": "-ne"}
+            shell_op = op_map.get(op, "-gt")
+            return (
+                'if [ "${' + shell_var + ':-0}" ' + shell_op + ' ' + str(threshold) + ' ]; then\n'
+                + then_code + '\n'
+                'else\n'
+                + else_code + '\n'
                 'fi'
             )
 

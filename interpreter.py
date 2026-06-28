@@ -41,6 +41,7 @@ from asg import (
     GlobFiles, ForEachFile,
     SetVar, PrintVar,
     ReplaceText, TransformCase, UniqueLines, ReverseLines,
+    TailLines, FilterLines, IfVar,
 )
 
 
@@ -192,8 +193,14 @@ def _substitute_in_node(node: ASGNode, sub_fn) -> ASGNode:
         case ReverseLines(name=name):
             return ReverseLines(name=sub_fn(name))
 
+        case TailLines(name=name, count=count):
+            return TailLines(name=sub_fn(name), count=count)
+
+        case FilterLines(name=name, pattern=pattern):
+            return FilterLines(name=sub_fn(name), pattern=sub_fn(pattern))
+
         case _:
-            return node  # SetVar, Conditional, ForEachFile, GlobFiles — handled elsewhere
+            return node  # SetVar, Conditional, ForEachFile, GlobFiles, IfVar — handled elsewhere
 
 
 # ---------------------------------------------------------------------------
@@ -282,8 +289,14 @@ def _substitute_placeholder(node: ASGNode, placeholder: str, filename: str) -> A
         case ReverseLines(name=name):
             return ReverseLines(name=name.replace(ph, filename))
 
+        case TailLines(name=name, count=count):
+            return TailLines(name=name.replace(ph, filename), count=count)
+
+        case FilterLines(name=name, pattern=pattern):
+            return FilterLines(name=name.replace(ph, filename), pattern=pattern)
 
         case _:
+            return node
             return node
 
 
@@ -481,7 +494,6 @@ def _execute_node(node: ASGNode, emit, state: _ExecState) -> None:
                     seen.add(l)
                     unique.append(l)
             _emit_result(emit, ' '.join(unique))
-
         case ReverseLines(name=name):
             if not os.path.exists(name):
                 _emit_result(emit, "")
@@ -490,14 +502,44 @@ def _execute_node(node: ASGNode, emit, state: _ExecState) -> None:
                 lines = [l.rstrip('\n') for l in f.readlines() if l.strip()]
             _emit_result(emit, ' '.join(list(reversed(lines))))
 
+        # --- v03.4: Tail, Filter, IfVar ---
+
+        case TailLines(name=name, count=count):
+            if not os.path.exists(name):
+                _emit_result(emit, "")
+                return
+            with open(name, 'r') as f:
+                lines = [l.rstrip('\n') for l in f.readlines() if l.strip()]
+            _emit_result(emit, ' '.join(lines[-count:] if count > 0 else []))
+
+        case FilterLines(name=name, pattern=pattern):
+            if not os.path.exists(name):
+                _emit_result(emit, "")
+                return
+            with open(name, 'r') as f:
+                lines = [l.rstrip('\n') for l in f.readlines() if l.strip()]
+            _emit_result(emit, ' '.join(l for l in lines if pattern not in l))
+
+        case IfVar(var_name=var_name, op=op, threshold=threshold,
+                   then_branch=then_branch, else_branch=else_branch):
+            """Evaluate numeric condition on a variable, branch accordingly."""
+            raw = state.variables.get(var_name, '0')
+            try:
+                val = int(raw)
+            except ValueError:
+                val = 0
+            ops = {'>': val > threshold, '<': val < threshold,
+                   '>=': val >= threshold, '<=': val <= threshold,
+                   '==': val == threshold, '!=': val != threshold}
+            branch = then_branch if ops.get(op, False) else else_branch
+            _execute_nodes(branch, emit, state)
+
         case GlobFiles(pattern=pattern):
-            """List files matching a glob pattern, sorted, space-joined."""
             files = sorted(
                 f for f in os.listdir('.')
                 if os.path.isfile(f) and fnmatch.fnmatch(f, pattern)
             )
             _emit_result(emit, ' '.join(files) if files else "(none)")
-
 
         case ForEachFile(glob_pattern=glob_pattern,
                          body_template=body_template,

@@ -53,6 +53,7 @@ from asg import (
     GlobFiles, ForEachFile,
     SetVar, PrintVar,
     ReplaceText, TransformCase, UniqueLines, ReverseLines,
+    TailLines, FilterLines, IfVar,
 )
 
 
@@ -361,18 +362,47 @@ def _compile_node(node: ASGNode) -> str:
             )
 
         case ForEachFile(glob_pattern=glob_pattern, body_template=body_template, placeholder=placeholder):
-            # SQL is declarative — no loops. We emit a comment documenting intent.
-            # The executor handles iteration dynamically.
             return (
                 f"-- ForEachFile: for each file matching {glob_pattern}, execute body\n"
                 f"-- (Iteration is handled by the SQL executor at runtime)"
+                f"-- (Iteration is handled by the SQL executor at runtime)"
+            )
+
+        # --- v03.4: Tail, Filter, IfVar ---
+
+        case TailLines(name=name, count=count):
+            tbl = _table_name(name)
+            raw = _raw_name(name)
+            return (
+                f"-- TailLines: {name} (last {count})\n"
+                f"SELECT CASE WHEN EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='{raw}')\n"
+                f"  THEN (SELECT group_concat(line, ' ') FROM\n"
+                f"    (SELECT line FROM {tbl} ORDER BY rowid DESC LIMIT {count}))\n"
+                f"  ELSE ''\n"
+                f"END AS _output;"
+            )
+
+        case FilterLines(name=name, pattern=pattern):
+            tbl = _table_name(name)
+            raw = _raw_name(name)
+            esc_pat = _sql_escape(pattern)
+            return (
+                f"-- FilterLines: {name} (exclude '{pattern}')\n"
+                f"SELECT CASE WHEN EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='{raw}')\n"
+                f"  THEN (SELECT group_concat(line, ' ') FROM (SELECT line FROM {tbl} WHERE line NOT LIKE '%{esc_pat}%'))\n"
+                f"  ELSE ''\n"
+                f"END AS _output;"
+            )
+
+        case IfVar(var_name=var_name, op=op, threshold=threshold,
+                   then_branch=then_branch, else_branch=else_branch):
+            return (
+                f"-- IfVar: {var_name} {op} {threshold}\n"
+                f"-- (Branching handled by SQL executor at runtime)"
             )
 
         case _:
             return f"-- Unknown node type: {type(node).__name__}"
-
-
-def _substitute_node(node: ASGNode, placeholder: str, filename: str) -> ASGNode:
     """Return a copy of node with placeholder replaced by filename in all string fields."""
     from dataclasses import replace as dc_replace
     ph = placeholder
@@ -682,6 +712,41 @@ def _execute_node(cursor: sqlite3.Cursor, node: ASGNode, conn: sqlite3.Connectio
             cursor.execute(f'SELECT line FROM {tbl} WHERE line != "" ORDER BY rowid DESC')
             rows = cursor.fetchall()
             return ' '.join(r[0] for r in rows if r[0])
+
+
+        case TailLines(name=name, count=count):
+            tbl = _table_name(name)
+            raw = _raw_name(name)
+            # Get last N lines: use a subquery with ORDER BY rowid DESC LIMIT N, then reverse
+            return (
+                f"-- TailLines: {name} (last {count})\n"
+                f"SELECT CASE WHEN EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='{raw}')\n"
+                f"  THEN (SELECT group_concat(line, ' ') FROM\n"
+                f"    (SELECT line FROM {tbl} ORDER BY rowid DESC LIMIT {count} ORDER BY rowid ASC))\n"
+                f"  ELSE ''\n"
+                f"END AS _output;"
+            )
+
+        case FilterLines(name=name, pattern=pattern):
+            tbl = _table_name(name)
+            raw = _raw_name(name)
+            esc_pat = _sql_escape(pattern)
+            return (
+                f"-- FilterLines: {name} (exclude '{pattern}')\n"
+                f"SELECT CASE WHEN EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='{raw}')\n"
+                f"  THEN (SELECT group_concat(line, ' ') FROM (SELECT line FROM {tbl} WHERE line NOT LIKE '%{esc_pat}%'))\n"
+                f"  ELSE ''\n"
+                f"END AS _output;"
+            )
+
+        case IfVar(var_name=var_name, op=op, threshold=threshold,
+                   then_branch=then_branch, else_branch=else_branch):
+            # SQL: use temp variable table + CASE for branching
+            # This is best handled at executor level; compile emits a comment
+            return (
+                f"-- IfVar: {var_name} {op} {threshold}\n"
+                f"-- (Branching handled by SQL executor at runtime)"
+            )
 
         # --- v03.2: Variable binding ---
 

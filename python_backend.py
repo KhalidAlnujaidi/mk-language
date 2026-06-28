@@ -21,6 +21,7 @@ from asg import (
     GlobFiles, ForEachFile,
     SetVar, PrintVar,
     ReplaceText, TransformCase, UniqueLines, ReverseLines,
+    TailLines, FilterLines, IfVar,
 )
 
 
@@ -121,6 +122,51 @@ def _compile_node(node: ASGNode, indent: str) -> str:
                 f"    with open({name_r}, 'r') as _f:\n"
                 f"        _lines = [l.rstrip('\\n') for l in _f.readlines() if l.strip()]\n"
                 f"    sys.stdout.write(' '.join(reversed(_lines)))"
+            )
+
+
+        # --- v03.4: Tail, Filter, IfVar ---
+
+        case TailLines(name=name, count=count):
+            name_r = repr(name)
+            return ind(
+                f"if not os.path.exists({name_r}):\n"
+                f"    sys.stdout.write('')\n"
+                f"else:\n"
+                f"    with open({name_r}, 'r') as _f:\n"
+                f"        _lines = [l.rstrip('\\n') for l in _f.readlines() if l.strip()]\n"
+                f"    sys.stdout.write(' '.join(_lines[-{count}:]))"
+            )
+
+        case FilterLines(name=name, pattern=pattern):
+            name_r = repr(name)
+            pat_r = repr(pattern)
+            return ind(
+                f"if not os.path.exists({name_r}):\n"
+                f"    sys.stdout.write('')\n"
+                f"else:\n"
+                f"    with open({name_r}, 'r') as _f:\n"
+                f"        _lines = [l.rstrip('\\n') for l in _f.readlines() if l.strip()]\n"
+                f"    sys.stdout.write(' '.join(l for l in _lines if {pat_r} not in l))"
+            )
+
+        case IfVar(var_name=var_name, op=op, threshold=threshold,
+                   then_branch=then_branch, else_branch=else_branch):
+            var_r = repr(var_name)
+            op_r = repr(op)
+            # Compile then/else branches at extra indent
+            inner_indent = indent + "    "
+            then_code = _compile_nodes(list(then_branch), inner_indent)
+            else_code = _compile_nodes(list(else_branch), inner_indent)
+            return ind(
+                f"_val = int(_vars.get({var_r}, '0') or '0')\n"
+                f"_ops = {{'>': _val > {threshold}, '<': _val < {threshold},\n"
+                f"         '>=': _val >= {threshold}, '<=': _val <= {threshold},\n"
+                f"         '==': _val == {threshold}, '!=': _val != {threshold}}}\n"
+                f"if _ops.get({op_r}, False):\n"
+                f"{then_code}\n"
+                f"else:\n"
+                f"{else_code}"
             )
 
         # --- v03.2: Variable binding ---

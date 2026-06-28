@@ -242,6 +242,42 @@ class ReverseLines:
     node_type: str = "Terminal"
 
 
+
+
+# --- v03.4: More terminal + data-dependent branching ---
+
+@dataclass(frozen=True)
+class TailLines:
+    """Terminal — show last N lines of a file, output space-joined."""
+    name: str
+    count: int
+    node_type: str = "Terminal"
+
+
+@dataclass(frozen=True)
+class FilterLines:
+    """Terminal — show lines that do NOT contain a pattern (inverse of ExtractPattern)."""
+    name: str
+    pattern: str
+    node_type: str = "Terminal"
+
+
+@dataclass(frozen=True)
+class IfVar:
+    """Decision — compare a variable against a numeric threshold, branch accordingly.
+
+    var_name: the variable to test (must have been set by SetVar).
+    op: one of '>', '<', '>=', '<=', '==', '!='.
+    threshold: integer to compare against.
+    then_branch: list of ASG nodes executed if condition is true.
+    else_branch: list of ASG nodes executed if condition is false.
+    """
+    var_name: str
+    op: str
+    threshold: int
+    then_branch: list
+    else_branch: list
+    node_type: str = "Decision"
 # Union type for type checking
 ASGNode = Union[
     CreateFile, ReadFile, AppendFile, CountLines, CopyFile,
@@ -250,6 +286,7 @@ ASGNode = Union[
     GlobFiles, ForEachFile,
     SetVar, PrintVar,
     ReplaceText, TransformCase, UniqueLines, ReverseLines,
+    TailLines, FilterLines, IfVar,
 ]
 
 
@@ -387,6 +424,31 @@ def parse_line(line: str) -> ASGNode | None:
     # glob files matching "PATTERN"
     # glob files matching "PATTERN"
     if m := re.match(r'glob files matching "([^"]*)"', line):
+        return GlobFiles(pattern=m.group(1))
+    # --- v03.4: Tail, Filter, IfVar ---
+    # show last N lines of NAME
+    if m := re.match(r'show last (\d+) lines of (\S+)', line):
+        return TailLines(name=m.group(2), count=int(m.group(1)))
+
+    # show lines not containing "PATTERN" from NAME  (exclude)
+    if m := re.match(r'exclude lines matching "([^"]*)" from (\S+)', line):
+        return FilterLines(name=m.group(2), pattern=m.group(1))
+
+    # if $VAR op N then INTENT otherwise INTENT
+    if m := re.match(r'if \$(\w+)\s*(>=|<=|==|!=|>|<)\s*(\d+) then (.+) otherwise (.+)', line):
+        var_name = m.group(1)
+        op = m.group(2)
+        threshold = int(m.group(3))
+        then_line = m.group(4).strip()
+        else_line = m.group(5).strip()
+        then_node = parse_line(then_line)
+        else_node = parse_line(else_line)
+        # Only build IfVar if sub-intents parse
+        if then_node is not None and else_node is not None:
+            return IfVar(var_name=var_name, op=op, threshold=threshold,
+                         then_branch=[then_node], else_branch=[else_node])
+        # Fallback: wrap in raw text nodes if needed
+        return None
         return GlobFiles(pattern=m.group(1))
 
     return None

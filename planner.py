@@ -76,6 +76,10 @@ uppercase placeholders):
   titlecase NAME                            — convert to Title Case
   unique lines in NAME                      — remove duplicate lines
   reverse lines in NAME                     — reverse line order
+  show last N lines of NAME                 — print last N lines
+  exclude lines matching "PATTERN" from NAME — print lines NOT containing pattern
+  if $VAR op N then INTENT otherwise INTENT  — branch on variable comparison
+    (op is one of: > < >= <= == !=)
 
 Variable substitution: any string field in later nodes can contain {VARNAME}
 which gets replaced with the captured value. Example:
