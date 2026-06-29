@@ -25,6 +25,12 @@ LLM fallback:
 
 from __future__ import annotations
 
+# Import the distillation router (fail-soft — optional fast path)
+try:
+    from distill_router import DistillationRouter
+except Exception:
+    DistillationRouter = None
+
 import json
 import os
 import re
@@ -399,106 +405,6 @@ _COMPOUND_RULES: list[tuple[re.Pattern, list[str]]] = [
         ['set _pipe = unique lines in {0}', 'write "{{_pipe}}" to {1}'],
     ),
 
-    # Auto-injected by evolve.py [clear-variant]
-    (
-        re.compile(r'^empty the file (\S+)$', re.IGNORECASE),
-        ['write "" to {0}'],
-    ),
-    # Auto-injected by evolve.py [concat-variant]
-    (
-        re.compile(r'^concatenate (\S+) and (\S+) into (\S+)$', re.IGNORECASE),
-        ['set _a = read file {0}', 'set _b = read file {1}', 'write "" to {2}', 'append "{{_a}}" to {2}', 'append "{{_b}}" to {2}'],
-    ),
-    # Auto-injected by evolve.py [conversational-read]
-    (
-        re.compile(r'^show me (\S+)$', re.IGNORECASE),
-        ['read file {0}'],
-    ),
-    # Auto-injected by evolve.py [conversational-read]
-    (
-        re.compile(r'^display (\S+)$', re.IGNORECASE),
-        ['read file {0}'],
-    ),
-    # Auto-injected by evolve.py [conversational-read]
-    (
-        re.compile(r'^cat (\S+)$', re.IGNORECASE),
-        ['read file {0}'],
-    ),
-    # Auto-injected by evolve.py [conversational-read]
-    (
-        re.compile(r'^view (\S+)$', re.IGNORECASE),
-        ['read file {0}'],
-    ),
-    # Auto-injected by evolve.py [conversational-read]
-    (
-        re.compile(r'^how many lines in (\S+)$', re.IGNORECASE),
-        ['count lines in {0}'],
-    ),
-    # Auto-injected by evolve.py [conversational-read]
-    (
-        re.compile(r'^how many words in (\S+)$', re.IGNORECASE),
-        ['count words in {0}'],
-    ),
-    # Auto-injected by evolve.py [delete-variant]
-    (
-        re.compile(r'^erase (\S+) confirm$', re.IGNORECASE),
-        ['delete {0} confirm'],
-    ),
-    # Auto-injected by evolve.py [delete-variant]
-    (
-        re.compile(r'^remove (\S+) confirm$', re.IGNORECASE),
-        ['delete {0} confirm'],
-    ),
-    # Auto-injected by evolve.py [head-variant]
-    (
-        re.compile(r'^get the first (\d+) lines of (\S+)$', re.IGNORECASE),
-        ['show first {0} lines of {1}'],
-    ),
-    # Auto-injected by evolve.py [head-variant]
-    (
-        re.compile(r'^show first (\d+) of (\S+)$', re.IGNORECASE),
-        ['show first {0} lines of {1}'],
-    ),
-    # Auto-injected by evolve.py [move-variant]
-    (
-        re.compile(r'^move file (\S+) to (\S+)$', re.IGNORECASE),
-        ['move {0} to {1}'],
-    ),
-    # Auto-injected by evolve.py [move-variant]
-    (
-        re.compile(r'^duplicate (\S+) to (\S+)$', re.IGNORECASE),
-        ['copy {0} to {1}'],
-    ),
-    # Auto-injected by evolve.py [verbose-count]
-    (
-        re.compile(r'^count how many lines are in (\S+)$', re.IGNORECASE),
-        ['count lines in {0}'],
-    ),
-    # Auto-injected by evolve.py [verbose-count]
-    (
-        re.compile(r'^tell me the word count of (\S+)$', re.IGNORECASE),
-        ['count words in {0}'],
-    ),
-    # Auto-injected by evolve.py [verbose-count]
-    (
-        re.compile(r'^what is the line count of (\S+)$', re.IGNORECASE),
-        ['count lines in {0}'],
-    ),
-    # Auto-injected by evolve.py [verbose-count]
-    (
-        re.compile(r'^what is the word count for (\S+)$', re.IGNORECASE),
-        ['count words in {0}'],
-    ),
-    # Auto-injected by evolve.py [verbose-create]
-    (
-        re.compile(r'^create a new file (\S+) with content "([^"]*)"$', re.IGNORECASE),
-        ['create file {0} with content "{1}"'],
-    ),
-    # Auto-injected by evolve.py [verbose-create]
-    (
-        re.compile(r'^make a file called (\S+) with content "([^"]*)"$', re.IGNORECASE),
-        ['create file {0} with content "{1}"'],
-    ),
 # --- End of compound rules (evolve.py injection point) ---
 ]
 # ---------------------------------------------------------------------------
@@ -975,9 +881,15 @@ class Planner:
     text as a single step (passthrough) — the parser will try it directly.
     """
 
-    def __init__(self, use_llm: bool = True, validate: bool = True):
+    def __init__(self, use_llm: bool = True, validate: bool = True, use_distill: bool = True):
         self.use_llm = use_llm
         self.validate = validate
+        self._router = None
+        if use_distill and DistillationRouter is not None:
+            try:
+                self._router = DistillationRouter()
+            except Exception:
+                self._router = None
 
     def plan(self, request: str) -> Plan:
         """Decompose a complex NL request into simple ASG-parseable steps.
@@ -1027,6 +939,22 @@ class Planner:
         # Pass 3: Check if the original line already parses
         if asg.parse_line(request) is not None:
             return Plan(request=request, steps=[request], source="passthrough")
+
+        # Pass 3.5: Distillation router (embedding-based fast path)
+        # If the router is available and the request is semantically close
+        # to a known pattern, extract params and generate steps — no LLM needed.
+        if self._router is not None:
+            try:
+                distill_steps = self._router.route(request)
+                if distill_steps is not None:
+                    steps = distill_steps if not self.validate else _validate_steps(distill_steps)
+                    if steps:
+                        return Plan(
+                            request=request, steps=steps, source="distill",
+                            notes=f"Embedded routing (no LLM)",
+                        )
+            except Exception:
+                pass  # fail-soft — fall through to LLM
 
         # Pass 4: LLM fallback (if enabled)
         if self.use_llm:

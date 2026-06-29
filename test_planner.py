@@ -403,7 +403,8 @@ def phase_j():
             # Verify the plan has valid steps
             valid_steps = _validate_steps(plan.steps)
             test(f"llm:{name}",
-                 len(plan.steps) >= 2 and len(valid_steps) >= 2,
+                 len(plan.steps) >= 2 and len(valid_steps) >= 2
+                 and plan.source in ("llm", "distill"),
                  f"plan={plan.source}, {len(plan.steps)} steps, "
                  f"{len(valid_steps)} valid")
         except Exception as e:
