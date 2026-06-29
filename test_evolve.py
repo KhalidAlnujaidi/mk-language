@@ -469,3 +469,20 @@ def test_ev8_02_planner_unaffected_after_revert():
     plan = p.plan("create file test.txt with content \"hello\"")
     assert plan.source in ("deterministic", "passthrough")
     assert len(plan.steps) >= 1
+
+if __name__ == "__main__":
+    tests = [(k, v) for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
+    passed = 0
+    failed = 0
+    for name, fn in tests:
+        try:
+            fn()
+            print(f"  ✅ {name}")
+            passed += 1
+        except Exception as e:
+            print(f"  ❌ {name}: {e}")
+            failed += 1
+    print(f"\n{'='*50}")
+    print(f"  {passed}/{passed+failed} passed ({failed} failed)")
+    if failed:
+        sys.exit(1)

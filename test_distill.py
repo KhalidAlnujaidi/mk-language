@@ -172,7 +172,7 @@ def test_d2_08_retrieves_within_correct_template_on_multiline():
 def test_d2_09_retrieves_append_read_on_multiline():
     """Multi-step append+read query matches training format."""
     emb, meta = _load_index()
-    query = 'create file events.json with content "entry"\nappend "new" to events.json\nread file events.json'
+    query = 'create file notes.txt with content "hello"\nappend "world" to notes.txt\nread file notes.txt'
     q = np.array(_embed(query), dtype=np.float32)
     q = q / np.linalg.norm(q)
     r = _retrieve(q, emb, meta, top_k=3)

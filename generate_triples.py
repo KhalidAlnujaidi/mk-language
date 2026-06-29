@@ -46,7 +46,7 @@ from sql_backend import compile_to_sql, execute_sql
 
 
 # ---------------------------------------------------------------------------
-# Parameter pools — the variation axes (v2: scaled for distillation)
+# Parameter pools — the variation axes (v3: massively scaled for 50K+ distillation)
 # ---------------------------------------------------------------------------
 
 FILENAMES = [
@@ -60,6 +60,16 @@ FILENAMES = [
     "f1.dat", "f2.cfg", "f3.txt", "f4.lst", "f5.md",
     "test_a.txt", "test_b.txt", "test_c.dat", "test_d.cfg", "test_e.md",
     "names.csv", "ages.txt", "scores.dat", "paths.cfg", "flags.lst",
+    # v3: extended — more diverse names for 50K+ scaling
+    "users.db", "orders.csv", "inventory.lst", "config.yaml", "Makefile",
+    "package.json", "Dockerfile", ".env", ".gitignore", "LICENSE",
+    "a.txt", "b.txt", "c.txt", "d.txt", "e.txt",
+    "x.dat", "y.dat", "z.dat", "w.dat", "v.dat",
+    "doc1.txt", "doc2.txt", "doc3.txt", "doc4.txt", "doc5.txt",
+    "run.sh", "build.sh", "deploy.sh", "test.sh", "clean.sh",
+    "img1.dat", "img2.dat", "img3.dat", "img4.dat", "img5.dat",
+    "log_a.txt", "log_b.txt", "log_c.txt", "log_d.txt", "log_e.txt",
+    "file_001.txt", "file_002.txt", "file_003.txt", "file_004.txt", "file_005.txt",
 ]
 
 SHORT_CONTENTS = [
@@ -75,6 +85,17 @@ SHORT_CONTENTS = [
     "true", "false", "null", "void", "empty",
     "404", "200", "301", "500", "403",
     "x", "y", "z", "id", "key",
+    # v3: extended — more single-word content for 50K+ scaling
+    "val", "num", "str", "buf", "ptr",
+    "max", "min", "avg", "sum", "cnt",
+    "row", "col", "cell", "line", "word",
+    "yes", "no", "ok", "err", "nil",
+    "abc", "def", "ghi", "jkl", "mno",
+    "north", "south", "east", "west", "center",
+    "open", "shut", "lock", "unlock", "seal",
+    "fast", "slow", "high", "low", "mid",
+    "big", "small", "huge", "tiny", "vast",
+    "new", "old", "used", "free", "busy",
 ]
 
 MULTI_WORD_CONTENTS = [
@@ -95,6 +116,22 @@ MULTI_WORD_CONTENTS = [
     "north 42 south 17 east 8",
     "name age email phone address",
     "start process end start process",
+    # v3: extended — more multi-word content
+    "error warning info debug trace",
+    "create read update delete",
+    "apple orange banana grape lemon",
+    "python java rust go ruby",
+    "insert select update delete drop",
+    "header body footer sidebar nav",
+    "january february march april",
+    "add sub mul div mod",
+    "earth mars venus mercury jupiter",
+    "alpha bravo charlie delta echo",
+    "red orange yellow green blue indigo violet",
+    "north northeast east southeast south",
+    "darwin linus alan grace ada",
+    "bytes words longs shorts ints",
+    "in out inout return break",
 ]
 
 NUMBER_CONTENTS = [
@@ -118,6 +155,24 @@ NUMBER_CONTENTS = [
     "11 22 33 44 55 66 77 88",
     "500 250 125",
     "8 6 7 5 3 0 9",
+    # v3: extended
+    "15 30 45 60 75 90",
+    "1000 2000 3000 4000",
+    "3 6 9 12 15 18",
+    "100 50 25 12 6 3",
+    "2 3 5 7 11 13 17 19",
+    "1 4 9 16 25 36 49 64",
+    "10000 1000 100 10 1",
+    "6 12 18 24 30 36",
+    "20 40 60 80 100 120",
+    "1 10 100 1000 10000",
+    "64 32 16 8 4 2 1",
+    "99 88 77 66 55 44",
+    "1 1 2 3 5 8 13 21",
+    "100 200 400 800 1600",
+    "7 14 28 56 112 224",
+    "42 42 42 42 42",
+    "0 0 0 0",
 ]
 
 SORTABLE_CONTENTS = [
@@ -135,6 +190,14 @@ SORTABLE_CONTENTS = [
     ("nine", "eight", "seven", "six", "five", "four", "three"),
     ("zzz", "aaa", "mmm", "bbb"),
     ("ocean", "mountain", "river", "desert", "forest", "valley"),
+    # v3: extended
+    ("jupiter", "mars", "venus", "earth", "mercury", "saturn"),
+    ("violet", "red", "indigo", "orange", "yellow", "green", "blue"),
+    ("negative", "positive", "neutral", "active", "dormant"),
+    ("whale", "dolphin", "shark", "tuna", "salmon"),
+    ("jungle", "forest", "desert", "tundra", "savanna", "swamp"),
+    ("numpy", "pandas", "scipy", "sklearn", "tensorflow"),
+    ("quark", "atom", "molecule", "cell", "tissue", "organ"),
 ]
 
 LINE_CONTENTS = [
@@ -155,6 +218,22 @@ LINE_CONTENTS = [
     ("alpha", "beta", "gamma"),
     ("line1", "line2", "line3", "line4", "line5", "line6"),
     ("x", "y", "z"),
+    # v3: extended
+    ("jan", "feb", "mar", "apr", "may", "jun"),
+    ("sun", "mon", "tue", "wed", "thu", "fri", "sat"),
+    ("create", "read", "update", "delete"),
+    ("ping", "pong", "ping", "pong", "ping"),
+    ("on", "off", "on", "off", "on", "off"),
+    ("red", "green", "blue", "alpha", "beta"),
+    ("tcp", "udp", "http", "https", "ftp", "ssh"),
+    ("low", "medium", "high", "critical"),
+    ("input", "process", "output", "feedback"),
+    ("1", "2", "3", "4", "5", "6", "7", "8", "9", "10"),
+    ("q1", "q2", "q3", "q4"),
+    ("start", "run", "pause", "resume", "stop"),
+    ("a1", "b2", "c3", "d4", "e5"),
+    ("north", "south", "east", "west", "center"),
+    ("login", "auth", "verify", "approve", "session"),
 ]
 
 LOG_CONTENTS = [
@@ -172,20 +251,57 @@ LOG_CONTENTS = [
     ("debug: var x=1", "debug: var y=2", "error: division by zero"),
     ("info: task queued", "info: task started", "error: task failed", "warning: retrying"),
     ("error: out of memory", "error: cpu limit", "warning: throttling", "info: recovered"),
+    # v3: extended
+    ("error: auth failed", "warning: retry login", "info: session expired"),
+    ("debug: cache hit", "debug: cache miss", "info: response sent"),
+    ("error: database locked", "warning: query slow", "error: deadlock detected"),
+    ("info: backup started", "info: backup completed", "warning: backup stale"),
+    ("error: network unreachable", "error: dns failed", "info: reconnecting"),
+    ("warning: high cpu", "warning: high memory", "error: system overload"),
+    ("debug: request received", "info: processing", "debug: response built", "info: response sent"),
+    ("error: invalid token", "error: expired session", "warning: refresh needed"),
+    ("info: deploy started", "info: build complete", "info: deploy finished", "error: smoke test failed"),
 ]
 
-PATTERNS = ["error", "warning", "info", "debug", "task", "file", "port", "memory"]
+PATTERNS = [
+    "error", "warning", "info", "debug", "task", "file", "port", "memory",
+    # v3: extended
+    "cache", "auth", "connection", "backup", "network", "system", "request", "deploy",
+]
 
-MOVE_DIRS = ["logs", "archive", "backup", "tmp", "store", "cache", "dist", "build"]
+MOVE_DIRS = [
+    "logs", "archive", "backup", "tmp", "store", "cache", "dist", "build",
+    # v3: extended
+    "old", "new", "src", "out", "pub", "dev", "prod", "staging",
+]
 
 HEAD_COUNTS = [1, 2, 3, 4, 5]
+TAIL_COUNTS = [1, 2, 3, 4, 5]
+
+# v3: New parameter pools for new templates
+
+REPLACE_PAIRS = [
+    ("foo", "bar"), ("error", "warning"), ("old", "new"), ("true", "false"),
+    ("yes", "no"), ("on", "off"), ("open", "closed"), ("start", "stop"),
+    ("red", "blue"), ("cat", "dog"), ("begin", "end"), ("add", "remove"),
+    ("create", "destroy"), ("accept", "reject"), ("enable", "disable"),
+    ("connect", "disconnect"), ("login", "logout"), ("encrypt", "decrypt"),
+    ("positive", "negative"), ("active", "inactive"),
+]
+
+CASE_DIRECTIONS = ["uppercase", "lowercase"]
 
 
 # ---------------------------------------------------------------------------
 # Templates that cannot be verified through SQL (directory-dependent)
 # ---------------------------------------------------------------------------
 
-SQL_INCOMPATIBLE = {"mkdir-move-list"}
+SQL_INCOMPATIBLE = {
+    "mkdir-move-list",
+    # v3: new node types not yet supported by SQL backend
+    "tail-lines", "reverse-lines", "unique-lines",
+    "transform-case", "replace-text",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -209,24 +325,12 @@ class Triple:
 
 
 def serialize_asg(nodes: list[ASGNode]) -> list[dict]:
-    """Serialize ASG nodes to JSON-safe dicts."""
-    result = []
-    for node in nodes:
-        d = {"type": type(node).__name__}
-        for field_name in node.__dataclass_fields__:
-            if field_name == "node_type":
-                continue
-            val = getattr(node, field_name)
-            if isinstance(val, list):
-                d[field_name] = serialize_asg(val)
-            else:
-                d[field_name] = val
-        result.append(d)
-    return result
+    """Serialize ASG nodes to JSON-compatible list."""
+    return [{"type": type(n).__name__, **asdict(n)} for n in nodes]
 
 
 # ---------------------------------------------------------------------------
-# Template generators
+# Template functions — each generates a set of NL programs with expected output
 # ---------------------------------------------------------------------------
 
 TemplateFn = Callable[[], list[tuple[str, str, dict]]]
@@ -234,7 +338,7 @@ TemplateFn = Callable[[], list[tuple[str, str, dict]]]
 
 def tpl_create_read() -> list[tuple[str, str, dict]]:
     out = []
-    for fn, content in itertools.product(FILENAMES, SHORT_CONTENTS):
+    for fn, content in itertools.product(FILENAMES[:40], SHORT_CONTENTS[:60]):
         prog = f'create file {fn} with content "{content}"\nread file {fn}'
         out.append((prog, content, {"template": "create-read", "filename": fn, "content": content}))
     return out
@@ -243,7 +347,7 @@ def tpl_create_read() -> list[tuple[str, str, dict]]:
 def tpl_append_read() -> list[tuple[str, str, dict]]:
     out = []
     for fn, base, extra in itertools.product(
-        FILENAMES[:20], SHORT_CONTENTS[:20], SHORT_CONTENTS[20:35]
+        FILENAMES[:15], SHORT_CONTENTS[:15], SHORT_CONTENTS[15:30]
     ):
         prog = f'create file {fn} with content "{base}"\nappend "{extra}" to {fn}\nread file {fn}'
         out.append((prog, f"{base} {extra}", {"template": "append-read", "filename": fn, "base": base, "extra": extra}))
@@ -252,7 +356,7 @@ def tpl_append_read() -> list[tuple[str, str, dict]]:
 
 def tpl_count_lines() -> list[tuple[str, str, dict]]:
     out = []
-    for fn, base in itertools.product(FILENAMES[:20], SHORT_CONTENTS[:20]):
+    for fn, base in itertools.product(FILENAMES[:25], SHORT_CONTENTS[:25]):
         prog = (
             f'create file {fn} with content "{base}"\n'
             f'append "line2" to {fn}\n'
@@ -266,7 +370,7 @@ def tpl_count_lines() -> list[tuple[str, str, dict]]:
 def tpl_copy_read() -> list[tuple[str, str, dict]]:
     out = []
     for src, dest, content in itertools.product(
-        FILENAMES[:10], FILENAMES[10:20], SHORT_CONTENTS[:15]
+        FILENAMES[:15], FILENAMES[15:30], SHORT_CONTENTS[:20]
     ):
         prog = f'create file {src} with content "{content}"\ncopy {src} to {dest}\nread file {dest}'
         out.append((prog, content, {"template": "copy-read", "src": src, "dest": dest, "content": content}))
@@ -290,7 +394,7 @@ def tpl_mkdir_move_list() -> list[tuple[str, str, dict]]:
 
 def tpl_list_files() -> list[tuple[str, str, dict]]:
     out = []
-    for f1, f2 in itertools.product(FILENAMES[:10], FILENAMES[10:20]):
+    for f1, f2 in itertools.product(FILENAMES[:15], FILENAMES[15:30]):
         if f1 == f2:
             continue
         prog = f'create file {f1} with content "a"\ncreate file {f2} with content "b"\nlist files'
@@ -314,7 +418,7 @@ def tpl_find_content() -> list[tuple[str, str, dict]]:
 
 def tpl_count_words() -> list[tuple[str, str, dict]]:
     out = []
-    for fn, content in itertools.product(FILENAMES[:15], MULTI_WORD_CONTENTS):
+    for fn, content in itertools.product(FILENAMES[:25], MULTI_WORD_CONTENTS):
         prog = f'create file {fn} with content "{content}"\ncount words in {fn}'
         count = len(content.split())
         out.append((prog, str(count), {"template": "count-words", "filename": fn, "content": content}))
@@ -324,7 +428,7 @@ def tpl_count_words() -> list[tuple[str, str, dict]]:
 def tpl_sort_lines() -> list[tuple[str, str, dict]]:
     out = []
     for i, lines in enumerate(SORTABLE_CONTENTS):
-        for fn in FILENAMES[:5]:
+        for fn in FILENAMES[:8]:
             prog_parts = [f'create file {fn} with content "{lines[0]}"']
             for extra in lines[1:]:
                 prog_parts.append(f'append "{extra}" to {fn}')
@@ -339,7 +443,7 @@ def tpl_head_lines() -> list[tuple[str, str, dict]]:
     out = []
     for i, lines in enumerate(LINE_CONTENTS):
         for n in HEAD_COUNTS:
-            for fn in FILENAMES[:3]:
+            for fn in FILENAMES[:5]:
                 if n > len(lines):
                     continue
                 prog_parts = [f'create file {fn} with content "{lines[0]}"']
@@ -354,7 +458,7 @@ def tpl_head_lines() -> list[tuple[str, str, dict]]:
 
 def tpl_sum_numbers() -> list[tuple[str, str, dict]]:
     out = []
-    for fn, content in itertools.product(FILENAMES[:15], NUMBER_CONTENTS):
+    for fn, content in itertools.product(FILENAMES[:25], NUMBER_CONTENTS):
         prog = f'create file {fn} with content "{content}"\nsum numbers in {fn}'
         total = sum(int(x) for x in content.split())
         out.append((prog, str(total), {"template": "sum-numbers", "filename": fn, "content": content}))
@@ -365,7 +469,7 @@ def tpl_extract_pattern() -> list[tuple[str, str, dict]]:
     out = []
     for i, lines in enumerate(LOG_CONTENTS):
         for pattern in PATTERNS:
-            for fn in FILENAMES[:3]:
+            for fn in FILENAMES[:5]:
                 prog_parts = [f'create file {fn} with content "{lines[0]}"']
                 for extra in lines[1:]:
                     prog_parts.append(f'append "{extra}" to {fn}')
@@ -439,7 +543,117 @@ def tpl_safety_confirm_delete() -> list[tuple[str, str, dict]]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# v3 NEW TEMPLATES — covering previously uncovered ASG node types
+# ---------------------------------------------------------------------------
+
+def tpl_tail_lines() -> list[tuple[str, str, dict]]:
+    """TailLines: show last N lines of a file."""
+    out = []
+    for i, lines in enumerate(LINE_CONTENTS):
+        for n in TAIL_COUNTS:
+            for fn in FILENAMES[:5]:
+                if n > len(lines):
+                    continue
+                prog_parts = [f'create file {fn} with content "{lines[0]}"']
+                for extra in lines[1:]:
+                    prog_parts.append(f'append "{extra}" to {fn}')
+                prog_parts.append(f'show last {n} lines of {fn}')
+                prog = "\n".join(prog_parts)
+                expected = " ".join(lines[-n:])
+                out.append((prog, expected, {"template": "tail-lines", "filename": fn, "count": n, "lines": list(lines)}))
+    return out
+
+
+def tpl_reverse_lines() -> list[tuple[str, str, dict]]:
+    """ReverseLines: reverse the order of lines in a file."""
+    out = []
+    for i, lines in enumerate(LINE_CONTENTS):
+        for fn in FILENAMES[:8]:
+            prog_parts = [f'create file {fn} with content "{lines[0]}"']
+            for extra in lines[1:]:
+                prog_parts.append(f'append "{extra}" to {fn}')
+            prog_parts.append(f'reverse lines in {fn}')
+            prog = "\n".join(prog_parts)
+            expected = " ".join(reversed(lines))
+            out.append((prog, expected, {"template": "reverse-lines", "filename": fn, "lines": list(lines)}))
+    return out
+
+
+def tpl_unique_lines() -> list[tuple[str, str, dict]]:
+    """UniqueLines: deduplicate lines in a file."""
+    out = []
+    # Use line sets with duplicates
+    dup_line_sets = [
+        ("a", "b", "a", "b", "a"),
+        ("red", "blue", "red", "green", "blue"),
+        ("1", "2", "1", "3", "2", "1"),
+        ("x", "x", "y", "y", "z", "z"),
+        ("cat", "dog", "cat", "bird", "dog", "fish"),
+        ("on", "off", "on", "off", "on"),
+        ("start", "stop", "start", "stop", "pause"),
+        ("error", "warn", "error", "info", "warn"),
+        ("create", "delete", "create", "update", "delete", "read"),
+        ("north", "south", "east", "north", "west", "south"),
+        ("apple", "apple", "apple", "banana", "apple"),
+        ("1", "1", "1", "1", "1"),
+        ("a", "b", "c", "c", "b", "a"),
+        ("big", "small", "big", "big", "small"),
+        ("sync", "async", "sync", "sync", "async", "async"),
+    ]
+    for i, lines in enumerate(dup_line_sets):
+        for fn in FILENAMES[:5]:
+            prog_parts = [f'create file {fn} with content "{lines[0]}"']
+            for extra in lines[1:]:
+                prog_parts.append(f'append "{extra}" to {fn}')
+            prog_parts.append(f'unique lines in {fn}')
+            prog = "\n".join(prog_parts)
+            # Preserve order of first occurrence
+            seen = []
+            for l in lines:
+                if l not in seen:
+                    seen.append(l)
+            expected = " ".join(seen)
+            out.append((prog, expected, {"template": "unique-lines", "filename": fn, "lines": list(lines)}))
+    return out
+
+
+def tpl_transform_case() -> list[tuple[str, str, dict]]:
+    """TransformCase: uppercase or lowercase file content."""
+    out = []
+    case_contents = [
+        "hello world", "Hello World", "HELLO WORLD",
+        "Mixed Case Text", "ALL CAPS HERE", "lower case only",
+        "PyThOn", "camelCase", "PascalCase",
+        "MiXeD CaSe HeRe", "some Words with CAPS",
+        "test data here", "ERROR WARNING INFO",
+        "alpha beta gamma", "The Quick Brown Fox",
+    ]
+    for fn, content in itertools.product(FILENAMES[:10], case_contents):
+        # uppercase
+        prog_up = f'create file {fn} with content "{content}"\nuppercase {fn}'
+        out.append((prog_up, content.upper(), {"template": "transform-case", "direction": "upper", "filename": fn, "content": content}))
+        # lowercase
+        prog_lo = f'create file {fn} with content "{content}"\nlowercase {fn}'
+        out.append((prog_lo, content.lower(), {"template": "transform-case", "direction": "lower", "filename": fn, "content": content}))
+    return out
+
+
+def tpl_replace_text() -> list[tuple[str, str, dict]]:
+    """ReplaceText: replace all occurrences of a word in file content."""
+    out = []
+    for fn, (old, new) in itertools.product(FILENAMES[:15], REPLACE_PAIRS):
+        content = f"the {old} is {old} again"
+        prog = f'create file {fn} with content "{content}"\nreplace "{old}" with "{new}" in {fn}'
+        expected = content.replace(old, new)
+        out.append((prog, expected, {"template": "replace-text", "filename": fn, "old": old, "new": new, "content": content}))
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Registry of all templates
+# ---------------------------------------------------------------------------
+
 TEMPLATES: list[tuple[str, TemplateFn]] = [
     ("create-read", tpl_create_read),
     ("append-read", tpl_append_read),
@@ -458,6 +672,12 @@ TEMPLATES: list[tuple[str, TemplateFn]] = [
     ("safety-refuse-delete", tpl_safety_refuse_delete),
     ("safety-refuse-create", tpl_safety_refuse_create),
     ("safety-confirm-delete", tpl_safety_confirm_delete),
+    # v3 new templates
+    ("tail-lines", tpl_tail_lines),
+    ("reverse-lines", tpl_reverse_lines),
+    ("unique-lines", tpl_unique_lines),
+    ("transform-case", tpl_transform_case),
+    ("replace-text", tpl_replace_text),
 ]
 
 
@@ -516,86 +736,74 @@ def run_sql(nodes: list[ASGNode]) -> str:
         return f"<ERROR: {e}>"
 
 
-# ---------------------------------------------------------------------------
-# Core: generate and verify a single triple
-# ---------------------------------------------------------------------------
+def verify_triple(program: str, expected: str, template_name: str) -> tuple[bool, str, list[str]]:
+    """Execute program through all backends and verify output matches.
 
-def verify_triple(program: str, expected: str, template_name: str = "") -> tuple[bool, dict, list]:
-    """Execute program through all applicable backends, verify they match expected.
-
-    Returns (verified, detail_dict, backends_verified).
-    Directory-dependent templates skip SQL (no dir hierarchy in SQLite).
+    Returns (verified, detail, list_of_backends_verified).
     """
-    nodes = parse(program)
-    if not nodes:
-        return False, {"error": "parse produced no nodes"}, []
+    expected_n = normalize(expected)
+    backends_ok = []
 
-    shell_code = compile_to_shell(nodes)
-    python_code = compile_to_python(nodes)
-    sql_code = compile_to_sql(nodes)
+    # Parse to ASG
+    try:
+        nodes = parse(program)
+    except Exception as e:
+        return False, f"parse error: {e}", []
 
-    detail = {}
-    backends = []
-
-    # Direct execution
+    # Direct interpreter
     try:
         direct_out = run_direct(program)
+        if direct_out != expected_n:
+            return False, f"direct: got {direct_out!r} expected {expected_n!r}", backends_ok
+        backends_ok.append("direct")
     except Exception as e:
-        direct_out = f"<ERROR: {e}>"
-    detail["direct"] = direct_out
-    backends.append("direct")
+        return False, f"direct exception: {e}", backends_ok
 
-    # Shell execution
+    # Shell backend
     try:
+        shell_code = compile_to_shell(nodes)
         shell_out = run_shell(shell_code)
+        if shell_out != expected_n:
+            return False, f"shell: got {shell_out!r} expected {expected_n!r}", backends_ok
+        backends_ok.append("shell")
     except Exception as e:
-        shell_out = f"<ERROR: {e}>"
-    detail["shell"] = shell_out
-    backends.append("shell")
+        return False, f"shell exception: {e}", backends_ok
 
-    # Python execution
+    # Python backend
     try:
+        python_code = compile_to_python(nodes)
         python_out = run_python(python_code)
+        if python_out != expected_n:
+            return False, f"python: got {python_out!r} expected {expected_n!r}", backends_ok
+        backends_ok.append("python")
     except Exception as e:
-        python_out = f"<ERROR: {e}>"
-    detail["python"] = python_out
-    backends.append("python")
+        return False, f"python exception: {e}", backends_ok
 
-    # SQL execution (skip for directory-dependent templates)
+    # SQL backend (skip for incompatible templates)
     if template_name not in SQL_INCOMPATIBLE:
-        sql_out = run_sql(nodes)
-        detail["sql"] = sql_out
-        backends.append("sql")
-        verified = (
-            direct_out == expected
-            and shell_out == expected
-            and python_out == expected
-            and sql_out == expected
-        )
-    else:
-        verified = (
-            direct_out == expected
-            and shell_out == expected
-            and python_out == expected
-        )
+        try:
+            sql_out = run_sql(nodes)
+            if sql_out != expected_n:
+                return False, f"sql: got {sql_out!r} expected {expected_n!r}", backends_ok
+            backends_ok.append("sql")
+        except Exception as e:
+            return False, f"sql exception: {e}", backends_ok
 
-    return verified, detail, backends
+    return True, "OK", backends_ok
 
-
-# ---------------------------------------------------------------------------
-# Main generation loop
-# ---------------------------------------------------------------------------
 
 def generate_all(target_count: int | None = None) -> list[Triple]:
-    """Generate verified triples from all templates."""
+    """Generate all triples from all templates."""
     triples: list[Triple] = []
-    counter = 0
-    stats = {"total_generated": 0, "verified": 0, "failed": 0, "by_template": {}}
+    stats: dict = {"total_generated": 0, "verified": 0, "failed": 0, "by_template": {}}
 
     for tpl_name, tpl_fn in TEMPLATES:
         instances = tpl_fn()
         tpl_verified = 0
         tpl_failed = 0
+        counter = 0
+
+        print(f"  Generating {tpl_name}... ({len(instances)} candidates)", file=sys.stderr)
 
         for program, expected, params in instances:
             if target_count and len(triples) >= target_count:

@@ -208,6 +208,66 @@ def _extract_search_text(text: str) -> Optional[str]:
 # Step generators
 # ---------------------------------------------------------------------------
 
+def _extract_filename_and_count_last(text: str) -> Optional[tuple[str, int]]:
+    """Extract (filename, count) for tail operations — looks for 'last N'."""
+    count = None
+    for pat in [r'\blast\s+(\d+)\s+lines?', r'\bbottom\s+(\d+)\b', r'\bend\s+(\d+)\b', r'\blast\s+(\d+)\b', r'\b(\d+)\s+lines?']:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            count = int(m.group(1))
+            break
+    if count is None:
+        return None
+    fname = _extract_filename(text)
+    if fname is None:
+        return None
+    return (fname, count)
+
+def _extract_transform_case(text: str) -> Optional[tuple[str, str]]:
+    """Extract (direction, filename) for case transformation."""
+    direction = None
+    if re.search(r'\b(upper|uppercase|to upper|capitalize|all caps|all uppercase)\b', text, re.IGNORECASE):
+        direction = 'upper'
+    elif re.search(r'\b(lower|lowercase|to lower|all lowercase|all lower)\b', text, re.IGNORECASE):
+        direction = 'lower'
+    if direction is None:
+        return None
+    fname = _extract_filename(text)
+    if fname is None:
+        return None
+    return (direction, fname)
+
+def _extract_replace_pairs(text: str) -> Optional[tuple[str, str, str]]:
+    """Extract (old, new, filename) for replace operations."""
+    # Handle quoted pairs with various verbs: replace, swap, substitute, change, overwrite, turn
+    m = re.search(
+        r'(?:replace|swap|substitute|change|overwrite|turn)\s+["\']([^"\']+)["\']\s+(?:with|by|into|to)\s+["\']([^"\']+)["\']',
+        text, re.IGNORECASE)
+    if m:
+        old, new = m.group(1), m.group(2)
+        fname = _extract_filename(text)
+        if fname:
+            return (old, new, fname)
+    # Unquoted variants
+    m = re.search(
+        r'(?:replace|swap|substitute|change|overwrite|turn)\s+(\S+)\s+(?:with|by|into|to)\s+(\S+?)(?:\s+in\s+|\s*$)',
+        text, re.IGNORECASE)
+    if m:
+        old, new = m.group(1), m.group(2).rstrip('.')
+        fname = _extract_filename(text)
+        if fname:
+            return (old, new, fname)
+    # 'find X replace with Y' pattern
+    m = re.search(
+        r'find\s+["\']([^"\']+)["\']\s+replace\s+with\s+["\']([^"\']+)["\']',
+        text, re.IGNORECASE)
+    if m:
+        old, new = m.group(1), m.group(2)
+        fname = _extract_filename(text)
+        if fname:
+            return (old, new, fname)
+    return None
+
 def _gen_count_lines(p):
     return [f'count lines in {p}']
 
@@ -241,6 +301,27 @@ def _gen_append_read(p):
 
 
 # ---------------------------------------------------------------------------
+
+def _gen_tail_lines(p):
+    fname, count = p
+    return [f'show last {count} lines of {fname}']
+
+def _gen_reverse_lines(p):
+    return [f'reverse lines in {p}']
+
+def _gen_unique_lines(p):
+    return [f'unique lines in {p}']
+
+def _gen_transform_case(p):
+    direction, fname = p
+    if direction == 'upper':
+        return [f'uppercase {fname}']
+    return [f'lowercase {fname}']
+
+def _gen_replace_text(p):
+    old, new, fname = p
+    return [f'replace "{old}" with "{new}" in {fname}']
+
 # Template routing table
 # ---------------------------------------------------------------------------
 
@@ -254,6 +335,12 @@ TEMPLATE_HANDLERS: dict[str, tuple] = {
     'find-content':     (_extract_search_text,            _gen_find_content),
     'create-read':      (_extract_filename_and_content,   _gen_create_read),
     'append-read':      (_extract_filename_and_content,   _gen_append_read),
+    # v3 new templates
+    'tail-lines':       (_extract_filename_and_count_last, _gen_tail_lines),
+    'reverse-lines':    (_extract_filename,               _gen_reverse_lines),
+    'unique-lines':     (_extract_filename,               _gen_unique_lines),
+    'transform-case':   (_extract_transform_case,         _gen_transform_case),
+    'replace-text':     (_extract_replace_pairs,          _gen_replace_text),
 }
 
 
