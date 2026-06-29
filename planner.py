@@ -399,6 +399,106 @@ _COMPOUND_RULES: list[tuple[re.Pattern, list[str]]] = [
         ['set _pipe = unique lines in {0}', 'write "{{_pipe}}" to {1}'],
     ),
 
+    # Auto-injected by evolve.py [clear-variant]
+    (
+        re.compile(r'^empty the file (\S+)$', re.IGNORECASE),
+        ['write "" to {0}'],
+    ),
+    # Auto-injected by evolve.py [concat-variant]
+    (
+        re.compile(r'^concatenate (\S+) and (\S+) into (\S+)$', re.IGNORECASE),
+        ['set _a = read file {0}', 'set _b = read file {1}', 'write "" to {2}', 'append "{{_a}}" to {2}', 'append "{{_b}}" to {2}'],
+    ),
+    # Auto-injected by evolve.py [conversational-read]
+    (
+        re.compile(r'^show me (\S+)$', re.IGNORECASE),
+        ['read file {0}'],
+    ),
+    # Auto-injected by evolve.py [conversational-read]
+    (
+        re.compile(r'^display (\S+)$', re.IGNORECASE),
+        ['read file {0}'],
+    ),
+    # Auto-injected by evolve.py [conversational-read]
+    (
+        re.compile(r'^cat (\S+)$', re.IGNORECASE),
+        ['read file {0}'],
+    ),
+    # Auto-injected by evolve.py [conversational-read]
+    (
+        re.compile(r'^view (\S+)$', re.IGNORECASE),
+        ['read file {0}'],
+    ),
+    # Auto-injected by evolve.py [conversational-read]
+    (
+        re.compile(r'^how many lines in (\S+)$', re.IGNORECASE),
+        ['count lines in {0}'],
+    ),
+    # Auto-injected by evolve.py [conversational-read]
+    (
+        re.compile(r'^how many words in (\S+)$', re.IGNORECASE),
+        ['count words in {0}'],
+    ),
+    # Auto-injected by evolve.py [delete-variant]
+    (
+        re.compile(r'^erase (\S+) confirm$', re.IGNORECASE),
+        ['delete {0} confirm'],
+    ),
+    # Auto-injected by evolve.py [delete-variant]
+    (
+        re.compile(r'^remove (\S+) confirm$', re.IGNORECASE),
+        ['delete {0} confirm'],
+    ),
+    # Auto-injected by evolve.py [head-variant]
+    (
+        re.compile(r'^get the first (\d+) lines of (\S+)$', re.IGNORECASE),
+        ['show first {0} lines of {1}'],
+    ),
+    # Auto-injected by evolve.py [head-variant]
+    (
+        re.compile(r'^show first (\d+) of (\S+)$', re.IGNORECASE),
+        ['show first {0} lines of {1}'],
+    ),
+    # Auto-injected by evolve.py [move-variant]
+    (
+        re.compile(r'^move file (\S+) to (\S+)$', re.IGNORECASE),
+        ['move {0} to {1}'],
+    ),
+    # Auto-injected by evolve.py [move-variant]
+    (
+        re.compile(r'^duplicate (\S+) to (\S+)$', re.IGNORECASE),
+        ['copy {0} to {1}'],
+    ),
+    # Auto-injected by evolve.py [verbose-count]
+    (
+        re.compile(r'^count how many lines are in (\S+)$', re.IGNORECASE),
+        ['count lines in {0}'],
+    ),
+    # Auto-injected by evolve.py [verbose-count]
+    (
+        re.compile(r'^tell me the word count of (\S+)$', re.IGNORECASE),
+        ['count words in {0}'],
+    ),
+    # Auto-injected by evolve.py [verbose-count]
+    (
+        re.compile(r'^what is the line count of (\S+)$', re.IGNORECASE),
+        ['count lines in {0}'],
+    ),
+    # Auto-injected by evolve.py [verbose-count]
+    (
+        re.compile(r'^what is the word count for (\S+)$', re.IGNORECASE),
+        ['count words in {0}'],
+    ),
+    # Auto-injected by evolve.py [verbose-create]
+    (
+        re.compile(r'^create a new file (\S+) with content "([^"]*)"$', re.IGNORECASE),
+        ['create file {0} with content "{1}"'],
+    ),
+    # Auto-injected by evolve.py [verbose-create]
+    (
+        re.compile(r'^make a file called (\S+) with content "([^"]*)"$', re.IGNORECASE),
+        ['create file {0} with content "{1}"'],
+    ),
 # --- End of compound rules (evolve.py injection point) ---
 ]
 # ---------------------------------------------------------------------------

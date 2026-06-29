@@ -1,0 +1,99 @@
+Removed 0 auto-injected rules.
+Baseline: EvalSummary(0/20 = 0.0% | clear-variant: 0/1, concat-variant: 0/1, conversational-read: 0/6, delete-variant: 0/2, head-variant: 0/2, move-variant: 0/2, verbose-count: 0/4, verbose-create: 0/2)
+
+--- Cycle 0 ---
+Target: clear-variant (0%)
+Developer: 1 proposals
+Result: 1/1 kept
+Eval: 0.0% -> 5.0%
+  KEPT: ^empty the file (\S+)$ -> 0.0% to 5.0%
+
+--- Cycle 1 ---
+Target: concat-variant (0%)
+Developer: 1 proposals
+Result: 1/1 kept
+Eval: 5.0% -> 10.0%
+  KEPT: ^concatenate (\S+) and (\S+) into (\S+)$ -> 5.0% to 10.0%
+
+--- Cycle 2 ---
+Target: conversational-read (0%)
+Developer: 6 proposals
+Result: 6/6 kept
+Eval: 10.0% -> 40.0%
+  KEPT: ^show me (\S+)$ -> 10.0% to 15.0%
+  KEPT: ^display (\S+)$ -> 15.0% to 20.0%
+  KEPT: ^cat (\S+)$ -> 20.0% to 25.0%
+  KEPT: ^view (\S+)$ -> 25.0% to 30.0%
+  KEPT: ^how many lines in (\S+)$ -> 30.0% to 35.0%
+  KEPT: ^how many words in (\S+)$ -> 35.0% to 40.0%
+
+--- Cycle 3 ---
+Target: delete-variant (0%)
+Developer: 2 proposals
+Result: 2/2 kept
+Eval: 40.0% -> 50.0%
+  KEPT: ^erase (\S+) confirm$ -> 40.0% to 45.0%
+  KEPT: ^remove (\S+) confirm$ -> 45.0% to 50.0%
+
+--- Cycle 4 ---
+Target: head-variant (0%)
+Developer: 2 proposals
+Result: 2/2 kept
+Eval: 50.0% -> 60.0%
+  KEPT: ^get the first (\d+) lines of (\S+)$ -> 50.0% to 55.0%
+  KEPT: ^show first (\d+) of (\S+)$ -> 55.0% to 60.0%
+
+--- Cycle 5 ---
+Target: move-variant (0%)
+Developer: 2 proposals
+Result: 2/2 kept
+Eval: 60.0% -> 70.0%
+  KEPT: ^move file (\S+) to (\S+)$ -> 60.0% to 65.0%
+  KEPT: ^duplicate (\S+) to (\S+)$ -> 65.0% to 70.0%
+
+--- Cycle 6 ---
+Target: verbose-count (0%)
+Developer: 4 proposals
+Result: 4/4 kept
+Eval: 70.0% -> 90.0%
+  KEPT: ^count how many lines are in (\S+)$ -> 70.0% to 75.0%
+  KEPT: ^tell me the word count of (\S+)$ -> 75.0% to 80.0%
+  KEPT: ^what is the line count of (\S+)$ -> 80.0% to 85.0%
+  KEPT: ^what is the word count for (\S+)$ -> 85.0% to 90.0%
+
+--- Cycle 7 ---
+Target: verbose-create (0%)
+Developer: 2 proposals
+Result: 2/2 kept
+Eval: 90.0% -> 100.0%
+  KEPT: ^create a new file (\S+) with content "([^"]*)"$ -> 90.0% to 95.0%
+  KEPT: ^make a file called (\S+) with content "([^"]*)"$ -> 95.0% to 100.0%
+All 20 eval challenges passing!
+
+=== Final: EvalSummary(20/20 = 100.0% | clear-variant: 1/1, concat-variant: 1/1, conversational-read: 6/6, delete-variant: 2/2, head-variant: 2/2, move-variant: 2/2, verbose-count: 4/4, verbose-create: 2/2) ===
+
+8 cycles completed.
+20 rules kept.
+---
+20
+EvalSummary(20/20 = 100.0% | clear-variant: 1/1, concat-variant: 1/1, conversational-read: 6/6, delete-variant: 2/2, head-variant: 2/2, move-variant: 2/2, verbose-count: 4/4, verbose-create: 2/2)
+  [OK] E01 [conversational-read] expected='hello world' actual='hello world'
+  [OK] E02 [conversational-read] expected='data here' actual='data here'
+  [OK] E03 [conversational-read] expected='3' actual='3'
+  [OK] E04 [conversational-read] expected='3' actual='3'
+  [OK] E05 [verbose-create] expected='hello' actual='hello'
+  [OK] E06 [verbose-create] expected='test' actual='test'
+  [OK] E07 [delete-variant] expected='(empty)' actual='(empty)'
+  [OK] E08 [delete-variant] expected='(empty)' actual='(empty)'
+  [OK] E09 [move-variant] expected='moved' actual='moved'
+  [OK] E10 [move-variant] expected='copy' actual='copy'
+  [OK] E11 [verbose-count] expected='2' actual='2'
+  [OK] E12 [verbose-count] expected='4' actual='4'
+  [OK] E13 [verbose-count] expected='4' actual='4'
+  [OK] E14 [head-variant] expected='a b c' actual='a b c'
+  [OK] E15 [head-variant] expected='x y z' actual='x y z'
+  [OK] E16 [concat-variant] expected='aaa bbb' actual='aaa bbb'
+  [OK] E17 [clear-variant] expected='0' actual='0'
+  [OK] E18 [conversational-read] expected='feline' actual='feline'
+  [OK] E19 [conversational-read] expected='visible' actual='visible'
+  [OK] E20 [verbose-count] expected='3' actual='3'
