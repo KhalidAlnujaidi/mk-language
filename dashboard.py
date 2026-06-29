@@ -200,6 +200,75 @@ def _first_line(sec: dict[str, object] | None) -> str:
     return text.splitlines()[0] if text else ""
 
 
+
+def _sql_findings_html() -> str:
+    """Render the MK↔SQL (context-computing) experiment results panel."""
+    return """
+<h2 style='color:#e0af68;border-color:#4a3a1e'>🔬 MK × SQL — Principle of Least Generation on WikiSQL</h2>
+<div style='background:#11141c;border:1px solid #2a2f3a;border-radius:10px;padding:14px 16px'>
+
+  <div style='display:flex;flex-wrap:wrap;gap:10px;margin:0 0 10px'>
+    <span class='pill' style='border:1px solid #9ece6a'>80,654 queries</span>
+    <span class='pill' style='border:1px solid #7dcfff'>488 templates</span>
+    <span class='pill' style='border:1px solid #bb9af7'>0 generated tokens (assembly)</span>
+    <span class='pill' style='border:1px solid #e0af68'>code: mk_sql.py · mk_sql_cgate.py</span>
+  </div>
+
+  <!-- Stage 1 -->
+  <div style='background:#0d1119;border:1px solid #2e3b2e;border-radius:8px;padding:10px 12px;margin:8px 0'>
+    <div style='color:#9ece6a;font-weight:bold'>✅ Stage 1 — Template Mining (structure is retrievable)</div>
+    <div style='margin:4px 0'>80,654 queries collapse to <b>488 distinct structural templates</b> (agg × condition-ops).</div>
+    <div><b>1 template covers 53.1%</b> · 9 cover 80% · 28 cover 90% · 62 cover 95% · 183 cover 99%</div>
+    <div style='color:#9ece6a;margin-top:4px'>Verdict: SQL shape is near-zero-entropy. Generation = routing over a handful of patterns. PLG confirmed.</div>
+  </div>
+
+  <!-- Stage 2 -->
+  <div style='background:#0d1119;border:1px solid #3b3826;border-radius:8px;padding:10px 12px;margin:8px 0'>
+    <div style='color:#e0af68;font-weight:bold'>⚠️ Stage 2 — Zero-Gen Slot-Filler (grounding is the ceiling)</div>
+    <div style='margin:4px 0'>Naive deterministic filler (lexical matching): <b>42.5% exact-match</b> (always-answer).</div>
+    <div style='color:#e0af68;margin-top:4px'>Structure is free; value-grounding is the hard part: which column? which cell value?</div>
+  </div>
+
+  <!-- Stage 3 -->
+  <div style='background:#0d1119;border:1px solid #3b3826;border-radius:8px;padding:10px 12px;margin:8px 0'>
+    <div style='color:#e0af68;font-weight:bold'>⚠️ Stage 3 — The Gate (confidence sweep)</div>
+    <div style='margin:4px 0'>Route top-confidence X% at 0 tokens; escalate the rest:</div>
+    <table style='border-collapse:collapse;margin:6px 0;font-size:13px'>
+      <tr style='color:#7dcfff'><th style='padding:2px 12px;text-align:left'>coverage</th><th style='padding:2px 12px'>precision @ 0 tokens</th></tr>
+      <tr><td style='padding:2px 12px'>10%</td><td style='padding:2px 12px;color:#e0af68'>67.2%</td></tr>
+      <tr style='background:#16201a'><td style='padding:2px 12px'>25%</td><td style='padding:2px 12px;color:#9ece6a'><b>72.1% (peak)</b></td></tr>
+      <tr><td style='padding:2px 12px'>50%</td><td style='padding:2px 12px;color:#e0af68'>61.2%</td></tr>
+      <tr><td style='padding:2px 12px'>100%</td><td style='padding:2px 12px;color:#f7768e'>42.4%</td></tr>
+    </table>
+    <div style='color:#e0af68;margin-top:4px'>Gate idea is sound (72% vs 42% baseline) — but lexical features are a weak predictor. Clean PLG gate (80% @ ≥95%) not reachable with token overlap.</div>
+  </div>
+
+  <!-- Stage 4 -->
+  <div style='background:#0d1119;border:1px solid #3b2626;border-radius:8px;padding:10px 12px;margin:8px 0'>
+    <div style='color:#f7768e;font-weight:bold'>❌ Stage 4 — c_gate Substitution (MK ↔ context-computing) — NEGATIVE</div>
+    <div style='margin:4px 0'>Hypothesis: replace lexical SELECT-column choice with embedding similarity (Ollama nomic-embed-text).</div>
+    <table style='border-collapse:collapse;margin:6px 0;font-size:13px'>
+      <tr style='color:#7dcfff'><th style='padding:2px 12px;text-align:left'>variant</th><th style='padding:2px 12px'>exact-match</th><th style='padding:2px 12px'>vs lexical</th></tr>
+      <tr style='background:#16201a'><td style='padding:2px 12px'>lexical (baseline)</td><td style='padding:2px 12px;color:#9ece6a'>41.3%</td><td style='padding:2px 12px'>—</td></tr>
+      <tr><td style='padding:2px 12px'>c_gate, whole question</td><td style='padding:2px 12px;color:#f7768e'>25.3%</td><td style='padding:2px 12px;color:#f7768e'><b>−16.0</b></td></tr>
+      <tr><td style='padding:2px 12px'>c_gate, residual</td><td style='padding:2px 12px;color:#f7768e'>26.7%</td><td style='padding:2px 12px;color:#f7768e'><b>−14.7</b></td></tr>
+      <tr><td style='padding:2px 12px'>hybrid (lexical + c_gate fallback)</td><td style='padding:2px 12px;color:#e0af68'>34.7%</td><td style='padding:2px 12px;color:#f7768e'><b>−6.7</b></td></tr>
+    </table>
+    <div style='color:#f7768e;margin-top:4px'>Off-the-shelf dense cosine is worse than lexical. WikiSQL questions echo column names literally — generic embeddings add noise. The real c_gate needs schema-aware reps or the learned low-rank operator.</div>
+  </div>
+
+  <!-- Conclusion -->
+  <div style='background:#0d1119;border:1px solid #2e4a5a;border-radius:8px;padding:10px 12px;margin:8px 0'>
+    <div style='color:#7dcfff;font-weight:bold;margin-bottom:4px'>📋 Where the bits actually are</div>
+    <div style='margin:2px 0'><b style='color:#9ece6a'>Structure:</b> retrievable (Stage 1). The skeleton needs no generation.</div>
+    <div style='margin:2px 0'><b style='color:#e0af68'>Grounding:</b> semantic (Stage 2/3). Column/value identification is a similarity problem.</div>
+    <div style='margin:2px 0'><b style='color:#f7768e'>Naive embeddings:</b> do NOT beat lexical (Stage 4). Need schema-aware reps or learned low-rank operator.</div>
+  </div>
+
+</div>
+"""
+
+
 def render() -> str:
     state = {}
     try:
@@ -484,6 +553,7 @@ def render() -> str:
         parts.append("<p><small>ballots (blind): "
                      + _esc(ballots) + "</small></p>")
 
+    parts.append(_sql_findings_html())
     parts.append("<h2>Live spec</h2><pre>" + _esc(spec) + "</pre>")
     parts.append("<h2>Raw reasoning (dump tail)</h2><pre>" + _esc(dump_tail) + "</pre>")
     parts.append("<p><small>auto-refresh 6s · read-only · does not touch the run</small></p>")
