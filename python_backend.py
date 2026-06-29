@@ -409,18 +409,43 @@ def _compile_node(node: ASGNode, indent: str) -> str:
 
         case WriteFile(name=name, content=content):
             name_r = repr(name)
-            content_r = repr(content)
-            return ind(
-                f"with open({name_r}, 'w') as _f:\n"
-                f"    _f.write({content_r})"
-            )
+            import re as _re_w
+            _has_vars = bool(_re_w.search(r'\{(\w+)\}', content))
+            if _has_vars:
+                # Build content as: literal parts + _vars.get() calls concatenated
+                parts = []
+                last_end = 0
+                for m in _re_w.finditer(r'\{(\w+)\}', content):
+                    if m.start() > last_end:
+                        parts.append(repr(content[last_end:m.start()]))
+                    parts.append(f"_vars.get('{m.group(1)}', '')")
+                    last_end = m.end()
+                if last_end < len(content):
+                    parts.append(repr(content[last_end:]))
+                expr = " + ".join(parts) if parts else repr(content)
+                return ind(
+                    f"with open({name_r}, 'w') as _f:\n"
+                    f"    _f.write({expr})"
+                )
+            else:
+                content_r = repr(content)
+                return ind(
+                    f"with open({name_r}, 'w') as _f:\n"
+                    f"    _f.write({content_r})"
+                )
 
         case ArithmeticExpr(expr=expr):
-            expr_r = repr(expr)
+            # Substitute {var} references with Python dict lookups
+            import re as _re
+            def _py_sub(m):
+                return f"int(_vars.get('{m.group(1)}', '0') or '0')"
+            expr_sub = _re.sub(r'\{(\w+)\}', _py_sub, expr)
+            expr_r = repr(expr_sub)
             return ind(
                 f"import ast as _ast\n"
                 f"_tree = _ast.parse({expr_r}, mode='eval')\n"
-                f"sys.stdout.write(str(eval(compile(_tree, '<expr>', 'eval'))))"
+                f"_result = eval(compile(_tree, '<expr>', 'eval'))\n"
+                f"sys.stdout.write(str(int(_result)))"
             )
 
         case FileExists(name=name):

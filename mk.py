@@ -106,6 +106,24 @@ Compound shortcuts (deterministic — no model needed):
   backup A and B               batch backup two files
   inspect A and B              inspect two files
 
+Iteration patterns (apply to every matching file):
+  backup all *.EXT             copy each to backup_<name>
+  count lines in all *.EXT     count lines per file
+  count words in all *.EXT     count words per file
+  read all *.EXT               read each file
+  inspect all *.EXT            read + count lines + words per file
+  sort all *.EXT               sort lines in each file
+  uppercase all *.EXT          uppercase each file
+  lowercase all *.EXT          lowercase each file
+  dedupe all *.EXT             unique lines in each file
+  head all *.EXT               first 10 lines of each file
+  sum numbers in all *.EXT     sum numbers per file
+  delete all *.EXT             delete each (with confirm)
+  reverse all *.EXT            reverse lines in each file
+  grep "PAT" in all *.EXT      extract matching lines per file
+  replace "X" with "Y" in all *.EXT   find & replace in each
+  append "TEXT" to all *.EXT   append text to each file
+
 Conjunctions (auto-split):
   X then Y                     → step X, then step Y
   X and then Y                 → same
@@ -162,7 +180,7 @@ def run_request(planner: Planner, request: str,
     """Plan and optionally execute a request. Returns output string."""
     plan = planner.plan(request)
 
-    if not plan.steps:
+    if not plan.steps and not plan.extra_nodes:
         if not quiet:
             print("  (empty plan — nothing to do)")
         return ""
@@ -171,12 +189,25 @@ def run_request(planner: Planner, request: str,
     if plan.notes:
         source_tag += f" ({plan.notes})"
 
+    # Iteration plans have steps=[] but extra_nodes with ForEachFile nodes
+    total_steps = len(plan.steps) + len(plan.extra_nodes)
     if show_plan or not quiet:
-        print(f"  [{source_tag}] → {len(plan.steps)} step"
-              f"{'s' if len(plan.steps) != 1 else ''}")
+        print(f"  [{source_tag}] → {total_steps} step"
+              f"{'s' if total_steps != 1 else ''}")
         if show_plan:
-            for i, step in enumerate(plan.steps, 1):
-                print(f"    {i}. {step}")
+            idx = 1
+            for step in plan.steps:
+                print(f"    {idx}. {step}")
+                idx += 1
+            for node in plan.extra_nodes:
+                if hasattr(node, 'glob_pattern'):
+                    body_desc = ', '.join(
+                        type(n).__name__ for n in node.body_template
+                    ) if hasattr(node, 'body_template') else '...'
+                    print(f"    {idx}. FOR each file in {node.glob_pattern}: {body_desc}")
+                else:
+                    print(f"    {idx}. {type(node).__name__}")
+                idx += 1
 
     nodes = plan.to_nodes()
 

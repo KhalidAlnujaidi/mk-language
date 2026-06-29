@@ -1,0 +1,191 @@
+{
+  "_meta": {
+    "description": "Held-out evaluation set for governed self-enhancement (Experiment 4).",
+    "purpose": "These NL challenges are NOT in the training triples and NOT covered by existing planner rules. They define 'more capable' as a fitness function: the loop's score is how many of these it can handle correctly end-to-end.",
+    "immutable": true,
+    "warning": "The developer role must NEVER modify this file. The verifier reads it from outside the sandbox. Tampering = immediate cycle rejection + halt.",
+    "schema": "Each challenge has: setup (precondition program), intent (what user types), verify (program to check result), expected_output (what verify should output)"
+  },
+  "challenges": [
+    {
+      "id": "E01",
+      "category": "conversational-read",
+      "intent": "show me alpha.txt",
+      "setup": "create file alpha.txt with content \"hello world\"",
+      "verify": "read file alpha.txt",
+      "expected_output": "hello world",
+      "description": "Conversational synonym for 'read file X'"
+    },
+    {
+      "id": "E02",
+      "category": "conversational-read",
+      "intent": "display alpha.txt",
+      "setup": "create file alpha.txt with content \"data here\"",
+      "verify": "read file alpha.txt",
+      "expected_output": "data here",
+      "description": "Conversational synonym for 'read file X'"
+    },
+    {
+      "id": "E03",
+      "category": "conversational-read",
+      "intent": "how many lines in alpha.txt",
+      "setup": "create file alpha.txt with content \"a\"\nappend \"b\" to alpha.txt\nappend \"c\" to alpha.txt",
+      "verify": "",
+      "expected_output": "3",
+      "description": "Question-form line count"
+    },
+    {
+      "id": "E04",
+      "category": "conversational-read",
+      "intent": "how many words in alpha.txt",
+      "setup": "create file alpha.txt with content \"one two three\"",
+      "verify": "",
+      "expected_output": "3",
+      "description": "Question-form word count"
+    },
+    {
+      "id": "E05",
+      "category": "verbose-create",
+      "intent": "create a new file alpha.txt with content \"hello\"",
+      "setup": "",
+      "verify": "read file alpha.txt",
+      "expected_output": "hello",
+      "description": "Verbose create phrasing with 'a new'"
+    },
+    {
+      "id": "E06",
+      "category": "verbose-create",
+      "intent": "make a file called alpha.txt with content \"test\"",
+      "setup": "",
+      "verify": "read file alpha.txt",
+      "expected_output": "test",
+      "description": "Verbose create with 'a file called'"
+    },
+    {
+      "id": "E07",
+      "category": "delete-variant",
+      "intent": "erase alpha.txt confirm",
+      "setup": "create file alpha.txt with content \"x\"",
+      "verify": "list files",
+      "expected_output": "(empty)",
+      "description": "Delete synonym 'erase'"
+    },
+    {
+      "id": "E08",
+      "category": "delete-variant",
+      "intent": "remove alpha.txt confirm",
+      "setup": "create file alpha.txt with content \"x\"",
+      "verify": "list files",
+      "expected_output": "(empty)",
+      "description": "Delete synonym 'remove'"
+    },
+    {
+      "id": "E09",
+      "category": "move-variant",
+      "intent": "move file alpha.txt to beta.txt",
+      "setup": "create file alpha.txt with content \"moved\"",
+      "verify": "read file beta.txt",
+      "expected_output": "moved",
+      "description": "Move with extra word 'file'"
+    },
+    {
+      "id": "E10",
+      "category": "move-variant",
+      "intent": "duplicate alpha.txt to beta.txt",
+      "setup": "create file alpha.txt with content \"copy\"",
+      "verify": "read file beta.txt",
+      "expected_output": "copy",
+      "description": "Duplicate = copy with 'to'"
+    },
+    {
+      "id": "E11",
+      "category": "verbose-count",
+      "intent": "count how many lines are in alpha.txt",
+      "setup": "create file alpha.txt with content \"x\"\nappend \"y\" to alpha.txt",
+      "verify": "",
+      "expected_output": "2",
+      "description": "Verbose question-form line count"
+    },
+    {
+      "id": "E12",
+      "category": "verbose-count",
+      "intent": "tell me the word count of alpha.txt",
+      "setup": "create file alpha.txt with content \"a b c d\"",
+      "verify": "",
+      "expected_output": "4",
+      "description": "Verbose question-form word count"
+    },
+    {
+      "id": "E13",
+      "category": "verbose-count",
+      "intent": "what is the line count of alpha.txt",
+      "setup": "create file alpha.txt with content \"1\"\nappend \"2\" to alpha.txt\nappend \"3\" to alpha.txt\nappend \"4\" to alpha.txt",
+      "verify": "",
+      "expected_output": "4",
+      "description": "Verbose question-form line count variant"
+    },
+    {
+      "id": "E14",
+      "category": "head-variant",
+      "intent": "get the first 3 lines of alpha.txt",
+      "setup": "create file alpha.txt with content \"a\"\nappend \"b\" to alpha.txt\nappend \"c\" to alpha.txt\nappend \"d\" to alpha.txt",
+      "verify": "",
+      "expected_output": "a b c",
+      "description": "Verbose head with 'get the first N lines of'"
+    },
+    {
+      "id": "E15",
+      "category": "head-variant",
+      "intent": "show first 3 of alpha.txt",
+      "setup": "create file alpha.txt with content \"x\"\nappend \"y\" to alpha.txt\nappend \"z\" to alpha.txt\nappend \"w\" to alpha.txt",
+      "verify": "",
+      "expected_output": "x y z",
+      "description": "Head with missing word 'lines'"
+    },
+    {
+      "id": "E16",
+      "category": "concat-variant",
+      "intent": "concatenate alpha.txt and beta.txt into gamma.txt",
+      "setup": "create file alpha.txt with content \"aaa\"\ncreate file beta.txt with content \"bbb\"",
+      "verify": "read file gamma.txt",
+      "expected_output": "aaa bbb",
+      "description": "Full word 'concatenate' instead of 'concat'"
+    },
+    {
+      "id": "E17",
+      "category": "clear-variant",
+      "intent": "empty the file alpha.txt",
+      "setup": "create file alpha.txt with content \"data\"\nappend \"more\" to alpha.txt",
+      "verify": "count lines in alpha.txt",
+      "expected_output": "0",
+      "description": "Clear file contents. Empty file has 0 lines."
+    },
+    {
+      "id": "E18",
+      "category": "conversational-read",
+      "intent": "cat alpha.txt",
+      "setup": "create file alpha.txt with content \"feline\"",
+      "verify": "",
+      "expected_output": "feline",
+      "description": "Unix synonym 'cat' for read"
+    },
+    {
+      "id": "E19",
+      "category": "conversational-read",
+      "intent": "view alpha.txt",
+      "setup": "create file alpha.txt with content \"visible\"",
+      "verify": "",
+      "expected_output": "visible",
+      "description": "Conversational synonym 'view' for read"
+    },
+    {
+      "id": "E20",
+      "category": "verbose-count",
+      "intent": "what is the word count for alpha.txt",
+      "setup": "create file alpha.txt with content \"hello world foo\"",
+      "verify": "",
+      "expected_output": "3",
+      "description": "Question-form word count with 'for'"
+    }
+  ]
+}

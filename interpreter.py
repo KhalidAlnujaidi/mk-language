@@ -349,10 +349,31 @@ def _substitute_placeholder(node: ASGNode, placeholder: str, filename: str) -> A
             return TailLines(name=name.replace(ph, filename), count=count)
 
         case FilterLines(name=name, pattern=pattern):
-            return FilterLines(name=name.replace(ph, filename), pattern=pattern)
+            return FilterLines(name=name.replace(ph, filename), pattern=pattern.replace(ph, filename))
+
+        case SetVar(var_name=var_name, source_node=source_node):
+            # Recursively substitute in the inner source_node
+            return SetVar(var_name=var_name.replace(ph, filename),
+                          source_node=_substitute_placeholder(source_node, ph, filename))
+
+        case WriteFile(name=name, content=content):
+            return WriteFile(name=name.replace(ph, filename),
+                             content=content.replace(ph, filename))
+
+        case ArithmeticExpr(expr=expr):
+            return ArithmeticExpr(expr=expr.replace(ph, filename))
+
+        case FileExists(name=name):
+            return FileExists(name=name.replace(ph, filename))
+
+        case IfVar(var_name=var_name, op=op, threshold=threshold,
+                   then_branch=then_branch, else_branch=else_branch):
+            sub_then = [_substitute_placeholder(n, ph, filename) for n in then_branch]
+            sub_else = [_substitute_placeholder(n, ph, filename) for n in else_branch]
+            return IfVar(var_name=var_name, op=op, threshold=threshold,
+                         then_branch=sub_then, else_branch=sub_else)
 
         case _:
-            return node
             return node
 
 
@@ -610,10 +631,20 @@ def _execute_node(node: ASGNode, emit, state: _ExecState) -> None:
         case ForEachFile(glob_pattern=glob_pattern,
                          body_template=body_template,
                          placeholder=placeholder):
-            """Iterate over files matching the glob, executing body for each."""
+            """Iterate over files matching the glob, executing body for each.
+            Excludes files that are targets of append/write in the body
+            (prevents self-referential iteration on output files)."""
+            # Collect target filenames from body AppendFile/WriteFile nodes
+            _skip = set()
+            for tmpl in body_template:
+                if hasattr(tmpl, 'name') and hasattr(tmpl, 'text'):
+                    _skip.add(tmpl.name)
+                if hasattr(tmpl, 'name') and hasattr(tmpl, 'content'):
+                    _skip.add(tmpl.name)
             files = sorted(
                 f for f in os.listdir('.')
                 if os.path.isfile(f) and fnmatch.fnmatch(f, glob_pattern)
+                and f not in _skip
             )
             for fname in files:
                 for tmpl in body_template:

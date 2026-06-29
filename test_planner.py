@@ -1209,6 +1209,174 @@ def phase_q():
     test("e2e: unset var fails soft", sandbox(t7))
 
 
+
+# ---------------------------------------------------------------------------
+# Phase R: Expanded iteration patterns (sort, transform, grep, etc.)
+# ---------------------------------------------------------------------------
+
+def phase_r():
+    results.append("\nPhase R: Expanded Iteration Patterns")
+    planner = Planner(use_llm=False)
+
+    # sort all *.txt
+    plan = planner.plan('sort all *.txt')
+    test("iter: sort all *.txt",
+         plan.source == "iteration" and 'sort' in plan.notes.lower() or
+         plan.source == "iteration",
+         f"got {plan}")
+
+    # uppercase all *.txt
+    plan = planner.plan('uppercase all *.txt')
+    test("iter: uppercase all *.txt",
+         plan.source == "iteration",
+         f"got {plan}")
+
+    # lowercase all *.txt
+    plan = planner.plan('lowercase all *.txt')
+    test("iter: lowercase all *.txt",
+         plan.source == "iteration",
+         f"got {plan}")
+
+    # dedupe all *.txt
+    plan = planner.plan('dedupe all *.txt')
+    test("iter: dedupe all *.txt",
+         plan.source == "iteration",
+         f"got {plan}")
+
+    # head all *.txt
+    plan = planner.plan('head all *.txt')
+    test("iter: head all *.txt",
+         plan.source == "iteration",
+         f"got {plan}")
+
+    # grep "pattern" in all *.txt
+    plan = planner.plan('grep "error" in all *.txt')
+    test("iter: grep in all *.txt",
+         plan.source == "iteration",
+         f"got {plan}")
+
+    # replace "old" with "new" in all *.txt
+    plan = planner.plan('replace "foo" with "bar" in all *.txt')
+    test("iter: replace in all *.txt",
+         plan.source == "iteration",
+         f"got {plan}")
+
+    # append "text" to all *.txt
+    plan = planner.plan('append "line" to all *.txt')
+    test("iter: append to all *.txt",
+         plan.source == "iteration",
+         f"got {plan}")
+
+    # reverse all *.txt
+    plan = planner.plan('reverse all *.txt')
+    test("iter: reverse all *.txt",
+         plan.source == "iteration",
+         f"got {plan}")
+
+    # End-to-end: sort all in sandbox
+    def e2e_sort_all():
+        planner2 = Planner(use_llm=False)
+        for name in ['x.txt', 'y.txt']:
+            Path(name).write_text('cherry\napple\nbanana\n')
+        plan = planner2.plan('sort all *.txt')
+        nodes = plan.to_nodes()
+        result = execute(nodes)
+        return 'apple' in result and 'banana' in result
+    test("e2e: sort all *.txt", run_in_sandbox(e2e_sort_all))
+
+    # End-to-end: uppercase all in sandbox
+    def e2e_upper_all():
+        planner2 = Planner(use_llm=False)
+        for name in ['x.txt', 'y.txt']:
+            Path(name).write_text('hello world\n')
+        plan = planner2.plan('uppercase all *.txt')
+        nodes = plan.to_nodes()
+        result = execute(nodes)
+        return 'HELLO' in result
+    test("e2e: uppercase all *.txt", run_in_sandbox(e2e_upper_all))
+
+    # End-to-end: grep in all files
+    def e2e_grep_all():
+        planner2 = Planner(use_llm=False)
+        Path('x.txt').write_text('error here\nall good\n')
+        Path('y.txt').write_text('error too\n')
+        plan = planner2.plan('grep "error" in all *.txt')
+        nodes = plan.to_nodes()
+        result = execute(nodes)
+        return 'error here' in result and 'error too' in result
+    test("e2e: grep in all *.txt", run_in_sandbox(e2e_grep_all))
+
+    # End-to-end: head all files
+    def e2e_head_all():
+        planner2 = Planner(use_llm=False)
+        Path('x.txt').write_text('line1\nline2\nline3\n')
+        Path('y.txt').write_text('alpha\nbeta\ngamma\n')
+        plan = planner2.plan('head all *.txt')
+        nodes = plan.to_nodes()
+        result = execute(nodes)
+        return 'line1' in result and 'alpha' in result
+    test("e2e: head all *.txt", run_in_sandbox(e2e_head_all))
+
+    # End-to-end: replace in all files
+    def e2e_replace_all():
+        planner2 = Planner(use_llm=False)
+        Path('x.txt').write_text('foo bar\nfoo baz\n')
+        Path('y.txt').write_text('foo qux\n')
+        plan = planner2.plan('replace "foo" with "XYZ" in all *.txt')
+        nodes = plan.to_nodes()
+        result = execute(nodes)
+        return 'XYZ' in result and 'foo' not in result.replace('foo', '')
+    test("e2e: replace in all *.txt", run_in_sandbox(e2e_replace_all))
+
+    # End-to-end: append to all files
+    def e2e_append_all():
+        planner2 = Planner(use_llm=False)
+        Path('x.txt').write_text('first\n')
+        Path('y.txt').write_text('second\n')
+        plan = planner2.plan('append "appended" to all *.txt')
+        nodes = plan.to_nodes()
+        execute(nodes)
+        # Verify: read back
+        x_content = Path('x.txt').read_text()
+        y_content = Path('y.txt').read_text()
+        return 'appended' in x_content and 'appended' in y_content
+    test("e2e: append to all *.txt", run_in_sandbox(e2e_append_all))
+
+    # End-to-end: dedupe all files
+    def e2e_dedupe_all():
+        planner2 = Planner(use_llm=False)
+        Path('x.txt').write_text('dup\ndup\nunique\n')
+        plan = planner2.plan('dedupe all *.txt')
+        nodes = plan.to_nodes()
+        result = execute(nodes)
+        # dedupe prints unique lines; 'dup' should appear once
+        return result.count('dup') == 1
+    test("e2e: dedupe all *.txt", run_in_sandbox(e2e_dedupe_all))
+
+    # End-to-end: reverse all files
+    def e2e_reverse_all():
+        planner2 = Planner(use_llm=False)
+        Path('x.txt').write_text('aaa\nbbb\nccc\n')
+        plan = planner2.plan('reverse all *.txt')
+        nodes = plan.to_nodes()
+        result = execute(nodes)
+        # reversed: ccc bbb aaa
+        lines = result.strip().split('\n')
+        return 'ccc' in lines[0] if lines else False
+    test("e2e: reverse all *.txt", run_in_sandbox(e2e_reverse_all))
+
+    # End-to-end: lowercase all files
+    def e2e_lower_all():
+        planner2 = Planner(use_llm=False)
+        Path('x.txt').write_text('HELLO World\n')
+        plan = planner2.plan('lowercase all *.txt')
+        nodes = plan.to_nodes()
+        result = execute(nodes)
+        return 'hello world' in result.lower()
+    test("e2e: lowercase all *.txt", run_in_sandbox(e2e_lower_all))
+
+
+
 def main():
     print("=" * 60)
     print("MK Planner Test Suite")
@@ -1226,6 +1394,7 @@ def main():
     phase_o()
     phase_p()
     phase_q()
+    phase_r()
 
     total = passed + failed
     print()

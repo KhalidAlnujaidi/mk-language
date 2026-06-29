@@ -382,7 +382,6 @@ def _compile_node(node: ASGNode) -> str:
                 f"  ELSE ''\n"
                 f"END AS _output;"
             )
-
         case FilterLines(name=name, pattern=pattern):
             tbl = _table_name(name)
             raw = _raw_name(name)
@@ -394,7 +393,6 @@ def _compile_node(node: ASGNode) -> str:
                 f"  ELSE ''\n"
                 f"END AS _output;"
             )
-
         case IfVar(var_name=var_name, op=op, threshold=threshold,
                    then_branch=then_branch, else_branch=else_branch):
             return (
@@ -427,6 +425,49 @@ def _compile_node(node: ASGNode) -> str:
                 f"SELECT CASE WHEN EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='{raw}')\n"
                 f"  THEN 'yes' ELSE 'no' END AS _output;"
             )
+
+        case WriteFile(name=name, content=content):
+            import re as _re_w
+            # Substitute {var} references with values from _vars
+            def _sql_sub_w(m):
+                return _vars.get(m.group(1), '')
+            content_sub = _re_w.sub(r'\{(\w+)\}', _sql_sub_w, content)
+            tbl = _table_name(name)
+            cursor.execute(f'DROP TABLE IF EXISTS {tbl}')
+            cursor.execute(f'CREATE TABLE {tbl} (line TEXT)')
+            for line in content_sub.split('\n'):
+                cursor.execute(f'INSERT INTO {tbl} (line) VALUES (?)', (line,))
+            conn.commit()
+            return None
+
+        case ArithmeticExpr(expr=expr):
+            import ast as _ast
+            import re as _re
+            # Substitute {var} references with values from _vars
+            def _sql_sub(m):
+                return _vars.get(m.group(1), '0')
+            expr_sub = _re.sub(r'\{(\w+)\}', _sql_sub, expr)
+            _ops_map = {_ast.Add: lambda a, b: a + b, _ast.Sub: lambda a, b: a - b,
+                    _ast.Mult: lambda a, b: a * b, _ast.FloorDiv: lambda a, b: a // b,
+                    _ast.Div: lambda a, b: a // b, _ast.Mod: lambda a, b: a % b,
+                    _ast.USub: lambda a: -a, _ast.UAdd: lambda a: +a,
+                    _ast.Pow: lambda a, b: a ** b}
+            def _ev(n):
+                if isinstance(n, _ast.Expression):
+                    return _ev(n.body)
+                if isinstance(n, _ast.Constant) and isinstance(n.value, (int, float)):
+                    return int(n.value)
+                if isinstance(n, _ast.BinOp) and type(n.op) in _ops_map:
+                    return _ops_map[type(n.op)](_ev(n.left), _ev(n.right))
+                if isinstance(n, _ast.UnaryOp) and type(n.op) in _ops_map:
+                    return _ops_map[type(n.op)](_ev(n.operand))
+                raise ValueError(f"Disallowed expression node: {type(n).__name__} in '{expr_sub}'")
+            tree = _ast.parse(expr_sub.strip(), mode='eval')
+            return str(_ev(tree))
+
+        case FileExists(name=name):
+            raw = _raw_name(name)
+            return 'yes' if table_exists(raw) else 'no'
 
         case _:
             return f"-- Unknown node type: {type(node).__name__}"
@@ -478,21 +519,14 @@ def _compile_node(node: ASGNode) -> str:
 # ---------------------------------------------------------------------------
 
 def execute_sql(nodes: list[ASGNode]) -> str:
-    """Compile ASG nodes to SQL, execute against in-memory SQLite, return stdout.
-
-    This is the SQL backend's execution engine. It handles the semantic gaps
-    between SQL and the file-oriented ASG nodes (e.g., SumNumbers needs
-    Python-side integer extraction since SQLite lacks regex capture).
-
-    Output matches the interpreter's observable stdout: the last meaningful
-    output from a Terminal/Read operation.
-    """
+    """Compile ASG nodes to SQL, execute against in-memory SQLite, return stdout."""
     conn = sqlite3.connect(':memory:')
     cursor = conn.cursor()
+    _vars: dict[str, str] = {}
     output_parts = []
 
     for node in nodes:
-        result = _execute_node(cursor, node, conn)
+        result = _execute_node(cursor, node, conn, _vars)
         if result is not None:
             output_parts.append(result)
 
@@ -500,8 +534,11 @@ def execute_sql(nodes: list[ASGNode]) -> str:
     return ' '.join(output_parts) if output_parts else ''
 
 
-def _execute_node(cursor: sqlite3.Cursor, node: ASGNode, conn: sqlite3.Connection) -> str | None:
+def _execute_node(cursor: sqlite3.Cursor, node: ASGNode, conn: sqlite3.Connection,
+                   _vars: dict[str, str] | None = None) -> str | None:
     """Execute a single ASG node against the SQLite database. Returns stdout or None."""
+    if _vars is None:
+        _vars = {}
 
     def table_exists(raw: str) -> bool:
         cursor.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (raw,))
@@ -658,14 +695,14 @@ def _execute_node(cursor: sqlite3.Cursor, node: ASGNode, conn: sqlite3.Connectio
             if table_exists(raw):
                 results = []
                 for n in then_branch:
-                    r = _execute_node(cursor, n, conn)
+                    r = _execute_node(cursor, n, conn, _vars)
                     if r is not None:
                         results.append(r)
                 return ' '.join(results) if results else None
             else:
                 results = []
                 for n in else_branch:
-                    r = _execute_node(cursor, n, conn)
+                    r = _execute_node(cursor, n, conn, _vars)
                     if r is not None:
                         results.append(r)
                 return ' '.join(results) if results else None
@@ -693,7 +730,7 @@ def _execute_node(cursor: sqlite3.Cursor, node: ASGNode, conn: sqlite3.Connectio
                 for tmpl in body_template:
                     # Substitute placeholder in the template node
                     substituted = _substitute_node(tmpl, placeholder, fname)
-                    r = _execute_node(cursor, substituted, conn)
+                    r = _execute_node(cursor, substituted, conn, _vars)
                     if r is not None:
                         results.append(r)
             return ' '.join(results) if results else None
@@ -744,59 +781,89 @@ def _execute_node(cursor: sqlite3.Cursor, node: ASGNode, conn: sqlite3.Connectio
         case TailLines(name=name, count=count):
             tbl = _table_name(name)
             raw = _raw_name(name)
-            # Get last N lines: use a subquery with ORDER BY rowid DESC LIMIT N, then reverse
-            return (
-                f"-- TailLines: {name} (last {count})\n"
-                f"SELECT CASE WHEN EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='{raw}')\n"
-                f"  THEN (SELECT group_concat(line, ' ') FROM\n"
-                f"    (SELECT line FROM {tbl} ORDER BY rowid DESC LIMIT {count} ORDER BY rowid ASC))\n"
-                f"  ELSE ''\n"
-                f"END AS _output;"
-            )
+            if not table_exists(raw):
+                return ''
+            cursor.execute(f'SELECT line FROM {tbl} ORDER BY rowid DESC LIMIT ?', (count,))
+            rows = list(cursor.fetchall())
+            rows.reverse()
+            return ' '.join(r[0] for r in rows if r[0])
 
         case FilterLines(name=name, pattern=pattern):
             tbl = _table_name(name)
             raw = _raw_name(name)
-            esc_pat = _sql_escape(pattern)
-            return (
-                f"-- FilterLines: {name} (exclude '{pattern}')\n"
-                f"SELECT CASE WHEN EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='{raw}')\n"
-                f"  THEN (SELECT group_concat(line, ' ') FROM (SELECT line FROM {tbl} WHERE line NOT LIKE '%{esc_pat}%'))\n"
-                f"  ELSE ''\n"
-                f"END AS _output;"
-            )
+            if not table_exists(raw):
+                return ''
+            cursor.execute(f'SELECT line FROM {tbl} WHERE line NOT LIKE ?', (f'%{pattern}%',))
+            rows = cursor.fetchall()
+            return ' '.join(r[0] for r in rows if r[0])
 
         case IfVar(var_name=var_name, op=op, threshold=threshold,
                    then_branch=then_branch, else_branch=else_branch):
-            # SQL: use temp variable table + CASE for branching
-            # This is best handled at executor level; compile emits a comment
-            return (
-                f"-- IfVar: {var_name} {op} {threshold}\n"
-                f"-- (Branching handled by SQL executor at runtime)"
-            )
+            val = int(_vars.get(var_name, '0') or '0')
+            _ops = {'>': val > threshold, '<': val < threshold,
+                    '>=': val >= threshold, '<=': val <= threshold,
+                    '==': val == threshold, '!=': val != threshold}
+            branch = then_branch if _ops.get(op, False) else else_branch
+            results = []
+            for n in branch:
+                r = _execute_node(cursor, n, conn, _vars)
+                if r is not None:
+                    results.append(r)
+            return ' '.join(results) if results else None
 
         # --- v03.2: Variable binding ---
 
         case SetVar(var_name=var_name, source_node=source_node):
-            # SQL variables: compile source node into a temp table, then
-            # store the result in a _mk_vars table for later retrieval.
-            var_tbl = f"_mk_var_{var_name}"
-            source_sql = _compile_node(source_node)
-            return (
-                f"-- SetVar: {var_name}\n"
-                f"CREATE TEMP TABLE IF NOT EXISTS {var_tbl} (val TEXT);\n"
-                f"DELETE FROM {var_tbl};\n"
-                f"INSERT INTO {var_tbl} (val) SELECT _output FROM (\n"
-                f"{source_sql}\n"
-                f");"
-            )
+            # Execute the source node and capture its output into _vars
+            result = _execute_node(cursor, source_node, conn, _vars)
+            _vars[var_name] = (result or '').strip()
+            return None
 
         case PrintVar(var_name=var_name):
-            var_tbl = f"_mk_var_{var_name}"
-            return (
-                f"-- PrintVar: {var_name}\n"
-                f"SELECT COALESCE((SELECT val FROM {var_tbl} LIMIT 1), '') AS _output;"
-            )
+            return _vars.get(var_name, '')
+
+        case WriteFile(name=name, content=content):
+            import re as _re_w
+            # Substitute {var} references with values from _vars
+            def _sql_sub_w(m):
+                return _vars.get(m.group(1), '')
+            content_sub = _re_w.sub(r'\{(\w+)\}', _sql_sub_w, content)
+            tbl = _table_name(name)
+            cursor.execute(f'DROP TABLE IF EXISTS {tbl}')
+            cursor.execute(f'CREATE TABLE {tbl} (line TEXT)')
+            for line in content_sub.split('\n'):
+                cursor.execute(f'INSERT INTO {tbl} (line) VALUES (?)', (line,))
+            conn.commit()
+            return None
+
+        case ArithmeticExpr(expr=expr):
+            import ast as _ast
+            import re as _re
+            # Substitute {var} references with values from _vars
+            def _sql_sub(m):
+                return _vars.get(m.group(1), '0')
+            expr_sub = _re.sub(r'\{(\w+)\}', _sql_sub, expr)
+            _ops_map = {_ast.Add: lambda a, b: a + b, _ast.Sub: lambda a, b: a - b,
+                    _ast.Mult: lambda a, b: a * b, _ast.FloorDiv: lambda a, b: a // b,
+                    _ast.Div: lambda a, b: a // b, _ast.Mod: lambda a, b: a % b,
+                    _ast.USub: lambda a: -a, _ast.UAdd: lambda a: +a,
+                    _ast.Pow: lambda a, b: a ** b}
+            def _ev(n):
+                if isinstance(n, _ast.Expression):
+                    return _ev(n.body)
+                if isinstance(n, _ast.Constant) and isinstance(n.value, (int, float)):
+                    return int(n.value)
+                if isinstance(n, _ast.BinOp) and type(n.op) in _ops_map:
+                    return _ops_map[type(n.op)](_ev(n.left), _ev(n.right))
+                if isinstance(n, _ast.UnaryOp) and type(n.op) in _ops_map:
+                    return _ops_map[type(n.op)](_ev(n.operand))
+                raise ValueError(f"Disallowed expression node: {type(n).__name__} in '{expr_sub}'")
+            tree = _ast.parse(expr_sub.strip(), mode='eval')
+            return str(_ev(tree))
+
+        case FileExists(name=name):
+            raw = _raw_name(name)
+            return 'yes' if table_exists(raw) else 'no'
 
         case _:
             return f"-- Unknown node type: {type(node).__name__}"

@@ -403,11 +403,26 @@ def _compile_node(node: ASGNode) -> str:
 
         case WriteFile(name=name, content=content):
             qname = shlex.quote(name)
-            qcontent = shlex.quote(content)
-            return f'printf %s {qcontent} > {qname}'
+            # Substitute {var} references with shell variable expansions
+            import re as _re_w
+            _has_vars = bool(_re_w.search(r'\{(\w+)\}', content))
+            def _sh_sub_w(m):
+                return f"${{_mk_var_{m.group(1)}:-}}"
+            content_sub = _re_w.sub(r'\{(\w+)\}', _sh_sub_w, content)
+            if _has_vars:
+                # Content has variable refs: use double-quote expansion (no shlex.quote)
+                return f'printf "%s" "{content_sub}" > {qname}'
+            else:
+                qcontent = shlex.quote(content)
+                return f'printf %s {qcontent} > {qname}'
 
         case ArithmeticExpr(expr=expr):
-            return f'printf "%s" $(( {expr} ))'
+            # Substitute {var} references with shell variable expansions
+            import re as _re
+            def _sh_sub(m):
+                return f"${{_mk_var_{m.group(1)}:-0}}"
+            expr_sub = _re.sub(r'\{(\w+)\}', _sh_sub, expr)
+            return f'printf "%s" $(( {expr_sub} ))'
 
         case FileExists(name=name):
             qname = shlex.quote(name)

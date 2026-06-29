@@ -331,8 +331,76 @@ _COMPOUND_RULES: list[tuple[re.Pattern, list[str]]] = [
         re.compile(r'^sum of (\d+) and (\d+)$', re.IGNORECASE),
         ['compute {0} + {1}'],
     ),
-]
 
+    # --- Pipeline patterns (capture output → reuse in next step) ---
+    # "count lines in X and save to Y" → capture count, write to file
+    (
+        re.compile(r'^count lines in (\S+) and save to (\S+)$', re.IGNORECASE),
+        ['set _pipe = count lines in {0}', 'write "{{_pipe}}" to {1}'],
+    ),
+    # "count words in X and save to Y" → capture words, write to file
+    (
+        re.compile(r'^count words in (\S+) and save to (\S+)$', re.IGNORECASE),
+        ['set _pipe = count words in {0}', 'write "{{_pipe}}" to {1}'],
+    ),
+    # "sum numbers in X and save to Y" → capture sum, write to file
+    (
+        re.compile(r'^sum numbers in (\S+) and save to (\S+)$', re.IGNORECASE),
+        ['set _pipe = sum numbers in {0}', 'write "{{_pipe}}" to {1}'],
+    ),
+    # "read X and save to Y" → capture content, write to file
+    (
+        re.compile(r'^read (\S+) and save to (\S+)$', re.IGNORECASE),
+        ['set _pipe = read file {0}', 'write "{{_pipe}}" to {1}'],
+    ),
+    # "extract PATTERN from X and save to Y" → capture matches, write to file
+    (
+        re.compile(r'^extract "([^"]*)" from (\S+) and save to (\S+)$', re.IGNORECASE),
+        ['set _pipe = extract lines matching "{0}" from {1}', 'write "{{_pipe}}" to {2}'],
+    ),
+    # "count lines in X then multiply by N" → capture, compute
+    (
+        re.compile(r'^count lines in (\S+) then multiply by (\d+)$', re.IGNORECASE),
+        ['set _n = count lines in {0}', 'compute {{_n}} * {1}'],
+    ),
+    # "sum numbers in X then multiply by N" → capture, compute
+    (
+        re.compile(r'^sum numbers in (\S+) then multiply by (\d+)$', re.IGNORECASE),
+        ['set _total = sum numbers in {0}', 'compute {{_total}} * {1}'],
+    ),
+    # "count lines in X then add N" → capture, compute
+    (
+        re.compile(r'^count lines in (\S+) then add (\d+)$', re.IGNORECASE),
+        ['set _n = count lines in {0}', 'compute {{_n}} + {1}'],
+    ),
+    # "count lines in X and write result to Y" → capture, create
+    (
+        re.compile(r'^count lines in (\S+) and write result to (\S+)$', re.IGNORECASE),
+        ['set _n = count lines in {0}', 'write "{{_n}}" to {1}'],
+    ),
+    # "concat X and Y into Z" → read both, write combined
+    (
+        re.compile(r'^concat (\S+) and (\S+) into (\S+)$', re.IGNORECASE),
+        ['set _a = read file {0}', 'set _b = read file {1}', 'write "{{_a}} {{_b}}" to {2}'],
+    ),
+    # "merge X and Y into Z" → alias for concat
+    (
+        re.compile(r'^merge (\S+) and (\S+) into (\S+)$', re.IGNORECASE),
+        ['set _a = read file {0}', 'set _b = read file {1}', 'write "{{_a}} {{_b}}" to {2}'],
+    ),
+    # "sort X and save to Y" → capture sorted, write
+    (
+        re.compile(r'^sort (\S+) and save to (\S+)$', re.IGNORECASE),
+        ['set _pipe = sort lines in {0}', 'write "{{_pipe}}" to {1}'],
+    ),
+    # "unique X and save to Y" → capture deduped, write
+    (
+        re.compile(r'^unique (\S+) and save to (\S+)$', re.IGNORECASE),
+        ['set _pipe = unique lines in {0}', 'write "{{_pipe}}" to {1}'],
+    ),
+
+# --- End of compound rules (evolve.py injection point) ---
+]
 # ---------------------------------------------------------------------------
 # Variable binding rules — produce SetVar/PrintVar via NL lines
 # ---------------------------------------------------------------------------
@@ -445,6 +513,162 @@ _ITERATION_RULES: list[tuple[re.Pattern, str, list[str], str]] = [
         ['sum numbers in {{file}}'],
         '{file}',
     ),
+    # "sort all *.txt files" → sort lines in each
+    (
+        re.compile(r'^sort all (\*\.\w+)$', re.IGNORECASE),
+        '{0}',
+        ['sort lines in {{file}}'],
+        '{file}',
+    ),
+    # "uppercase all *.txt files" → transform each to uppercase
+    (
+        re.compile(r'^uppercase all (\*\.\w+)$', re.IGNORECASE),
+        '{0}',
+        ['uppercase {{file}}'],
+        '{file}',
+    ),
+    # "lowercase all *.txt files" → transform each to lowercase
+    (
+        re.compile(r'^lowercase all (\*\.\w+)$', re.IGNORECASE),
+        '{0}',
+        ['lowercase {{file}}'],
+        '{file}',
+    ),
+    # "dedupe all *.txt files" → unique lines in each
+    (
+        re.compile(r'^dedupe all (\*\.\w+)$', re.IGNORECASE),
+        '{0}',
+        ['unique lines in {{file}}'],
+        '{file}',
+    ),
+    # "head all *.txt files" → show first 10 lines of each
+    (
+        re.compile(r'^head all (\*\.\w+)$', re.IGNORECASE),
+        '{0}',
+        ['show first 10 lines of {{file}}'],
+        '{file}',
+    ),
+    # "grep PATTERN in all *.txt files" → extract matching lines from each
+    (
+        re.compile(r'^grep "([^"]*)" in all (\*\.\w+)$', re.IGNORECASE),
+        '{1}',
+        ['extract lines matching "{0}" from {{file}}'],
+        '{file}',
+    ),
+    # "replace OLD with NEW in all *.txt files" → replace text in each
+    (
+        re.compile(r'^replace "([^"]*)" with "([^"]*)" in all (\*\.\w+)$', re.IGNORECASE),
+        '{2}',
+        ['replace "{0}" with "{1}" in {{file}}'],
+        '{file}',
+    ),
+    # "append TEXT to all *.txt files" → append text to each
+    (
+        re.compile(r'^append "([^"]*)" to all (\*\.\w+)$', re.IGNORECASE),
+        '{1}',
+        ['append "{0}" to {{file}}'],
+        '{file}',
+    ),
+    # "reverse all *.txt files" → reverse lines in each
+    (
+        re.compile(r'^reverse all (\*\.\w+)$', re.IGNORECASE),
+        '{0}',
+        ['reverse lines in {{file}}'],
+        '{file}',
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# Iteration + Pipeline composition rules
+# These combine iteration (for each *.EXT) with pipeline capture (set var + write)
+# The body_template is a list of NL lines that will be parsed to ASG nodes.
+# {file} is replaced per-match; {{0}}, {{1}} etc. are regex group placeholders.
+# ---------------------------------------------------------------------------
+
+_ITERATION_PIPELINE_RULES: list[tuple[re.Pattern, str, list[str], str]] = [
+    # "for each *.EXT, count lines and append to SUMMARY"
+    (
+        re.compile(r'^for each (\*\.\w+), count lines and append to (\S+)$', re.IGNORECASE),
+        '{0}',
+        ['set _count = count lines in {file}', 'append "{_count}" to {1}'],
+        '{file}',
+    ),
+    # "for each *.EXT, count lines and save to SUMMARY"
+    # First file overwrites, subsequent append (or: overwrite each time = last one wins)
+    # Better: overwrite once, then append. But ForEachFile iterates the same body.
+    # So we use write (last file's count is the final content) OR append for accumulation.
+    # We choose append for accumulation since that's more useful.
+    (
+        re.compile(r'^for each (\*\.\w+), count lines and save to (\S+)$', re.IGNORECASE),
+        '{0}',
+        ['set _count = count lines in {file}', 'append "{_count}" to {1}'],
+        '{file}',
+    ),
+    # "for each *.EXT, count words and append to SUMMARY"
+    (
+        re.compile(r'^for each (\*\.\w+), count words and append to (\S+)$', re.IGNORECASE),
+        '{0}',
+        ['set _words = count words in {file}', 'append "{_words}" to {1}'],
+        '{file}',
+    ),
+    # "for each *.EXT, sum numbers and append to TOTAL"
+    (
+        re.compile(r'^for each (\*\.\w+), sum numbers and append to (\S+)$', re.IGNORECASE),
+        '{0}',
+        ['set _total = sum numbers in {file}', 'append "{_total}" to {1}'],
+        '{file}',
+    ),
+    # "count lines in all *.EXT and save to SUMMARY"
+    (
+        re.compile(r'^count lines in all (\*\.\w+) and save to (\S+)$', re.IGNORECASE),
+        '{0}',
+        ['set _count = count lines in {file}', 'append "{_count}" to {1}'],
+        '{file}',
+    ),
+    # "sum numbers in all *.EXT and save to TOTAL"
+    (
+        re.compile(r'^sum numbers in all (\*\.\w+) and save to (\S+)$', re.IGNORECASE),
+        '{0}',
+        ['set _total = sum numbers in {file}', 'append "{_total}" to {1}'],
+        '{file}',
+    ),
+    # "count words in all *.EXT and save to SUMMARY"
+    (
+        re.compile(r'^count words in all (\*\.\w+) and save to (\S+)$', re.IGNORECASE),
+        '{0}',
+        ['set _words = count words in {file}', 'append "{_words}" to {1}'],
+        '{file}',
+    ),
+    # "backup all *.EXT to DIR" → copy each file to DIR/<name>
+    (
+        re.compile(r'^backup all (\*\.\w+) to (\S+)$', re.IGNORECASE),
+        '{0}',
+        ['copy {file} to {1}/{file}'],
+        '{file}',
+    ),
+    # "copy all *.EXT to DEST"
+    (
+        re.compile(r'^copy all (\*\.\w+) to (\S+)$', re.IGNORECASE),
+        '{0}',
+        ['copy {file} to {1}/{file}'],
+        '{file}',
+    ),
+    # "for each *.EXT, extract PATTERN and save to OUT"
+    (
+        re.compile(r'^for each (\*\.\w+), extract "([^"]*)" and save to (\S+)$', re.IGNORECASE),
+        '{0}',
+        ['set _match = extract lines matching "{1}" from {file}', 'append "{_match}" to {2}'],
+        '{file}',
+    ),
+    # "count lines in all *.EXT and write total to TOTAL"
+    # (sum all line counts together — each file's count appended)
+    (
+        re.compile(r'^count lines in all (\*\.\w+) and write total to (\S+)$', re.IGNORECASE),
+        '{0}',
+        ['set _count = count lines in {file}', 'append "{_count}\n" to {1}'],
+        '{file}',
+    ),
 ]
 
 def _try_compound_rules(text: str) -> Optional[list[str]]:
@@ -464,27 +688,78 @@ def _try_compound_rules(text: str) -> Optional[list[str]]:
     return None
 
 
-def _try_iteration_rules(text: str) -> Optional[list[asg.ForEachFile]]:
-    """Try matching against iteration rules. Returns list of ForEachFile nodes or None."""
-    for pattern, glob_pat, body_templates, placeholder in _ITERATION_RULES:
+def _try_iteration_rules(text: str) -> Optional[tuple[list[asg.ForEachFile], list[str]]]:
+    """Try matching against iteration rules.
+
+    Returns (extra_nodes, pre_steps) or None.
+    pre_steps are lines to execute before iteration (e.g. initialize summary file).
+    """
+    def _safe_format(tpl, groups):
+        """Replace {0}, {1} positional args; leave template vars ({file}, {_count}) untouched.
+        Also unescapes {{word}} → {word} for already-escaped templates."""
+        import re as _re
+        def _repl(m):
+            idx = int(m.group(1))
+            return str(groups[idx]) if idx < len(groups) else m.group(0)
+        result = _re.sub(r'\{(\d+)\}', _repl, tpl)
+        result = result.replace('{{', '{').replace('}}', '}')
+        return result
+
+    def _has_target(groups, body_templates):
+        """If body templates reference a target file (group {1} or {2} in append/save),
+        generate a pre-step to initialize it."""
+        pre = []
+        for tpl in body_templates:
+            # Check if template appends/saves to a target file
+            import re as _re
+            m = _re.search(r'(?:append|save|write).*to \{(\d+)\}', tpl)
+            if m:
+                target_idx = int(m.group(1))
+                if target_idx < len(groups):
+                    target = groups[target_idx]
+                    pre.append(f'write "" to {target}')
+                    break  # one pre-step is enough
+        return pre
+
+    # Check iteration+pipeline composition rules first (more specific)
+    for pattern, glob_pat, body_templates, placeholder in _ITERATION_PIPELINE_RULES:
         m = pattern.match(text.strip())
         if m:
             groups = m.groups()
-            glob_str = glob_pat.format(*groups)
-            # Parse body template lines into ASG nodes (replacing {file} later)
-            body_lines = [tpl.replace('{{file}}', placeholder) for tpl in body_templates]
+            glob_str = _safe_format(glob_pat, groups)
+            body_lines = [_safe_format(tpl, groups) for tpl in body_templates]
+            pre_steps = _has_target(groups, body_templates)
             body_nodes = []
             for line in body_lines:
                 node = asg.parse_line(line)
                 if node is not None:
                     body_nodes.append(node)
             if body_nodes:
-                return [asg.ForEachFile(
+                return ([asg.ForEachFile(
                     glob_pattern=glob_str,
                     body_template=tuple(body_nodes),
                     placeholder=placeholder,
-                )]
+                )], pre_steps)
+    # Then check pure iteration rules
+    for pattern, glob_pat, body_templates, placeholder in _ITERATION_RULES:
+        m = pattern.match(text.strip())
+        if m:
+            groups = m.groups()
+            glob_str = _safe_format(glob_pat, groups)
+            body_lines = [_safe_format(tpl, groups) for tpl in body_templates]
+            body_nodes = []
+            for line in body_lines:
+                node = asg.parse_line(line)
+                if node is not None:
+                    body_nodes.append(node)
+            if body_nodes:
+                return ([asg.ForEachFile(
+                    glob_pattern=glob_str,
+                    body_template=tuple(body_nodes),
+                    placeholder=placeholder,
+                )], [])
     return None
+
 def _validate_steps(steps: list[str]) -> list[str]:
     """Filter out steps that don't parse to valid ASG nodes."""
     valid = []
@@ -618,10 +893,11 @@ class Planner:
             return Plan(request=request, steps=[], source="empty")
 
         # Pass 0: Try iteration rules first (highest priority — these are special nodes)
-        iter_nodes = _try_iteration_rules(request)
-        if iter_nodes:
+        iter_result = _try_iteration_rules(request)
+        if iter_result:
+            iter_nodes, pre_steps = iter_result
             return Plan(
-                request=request, steps=[], source="iteration",
+                request=request, steps=pre_steps, source="iteration",
                 notes=f"foreach {iter_nodes[0].glob_pattern}",
                 extra_nodes=iter_nodes,
             )
@@ -646,7 +922,6 @@ class Planner:
                     all_steps.append(part)  # passthrough — parser may reject
             steps = all_steps if not self.validate else _validate_steps(all_steps)
             if steps:
-                return Plan(request=request, steps=steps, source="deterministic")
                 return Plan(request=request, steps=steps, source="deterministic")
 
         # Pass 3: Check if the original line already parses
