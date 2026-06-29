@@ -192,12 +192,33 @@ def chat_run(
         )
         return 0  # back to hub
 
+    if not system_prompt:
+        kinox_root = Path(__file__).resolve().parents[2]
+        system_prompt = _session_preamble(kinox_root, cwd)
+
+    system_prompt += (
+        "\n\n### RESIDUAL MEMORY MODE\n"
+        "This session uses constant memory. You must end your final response to every turn "
+        "with a strict `<residual_state>` block summarizing what you did, what the current "
+        "state of the project is, and what you think the user might want to do next. "
+        "This summary will be fed back to you as your only memory of the past conversation."
+    )
+
     session = ChatSession(
         manifest=manifest,
         sink=sink,
         cwd=cwd,
-        system_prompt=system_prompt or ChatSession.system_prompt,
+        system_prompt=system_prompt,
     )
+
+    residual_file = cwd / ".kinox_residual"
+    if residual_file.is_file():
+        try:
+            saved_state = residual_file.read_text(encoding="utf-8")
+            if saved_state.strip():
+                session.history.append({"role": "assistant", "content": saved_state})
+        except Exception:
+            pass
 
     _welcome(session)
     try:
@@ -477,6 +498,10 @@ def _handle_command(raw: str, session: ChatSession, console: object) -> bool:
             _process_turn(arg.strip(), session, console)
         return True
 
+    if cmd == "resume":
+        _cmd_resume(arg.strip(), session, console)
+        return True
+
     console.print(f"[dim]unknown command: /{cmd} — try /help[/dim]")
     return True
 
@@ -708,7 +733,36 @@ def _session_preamble(kinox_root: Path, scope: Path) -> str:
         return ""
 
 
-def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
+def _cmd_resume(arg: str, session: ChatSession, console: object) -> None:
+    """Resume a stopped agent session from disk."""
+    from products.agent.session import SessionStore
+    store = SessionStore(session.cwd / ".kinox" / "sessions")
+    
+    target_id = arg.strip()
+    if not target_id:
+        paths = sorted(store.directory.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if not paths:
+            console.print("[dim]no sessions found to resume[/dim]")
+            return
+        target_id = paths[0].stem
+    
+    state = store.load(target_id)
+    if not state:
+        console.print(f"[bold red]error:[/bold red] session {target_id} not found or corrupted")
+        return
+        
+    console.print(f"[dim]resuming session {target_id}...[/dim]")
+    _run_agent_turn("", session, console, resume_from=state, resume_id=target_id)
+
+
+def _run_agent_turn(
+    task: str,
+    session: ChatSession,
+    console: object,
+    *,
+    resume_from: object | None = None,
+    resume_id: str | None = None,
+) -> None:
     """Run one tool-calling agent task and render its step trace + answer.
 
     This is the **default** turn for a ``kx`` session: the full toolset — read +
@@ -721,6 +775,7 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
     import asyncio
     import time
     import uuid
+    import queue
     from collections import deque
     from concurrent.futures import ThreadPoolExecutor
 
@@ -733,7 +788,20 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
     from products.agent.rails import protected_rails_guard
     from products.capabilities.registry import CapabilityRegistry
 
+    from products.agent.budget import TokenBudget
+    from products.agent.config import load_ruleset, load_token_budget, load_tool_config
+
+    global_path = Path("~/.kinox/config.toml").expanduser()
     kinox_root = Path(__file__).resolve().parents[2]
+    project_path = kinox_root / "kinox.toml"
+    global_text = global_path.read_text() if global_path.is_file() else None
+    project_text = project_path.read_text() if project_path.is_file() else None
+    profile = os.environ.get("KINOX_PROFILE")
+
+    config_budget = load_token_budget(global_text, project_text, profile=profile)
+    ruleset = load_ruleset(global_text, project_text, profile=profile)
+    tool_config = load_tool_config(global_text, project_text, profile=profile)
+
     # The FULL harvested corpus: skills + commands + agent playbooks + MCP
     # descriptors — all discoverable via find_skill/load_skill.
     skills = CapabilityRegistry.from_claude_dir(kinox_root / ".claude")
@@ -742,6 +810,8 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
     # tools (fail-soft). Gated by KINOX_MCP (default on) because the first turn
     # pays the server cold-start; set KINOX_MCP=0 to skip. Cached after start.
     mcp_on = os.environ.get("KINOX_MCP", "1").lower() not in ("0", "off", "false", "no")
+    if not tool_config.allow_mcp:
+        mcp_on = False
     mcp_config = kinox_root / ".claude" / "mcp-servers.json" if mcp_on else None
     if mcp_config is not None and str(mcp_config) not in _mcp_started:
         console.print("[dim]connecting MCP servers (set KINOX_MCP=0 to skip)…[/dim]")
@@ -749,8 +819,8 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
     registry = default_registry(
         session.cwd,
         skills=skills,
-        allow_bash=True,
-        allow_write=True,
+        allow_bash=tool_config.allow_bash,
+        allow_write=tool_config.allow_write,
         mcp_config=mcp_config,
     )
     # kinox's agent brain is cloud-first (``glm-5.2``); the first local model is
@@ -762,7 +832,10 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
         if models
         else None
     )
-    tier = brain_tier(fallback=local_tier)
+    from daemon.brain import brain_chain
+    chain = brain_chain(fallback=local_tier)
+    tier = chain[0] if chain else None
+    fallback_tiers = chain[1:] if len(chain) > 1 else None
     if tier is None:
         console.print(
             "[dim]no model available (set ZAI_API_KEY or run a local model)[/dim]"
@@ -797,18 +870,22 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
     # — unset/invalid → unlimited, so the default operator shell is unchanged. The
     # cumulative tally lives on the session and is carried into each run via
     # spent_offset; a spent budget ends the turn fail-soft (stopped="budget").
-    from products.agent.budget import TokenBudget
-
     _raw_budget = os.environ.get("KINOX_SESSION_TOKEN_BUDGET", "").strip()
-    session_budget = (
-        TokenBudget(limit=int(_raw_budget))
-        if _raw_budget.isdigit() and int(_raw_budget) > 0
-        else None
-    )
+    if _raw_budget.isdigit() and int(_raw_budget) > 0:
+        session_budget: TokenBudget | None = TokenBudget(limit=int(_raw_budget))
+    else:
+        session_budget = config_budget
+
+    ask_q: queue.Queue[tuple[str, str]] = queue.Queue()
+    reply_q: queue.Queue[bool] = queue.Queue()
+
+    def ask_command(tool: str, cmd_str: str) -> bool:
+        ask_q.put((tool, cmd_str))
+        return reply_q.get()
 
     def work() -> object:
         async def _go() -> object:
-            base_id = uuid.uuid4().hex[:12]
+            base_id = resume_id or uuid.uuid4().hex[:12]
             # Cheap local prehook: draft a plan to curb wander before the dear
             # brain runs. Fail-soft — None (planner off/unavailable) runs unguided.
             plan = await plan_task(
@@ -817,7 +894,7 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
                 task_id=f"{base_id}-plan",
                 root=session.cwd,
             )
-            return await run_agent(
+            result = await run_agent(
                 task,
                 tier=tier,
                 registry=registry,
@@ -835,18 +912,22 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
                         deny_write_subpaths=("projects",)
                         if _is_framework_scope(kinox_root, session.cwd)
                         else (),
+                        ruleset=ruleset,
+                        ask_fn=ask_command,
                     ),
                     # Hard truth #1: the agent may not overwrite kinox's own rails
                     # (alignment/, next.md) — fail-CLOSED, KINOX_UNLOCK_RAILS to edit.
                     protected_rails_guard(session.cwd),
                 ),
-                fallback=local_tier,
+                fallback=fallback_tiers,
                 max_turns=int(os.environ.get("KINOX_MAX_TURNS", "30")),
                 token_budget=session_budget,
                 spent_offset=session.tokens_spent,
                 on_step=steps_q.append,
                 on_token=tokens_q.append if stream_on else None,
+                resume_from=resume_from,
             )
+            return result, base_id
 
         return asyncio.run(_go())
 
@@ -857,18 +938,31 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
         start = time.monotonic()
         with console.status("[dim]agent working…[/dim]", spinner="dots") as status:
             while True:
+                try:
+                    tool, cmd_str = ask_q.get_nowait()
+                    status.stop()
+                    from rich.prompt import Confirm
+                    allow = Confirm.ask(f"\n[bold yellow]Agent wants to run (ASK level):[/bold yellow] [cyan]{cmd_str}[/cyan]\nAllow?")
+                    reply_q.put(allow)
+                    status.start()
+                except queue.Empty:
+                    pass
+
                 # Drain steps emitted since the last tick, above the live status.
                 while steps_q:
                     step = steps_q.popleft()
                     if step.kind == "tool":
                         tools_done += 1
-                        console.print(
-                            _format_tool_step(step.name, step.detail, verbose)
-                        )
+                        if verbose:
+                            console.print(
+                                _format_tool_step(step.name, step.detail, verbose)
+                            )
+                        else:
+                            status.update(f"[dim]agent working… (tool calls: {tools_done})[/dim]")
                     elif step.kind == "blocked":
                         console.print(
-                            f"  [red]⛔ {step.name} blocked:[/red] "
-                            f"[dim]{step.detail}[/dim]"
+                            f"  [red]⛔ {_esc(step.name)} blocked:[/red] "
+                            f"[dim]{_esc(step.detail)}[/dim]"
                         )
                     # "final" is the summary — rendered in the panel below.
                 # Drain answer tokens → a live tail so the answer is seen forming.
@@ -878,17 +972,18 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
                 if answer_buf:
                     flat = _strip_reasoning("".join(answer_buf)).replace("\n", " ")
                     if flat:
-                        tail = f" · [white]…{flat[-60:]}[/white]"
+                        tail = f" · [white]…{_esc(flat[-60:])}[/white]"
                 status.update(
                     f"[dim]agent working · {tools_done} tool"
                     f"{'' if tools_done == 1 else 's'} · "
                     f"{time.monotonic() - start:.1f}s{tail}[/dim]"
                 )
                 if future.done() and not steps_q and not tokens_q:
+                    console.bell()
                     break
                 time.sleep(0.1)
         try:
-            result = future.result()
+            result, base_id = future.result()
         except Exception as exc:  # noqa: BLE001 — surface, never crash the TUI
             console.print(f"[bold red]agent error:[/bold red] {exc}")
             return
@@ -899,10 +994,22 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
     # scratch — mirroring ChatSession.send, and trim to the same pair cap.
     final_text = getattr(result, "final_text", "")
     if final_text:
-        session.history.append({"role": "user", "content": task})
-        session.history.append({"role": "assistant", "content": final_text})
-        while len(session.history) > _MAX_HISTORY_PAIRS * 2:
-            session.history.pop(0)  # drop oldest pair
+        if session.residual_mode and "<residual_state>" in final_text:
+            residual_start = final_text.find("<residual_state>")
+            residual_end = final_text.find("</residual_state>")
+            if residual_start != -1:
+                state_text = final_text[residual_start:residual_end + 17] if residual_end != -1 else final_text[residual_start:]
+                session.history.clear()
+                session.history.append({"role": "assistant", "content": state_text})
+                try:
+                    (session.cwd / ".kinox_residual").write_text(state_text, encoding="utf-8")
+                except Exception:
+                    pass
+        else:
+            session.history.append({"role": "user", "content": task})
+            session.history.append({"role": "assistant", "content": final_text})
+            while len(session.history) > _MAX_HISTORY_PAIRS * 2:
+                session.history.pop(0)  # drop oldest pair
 
     # Carry this run's cumulative spend forward so the NEXT turn's budget continues
     # from here (the run already includes spent_offset in result.tokens_spent).
@@ -918,6 +1025,13 @@ def _run_agent_turn(task: str, session: ChatSession, console: object) -> None:
         budget_limit=session_budget.limit if session_budget else None,
     )
     console.print()
+
+    if getattr(result, "state", None):
+        from products.agent.session import SessionStore
+        store = SessionStore(session.cwd / ".kinox" / "sessions")
+        store.save(base_id, result.state)
+        if result.stopped in ("budget", "max_turns", "stuck", "error"):
+            console.print(f"[dim]Session paused ({result.stopped}). Use `/resume {base_id}` to continue.[/dim]")
 
 
 def _parse_slices(arg: str) -> list[tuple[str, tuple[str, ...]]] | None:
@@ -1003,7 +1117,10 @@ def _run_parallel_turn(
         if models
         else None
     )
-    tier = brain_tier(fallback=local_tier)
+    from daemon.brain import brain_chain
+    chain = brain_chain(fallback=local_tier)
+    tier = chain[0] if chain else None
+    fallback_tiers = chain[1:] if len(chain) > 1 else None
     if tier is None:
         console.print(
             "[dim]no model available (set ZAI_API_KEY or run a local model)[/dim]"
@@ -1044,7 +1161,7 @@ def _run_parallel_turn(
                 guard=guard,  # type: ignore[arg-type]
                 preamble=preamble,
                 plan=plan,
-                fallback=local_tier,
+                fallback=fallback_tiers,
                 max_turns=max_turns,
                 # Tag each step with its slice label so the interleaved trace is
                 # attributable (one trace, the axiom's no-two-ID-systems rule).
@@ -1067,11 +1184,11 @@ def _run_parallel_turn(
                     if step.kind == "tool":
                         tools_done += 1
                         line = _format_tool_step(step.name, step.detail, False)
-                        console.print(f"  [magenta]{label}[/magenta]{line}")
+                        console.print(f"  [magenta]{_esc(label)}[/magenta]{line}")
                     elif step.kind == "blocked":
                         console.print(
-                            f"  [magenta]{label}[/magenta]  [red]⛔ {step.name} "
-                            f"blocked:[/red] [dim]{step.detail}[/dim]"
+                            f"  [magenta]{_esc(label)}[/magenta]  [red]⛔ {_esc(step.name)} "
+                            f"blocked:[/red] [dim]{_esc(step.detail)}[/dim]"
                         )
                 status.update(
                     f"[dim]{len(slices)} agents · {tools_done} tools · "
@@ -1096,6 +1213,15 @@ def _run_parallel_turn(
 
 #: First arg key worth showing per call, in priority order.
 _ARG_KEYS = ("path", "file", "cmd", "command", "query", "pattern", "name", "url")
+
+
+def _esc(text: object) -> str:
+    """Escape dynamic text so Rich never reads embedded brackets (e.g. a
+    bracketed file path in a blocked-tool message, or model output) as markup
+    tags. Lazy import keeps kx cold-start discipline."""
+    from rich.markup import escape
+
+    return escape(str(text))
 
 
 def _format_tool_step(name: str, detail: str, verbose: bool) -> str:
@@ -1129,7 +1255,7 @@ def _format_tool_step(name: str, detail: str, verbose: bool) -> str:
                 arg = f"{k}={v}"
         if len(arg) > 64:
             arg = arg[:63] + "…"
-    return f"  {glyph} [{color}]{short}[/{color}] [dim]{arg}[/dim]"
+    return f"  {glyph} [{color}]{_esc(short)}[/{color}] [dim]{_esc(arg)}[/dim]"
 
 
 def _strip_reasoning(text: str) -> str:
@@ -1215,8 +1341,8 @@ def _render_trace_tree(view: object, console: object) -> None:
         tree = Tree(f"[bold]{theme.WORDMARK_COMPACT}[/bold]  [dim]{view.footer}[/dim]")
         for step in view.steps:
             color = theme.tool_color(step.name)
-            label = step.name or "answer"
-            detail = f"  [dim]{step.detail}[/dim]" if step.detail else ""
+            label = _esc(step.name or "answer")
+            detail = f"  [dim]{_esc(step.detail)}[/dim]" if step.detail else ""
             tree.add(
                 f"{_glyph(step.kind, step.name)} "
                 f"[{color}]{label}[/{color}]{detail}"
@@ -1224,7 +1350,7 @@ def _render_trace_tree(view: object, console: object) -> None:
         console.print(tree)
     except Exception:
         for step in view.steps:
-            console.print(f"  {_glyph(step.kind, step.name)} {step.name or 'answer'}")
+            console.print(f"  {_glyph(step.kind, step.name)} {_esc(step.name or 'answer')}")
 
 
 def _render_response(text: str, console: object) -> None:
