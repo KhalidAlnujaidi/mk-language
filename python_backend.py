@@ -22,6 +22,7 @@ from asg import (
     SetVar, PrintVar,
     ReplaceText, TransformCase, UniqueLines, ReverseLines,
     TailLines, FilterLines, IfVar,
+    WriteFile, ArithmeticExpr, FileExists,
 )
 
 
@@ -405,6 +406,28 @@ def _compile_node(node: ASGNode, indent: str) -> str:
                 code = code.replace(placeholder, "' + _mk_f + '")
                 lines.append(code)
             return '\n'.join(lines)
+
+        case WriteFile(name=name, content=content):
+            name_r = repr(name)
+            content_r = repr(content)
+            return ind(
+                f"with open({name_r}, 'w') as _f:\n"
+                f"    _f.write({content_r})"
+            )
+
+        case ArithmeticExpr(expr=expr):
+            expr_r = repr(expr)
+            return ind(
+                f"import ast as _ast\n"
+                f"_tree = _ast.parse({expr_r}, mode='eval')\n"
+                f"sys.stdout.write(str(eval(compile(_tree, '<expr>', 'eval'))))"
+            )
+
+        case FileExists(name=name):
+            name_r = repr(name)
+            return ind(
+                f"sys.stdout.write('yes' if os.path.exists({name_r}) else 'no')"
+            )
 
         case _:
             return ind("pass  # unknown node type")

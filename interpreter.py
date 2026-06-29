@@ -42,6 +42,7 @@ from asg import (
     SetVar, PrintVar,
     ReplaceText, TransformCase, UniqueLines, ReverseLines,
     TailLines, FilterLines, IfVar,
+    WriteFile, ArithmeticExpr, FileExists,
 )
 
 
@@ -53,6 +54,36 @@ class _ExecState:
     """Mutable state threaded through execution — holds variable bindings."""
     def __init__(self):
         self.variables: dict[str, str] = {}
+
+
+
+def _safe_eval(expr: str) -> int:
+    """Evaluate a safe arithmetic expression."""
+    import ast
+    import operator as op_module
+    _ops = {
+        ast.Add: op_module.add,
+        ast.Sub: op_module.sub,
+        ast.Mult: op_module.mul,
+        ast.FloorDiv: op_module.floordiv,
+        ast.Div: op_module.floordiv,
+        ast.Mod: op_module.mod,
+        ast.USub: op_module.neg,
+        ast.UAdd: op_module.pos,
+        ast.Pow: op_module.pow,
+    }
+    def _ev(node):
+        if isinstance(node, ast.Expression):
+            return _ev(node.body)
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return int(node.value)
+        if isinstance(node, ast.BinOp) and type(node.op) in _ops:
+            return _ops[type(node.op)](_ev(node.left), _ev(node.right))
+        if isinstance(node, ast.UnaryOp) and type(node.op) in _ops:
+            return _ops[type(node.op)](_ev(node.operand))
+        raise ValueError("Disallowed expression node")
+    tree = ast.parse(expr.strip(), mode='eval')
+    return _ev(tree)
 
 
 def execute(nodes: list[ASGNode], out=None) -> str:
@@ -115,9 +146,21 @@ def _substitute_variables(node: ASGNode, state: _ExecState) -> ASGNode:
             needed.update(found)
 
     # Check if any needed var is actually set
+    # Check if any needed var is actually set, OR if this is a SetVar
+    # (whose inner source_node may contain {var} refs that need substitution)
     relevant = needed & set(state.variables.keys())
-    if not relevant:
+    if not relevant and not isinstance(node, SetVar):
         return node
+    if not relevant and isinstance(node, SetVar):
+        # Check inner source_node for {var} refs
+        sn = node.source_node
+        inner_needed = set()
+        for fn in getattr(sn, '__dataclass_fields__', {}):
+            v = getattr(sn, fn, None)
+            if isinstance(v, str):
+                inner_needed.update(_VAR_PATTERN.findall(v))
+        if not (inner_needed & set(state.variables.keys())):
+            return node
 
     # Do the substitution on each string field
     def _sub_str(s: str) -> str:
@@ -180,6 +223,15 @@ def _substitute_in_node(node: ASGNode, sub_fn) -> ASGNode:
         case PrintVar(var_name=var_name):
             return node  # PrintVar is resolved at execution time, not substituted
 
+        case WriteFile(name=name, content=content):
+            return WriteFile(name=sub_fn(name), content=sub_fn(content))
+
+        case ArithmeticExpr(expr=expr):
+            return ArithmeticExpr(expr=sub_fn(expr))
+
+        case FileExists(name=name):
+            return FileExists(name=sub_fn(name))
+
 
         case ReplaceText(name=name, old=old, new=new):
             return ReplaceText(name=sub_fn(name), old=sub_fn(old), new=sub_fn(new))
@@ -198,9 +250,12 @@ def _substitute_in_node(node: ASGNode, sub_fn) -> ASGNode:
 
         case FilterLines(name=name, pattern=pattern):
             return FilterLines(name=sub_fn(name), pattern=sub_fn(pattern))
+        case SetVar(var_name=var_name, source_node=source_node):
+            return SetVar(var_name=var_name,
+                         source_node=_substitute_in_node(source_node, sub_fn))
 
         case _:
-            return node  # SetVar, Conditional, ForEachFile, GlobFiles, IfVar — handled elsewhere
+            return node  # Conditional, ForEachFile, GlobFiles, IfVar — handled elsewhere
 
 
 # ---------------------------------------------------------------------------
@@ -256,6 +311,7 @@ def _substitute_placeholder(node: ASGNode, placeholder: str, filename: str) -> A
 
         case DeleteFile(name=name, confirm=confirm):
             return DeleteFile(name=name.replace(ph, filename), confirm=confirm)
+
 
         case GlobFiles(pattern=pattern):
             return node  # no substitution needed
@@ -533,6 +589,16 @@ def _execute_node(node: ASGNode, emit, state: _ExecState) -> None:
                    '==': val == threshold, '!=': val != threshold}
             branch = then_branch if ops.get(op, False) else else_branch
             _execute_nodes(branch, emit, state)
+
+        case WriteFile(name=name, content=content):
+            with open(name, 'w') as f:
+                f.write(content)
+
+        case ArithmeticExpr(expr=expr):
+            _emit_result(emit, str(_safe_eval(expr)))
+
+        case FileExists(name=name):
+            _emit_result(emit, "yes" if os.path.exists(name) else "no")
 
         case GlobFiles(pattern=pattern):
             files = sorted(

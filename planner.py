@@ -80,7 +80,13 @@ uppercase placeholders):
   exclude lines matching "PATTERN" from NAME — print lines NOT containing pattern
   if $VAR op N then INTENT otherwise INTENT  — branch on variable comparison
     (op is one of: > < >= <= == !=)
-
+  write "TEXT" to NAME                         — overwrite/create file (no refusal)
+  overwrite NAME with "TEXT"                   — same as write
+  compute EXPR                                — arithmetic (+, -, *, /, %, **, ())
+  add $A and $B                               — shorthand for compute {A} + {B}
+  subtract $A from $B                         — shorthand for compute {B} - {A}
+  does NAME exist                             — same as exists
+  exists NAME                                 — print 'yes' or 'no'
 Variable substitution: any string field in later nodes can contain {VARNAME}
 which gets replaced with the captured value. Example:
   set N = count lines in data.txt
@@ -307,6 +313,23 @@ _COMPOUND_RULES: list[tuple[re.Pattern, list[str]]] = [
     (
         re.compile(r'^words in (\S+)$', re.IGNORECASE),
         ['count words in {0}'],
+    ),
+
+    # --- v03.5: Write/overwrite, compute, exists ---
+    # "overwrite NAME with TEXT" → write
+    (
+        re.compile(r'^overwrite (\S+) with content "([^"]*)"$', re.IGNORECASE),
+        ['write "{1}" to {0}'],
+    ),
+    # "calc EXPR" → compute
+    (
+        re.compile(r'^calc (.+)$', re.IGNORECASE),
+        ['compute {0}'],
+    ),
+    # "sum of A and B" → compute A + B  (numeric literals)
+    (
+        re.compile(r'^sum of (\d+) and (\d+)$', re.IGNORECASE),
+        ['compute {0} + {1}'],
     ),
 ]
 

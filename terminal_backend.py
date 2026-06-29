@@ -32,6 +32,7 @@ from asg import (
     SetVar, PrintVar,
     ReplaceText, TransformCase, UniqueLines, ReverseLines,
     TailLines, FilterLines, IfVar,
+    WriteFile, ArithmeticExpr, FileExists,
 )
 
 
@@ -399,6 +400,18 @@ def _compile_node(node: ASGNode) -> str:
                     lines.append(f'    {code_line}')
             lines.append('done')
             return '\n'.join(lines)
+
+        case WriteFile(name=name, content=content):
+            qname = shlex.quote(name)
+            qcontent = shlex.quote(content)
+            return f'printf %s {qcontent} > {qname}'
+
+        case ArithmeticExpr(expr=expr):
+            return f'printf "%s" $(( {expr} ))'
+
+        case FileExists(name=name):
+            qname = shlex.quote(name)
+            return f'if [ -f {qname} ]; then printf "%s" "yes"; else printf "%s" "no"; fi'
 
         case _:
             return '# unknown node type'

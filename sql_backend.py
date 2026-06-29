@@ -54,6 +54,7 @@ from asg import (
     SetVar, PrintVar,
     ReplaceText, TransformCase, UniqueLines, ReverseLines,
     TailLines, FilterLines, IfVar,
+    WriteFile, ArithmeticExpr, FileExists,
 )
 
 
@@ -399,6 +400,32 @@ def _compile_node(node: ASGNode) -> str:
             return (
                 f"-- IfVar: {var_name} {op} {threshold}\n"
                 f"-- (Branching handled by SQL executor at runtime)"
+            )
+
+        case WriteFile(name=name, content=content):
+            tbl = _table_name(name)
+            raw = _raw_name(name)
+            content_lines = content.split('\n')
+            values = ", ".join(f"('{_sql_escape(l)}')" for l in content_lines)
+            return (
+                f"-- WriteFile: {name} (overwrite)\n"
+                f"DROP TABLE IF EXISTS {tbl};\n"
+                f"CREATE TABLE {tbl} (line TEXT);\n"
+                f"INSERT INTO {tbl} (line) VALUES {values};"
+            )
+
+        case ArithmeticExpr(expr=expr):
+            return (
+                f"-- ArithmeticExpr: {expr}\n"
+                f"SELECT {expr} AS _output;"
+            )
+
+        case FileExists(name=name):
+            raw = _raw_name(name)
+            return (
+                f"-- FileExists: {name}\n"
+                f"SELECT CASE WHEN EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='{raw}')\n"
+                f"  THEN 'yes' ELSE 'no' END AS _output;"
             )
 
         case _:

@@ -277,6 +277,40 @@ class IfVar:
     threshold: int
     then_branch: list
     else_branch: list
+
+# --- v03.5: WriteFile, ArithmeticExpr, FileExists ---
+
+@dataclass(frozen=True)
+class WriteFile:
+    """Process — overwrite file with content (create or replace).
+
+    Unlike CreateFile (refuses if exists) and AppendFile (adds a line),
+    WriteFile unconditionally writes content to the file. This is the
+    'echo > file' operation.
+    """
+    name: str
+    content: str
+    node_type: str = "Process"
+
+
+@dataclass(frozen=True)
+class ArithmeticExpr:
+    """Terminal — evaluate a safe arithmetic expression and output the result.
+
+    The expression supports +, -, *, /, parentheses, integer literals,
+    and {var} references that are substituted before evaluation.
+    Division is integer division (matches shell arithmetic).
+    """
+    expr: str
+    node_type: str = "Terminal"
+
+
+@dataclass(frozen=True)
+class FileExists:
+    """Terminal — check if a file exists, output 'yes' or 'no'."""
+    name: str
+    node_type: str = "Terminal"
+
     node_type: str = "Decision"
 # Union type for type checking
 ASGNode = Union[
@@ -287,8 +321,8 @@ ASGNode = Union[
     SetVar, PrintVar,
     ReplaceText, TransformCase, UniqueLines, ReverseLines,
     TailLines, FilterLines, IfVar,
+    WriteFile, ArithmeticExpr, FileExists,
 ]
-
 
 # ---------------------------------------------------------------------------
 # Parser — NL text → list of ASG nodes
@@ -450,5 +484,34 @@ def parse_line(line: str) -> ASGNode | None:
         # Fallback: wrap in raw text nodes if needed
         return None
         return GlobFiles(pattern=m.group(1))
+
+    # --- v03.5: WriteFile, ArithmeticExpr, FileExists ---
+
+    # write "TEXT" to NAME  (overwrite/create)
+    if m := re.match(r'write "([^"]*)" to (\S+)', line):
+        return WriteFile(name=m.group(2), content=m.group(1))
+
+    # overwrite NAME with "TEXT"
+    if m := re.match(r'overwrite (\S+) with "([^"]*)"', line):
+        return WriteFile(name=m.group(1), content=m.group(2))
+
+    # compute EXPR  (arithmetic: numbers, +, -, *, /, (), {var})
+    if m := re.match(r'compute (.+)', line):
+        return ArithmeticExpr(expr=m.group(1).strip())
+
+    # add $A and $B  →  ArithmeticExpr("{A} + {B}")
+    if m := re.match(r'add \$(\w+) and \$(\w+)', line):
+        return ArithmeticExpr(expr="{" + m.group(1) + "} + {" + m.group(2) + "}")
+
+    # subtract $A from $B  →  ArithmeticExpr("{B} - {A}")
+    if m := re.match(r'subtract \$(\w+) from \$(\w+)', line):
+        return ArithmeticExpr(expr="{" + m.group(2) + "} - {" + m.group(1) + "}")
+
+    # exists NAME  /  does NAME exist
+    if m := re.match(r'exists (\S+)', line):
+        return FileExists(name=m.group(1))
+    if m := re.match(r'does (\S+) exist', line):
+        return FileExists(name=m.group(1))
+
 
     return None
