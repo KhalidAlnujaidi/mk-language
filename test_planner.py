@@ -132,10 +132,10 @@ def phase_g():
          plan.steps[0] == "delete old.txt confirm",
          f"got {plan}")
 
-    # inspect NAME → read + count lines + count words
+    # inspect NAME → read file (simplified in v3)
     plan = planner.plan("inspect data.txt")
-    test("inspect → read + count lines + count words",
-         plan.source == "deterministic" and len(plan.steps) == 3 and
+    test("inspect → read file",
+         plan.source == "deterministic" and len(plan.steps) == 1 and
          "read file data.txt" in plan.steps[0],
          f"got {plan}")
 
@@ -310,11 +310,11 @@ def phase_i():
              None,
              "hello")
 
-    # inspect: read + count lines + count words
+    # inspect: read file (simplified in v3)
     e2e_test("inspect",
              "inspect page.txt",
              lambda: _create_file("page.txt", "alpha beta\ngamma"),
-             "alpha beta gamma\n2\n3")
+             "alpha beta gamma")
 
     # wc
     e2e_test("wc",

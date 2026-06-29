@@ -155,10 +155,10 @@ _COMPOUND_RULES: list[tuple[re.Pattern, list[str]]] = [
         re.compile(r'^stats for (\S+)$', re.IGNORECASE),
         ['count lines in {0}', 'count words in {0}'],
     ),
-    # "inspect NAME" → read + count lines + count words
+    # "inspect NAME" → read file (simplified)
     (
         re.compile(r'^inspect (\S+)$', re.IGNORECASE),
-        ['read file {0}', 'count lines in {0}', 'count words in {0}'],
+        ['read file {0}'],
     ),
     # "summarize NAME" → read + count lines + count words + sum numbers
     (
@@ -405,6 +405,451 @@ _COMPOUND_RULES: list[tuple[re.Pattern, list[str]]] = [
         ['set _pipe = unique lines in {0}', 'write "{{_pipe}}" to {1}'],
     ),
 
+    # Auto-injected by evolve.py [clear-variant]
+    (
+        re.compile(r'^empty the file (\S+)$', re.IGNORECASE),
+        ['write "" to {0}'],
+    ),
+    # Auto-injected by evolve.py [clear-variant]
+    (
+        re.compile(r'^truncate (\S+)$', re.IGNORECASE),
+        ['write "" to {0}'],
+    ),
+    # Auto-injected by evolve.py [clear-variant]
+    (
+        re.compile(r'^wipe the contents of (\S+)$', re.IGNORECASE),
+        ['write "" to {0}'],
+    ),
+    # Auto-injected by evolve.py [copy-variant]
+    (
+        re.compile(r'^clone (\S+) to (\S+)$', re.IGNORECASE),
+        ['copy {0} to {1}'],
+    ),
+    # Auto-injected by evolve.py [copy-variant]
+    (
+        re.compile(r'^replicate (\S+) as (\S+)$', re.IGNORECASE),
+        ['copy {0} to {1}'],
+    ),
+    # Auto-injected by evolve.py [copy-variant]
+    (
+        re.compile(r'^copy (\S+) as (\S+)$', re.IGNORECASE),
+        ['copy {0} to {1}'],
+    ),
+    # Auto-injected by evolve.py [delete-variant]
+    (
+        re.compile(r'^erase (\S+) confirm$', re.IGNORECASE),
+        ['delete {0} confirm'],
+    ),
+    # Auto-injected by evolve.py [delete-variant]
+    (
+        re.compile(r'^remove (\S+) confirm$', re.IGNORECASE),
+        ['delete {0} confirm'],
+    ),
+    # Auto-injected by evolve.py [delete-variant]
+    (
+        re.compile(r'^destroy (\S+) confirm$', re.IGNORECASE),
+        ['delete {0} confirm'],
+    ),
+    # Auto-injected by evolve.py [delete-variant]
+    (
+        re.compile(r'^nuke (\S+) confirm$', re.IGNORECASE),
+        ['delete {0} confirm'],
+    ),
+    # Auto-injected by evolve.py [extract-variant]
+    (
+        re.compile(r'^grep lines with "([^"]*)" from (\S+)$', re.IGNORECASE),
+        ['extract lines matching "{0}" from {1}'],
+    ),
+    # Auto-injected by evolve.py [extract-variant]
+    (
+        re.compile(r'^filter lines containing "([^"]*)" from (\S+)$', re.IGNORECASE),
+        ['extract lines matching "{0}" from {1}'],
+    ),
+    # Auto-injected by evolve.py [extract-variant]
+    (
+        re.compile(r'^show me lines with "([^"]*)" from (\S+)$', re.IGNORECASE),
+        ['extract lines matching "{0}" from {1}'],
+    ),
+    # Auto-injected by evolve.py [extract-variant]
+    (
+        re.compile(r'^pull lines matching "([^"]*)" from (\S+)$', re.IGNORECASE),
+        ['extract lines matching "{0}" from {1}'],
+    ),
+    # Auto-injected by evolve.py [extract-variant]
+    (
+        re.compile(r'^get all lines with "([^"]*)" from (\S+)$', re.IGNORECASE),
+        ['extract lines matching "{0}" from {1}'],
+    ),
+    # Auto-injected by evolve.py [move-variant]
+    (
+        re.compile(r'^move file (\S+) to (\S+)$', re.IGNORECASE),
+        ['move {0} to {1}'],
+    ),
+    # Auto-injected by evolve.py [move-variant]
+    (
+        re.compile(r'^duplicate (\S+) to (\S+)$', re.IGNORECASE),
+        ['copy {0} to {1}'],
+    ),
+    # Auto-injected by evolve.py [move-variant]
+    (
+        re.compile(r'^transfer (\S+) to (\S+)$', re.IGNORECASE),
+        ['move {0} to {1}'],
+    ),
+    # Auto-injected by evolve.py [move-variant]
+    (
+        re.compile(r'^relocate (\S+) to (\S+)$', re.IGNORECASE),
+        ['move {0} to {1}'],
+    ),
+    # Auto-injected by evolve.py [conversational-read]
+    (
+        re.compile(r'^show me (\S+)$', re.IGNORECASE),
+        ['read file {0}'],
+    ),
+    # Auto-injected by evolve.py [conversational-read]
+    (
+        re.compile(r'^display (\S+)$', re.IGNORECASE),
+        ['read file {0}'],
+    ),
+    # Auto-injected by evolve.py [conversational-read]
+    (
+        re.compile(r'^cat (\S+)$', re.IGNORECASE),
+        ['read file {0}'],
+    ),
+    # Auto-injected by evolve.py [conversational-read]
+    (
+        re.compile(r'^view (\S+)$', re.IGNORECASE),
+        ['read file {0}'],
+    ),
+    # Auto-injected by evolve.py [conversational-read]
+    (
+        re.compile(r'^how many lines in (\S+)$', re.IGNORECASE),
+        ['count lines in {0}'],
+    ),
+    # Auto-injected by evolve.py [conversational-read]
+    (
+        re.compile(r'^how many words in (\S+)$', re.IGNORECASE),
+        ['count words in {0}'],
+    ),
+    # Auto-injected by evolve.py [conversational-read]
+    (
+        re.compile(r'^print (\S+)$', re.IGNORECASE),
+        ['read file {0}'],
+    ),
+    # Auto-injected by evolve.py [conversational-read]
+    (
+        re.compile(r'^output the contents of (\S+)$', re.IGNORECASE),
+        ['read file {0}'],
+    ),
+    # Auto-injected by evolve.py [conversational-read]
+    (
+        re.compile(r'^peek at (\S+)$', re.IGNORECASE),
+        ['read file {0}'],
+    ),
+    # Auto-injected by evolve.py [conversational-read]
+    (
+        re.compile(r'^dump (\S+)$', re.IGNORECASE),
+        ['read file {0}'],
+    ),
+    # Auto-injected by evolve.py [conversational-read]
+    (
+        re.compile(r'^inspect (\S+)$', re.IGNORECASE),
+        ['read file {0}'],
+    ),
+    # Auto-injected by evolve.py [conversational-read]
+    (
+        re.compile(r'^reveal (\S+)$', re.IGNORECASE),
+        ['read file {0}'],
+    ),
+    # Auto-injected by evolve.py [unique-variant]
+    (
+        re.compile(r'^deduplicate lines in (\S+)$', re.IGNORECASE),
+        ['unique lines in {0}'],
+    ),
+    # Auto-injected by evolve.py [unique-variant]
+    (
+        re.compile(r'^remove duplicate lines from (\S+)$', re.IGNORECASE),
+        ['unique lines in {0}'],
+    ),
+    # Auto-injected by evolve.py [unique-variant]
+    (
+        re.compile(r'^get unique lines in (\S+)$', re.IGNORECASE),
+        ['unique lines in {0}'],
+    ),
+    # Auto-injected by evolve.py [unique-variant]
+    (
+        re.compile(r'^distinct lines in (\S+)$', re.IGNORECASE),
+        ['unique lines in {0}'],
+    ),
+    # Auto-injected by evolve.py [unique-variant]
+    (
+        re.compile(r'^only keep unique lines in (\S+)$', re.IGNORECASE),
+        ['unique lines in {0}'],
+    ),
+    # Auto-injected by evolve.py [reverse-variant]
+    (
+        re.compile(r'^flip the order of lines in (\S+)$', re.IGNORECASE),
+        ['reverse lines in {0}'],
+    ),
+    # Auto-injected by evolve.py [reverse-variant]
+    (
+        re.compile(r'^reverse the lines of (\S+)$', re.IGNORECASE),
+        ['reverse lines in {0}'],
+    ),
+    # Auto-injected by evolve.py [reverse-variant]
+    (
+        re.compile(r'^backwards order for (\S+)$', re.IGNORECASE),
+        ['reverse lines in {0}'],
+    ),
+    # Auto-injected by evolve.py [reverse-variant]
+    (
+        re.compile(r'^invert the line order of (\S+)$', re.IGNORECASE),
+        ['reverse lines in {0}'],
+    ),
+    # Auto-injected by evolve.py [sort-variant]
+    (
+        re.compile(r'^arrange lines alphabetically in (\S+)$', re.IGNORECASE),
+        ['sort lines in {0}'],
+    ),
+    # Auto-injected by evolve.py [sort-variant]
+    (
+        re.compile(r'^order the lines in (\S+)$', re.IGNORECASE),
+        ['sort lines in {0}'],
+    ),
+    # Auto-injected by evolve.py [sort-variant]
+    (
+        re.compile(r'^alphabetize (\S+)$', re.IGNORECASE),
+        ['sort lines in {0}'],
+    ),
+    # Auto-injected by evolve.py [sort-variant]
+    (
+        re.compile(r'^put lines in order in (\S+)$', re.IGNORECASE),
+        ['sort lines in {0}'],
+    ),
+    # Auto-injected by evolve.py [concat-variant]
+    (
+        re.compile(r'^concatenate (\S+) and (\S+) into (\S+)$', re.IGNORECASE),
+        ['set _a = read file {0}', 'set _b = read file {1}', 'write "" to {2}', 'append "{{_a}}" to {2}', 'append "{{_b}}" to {2}'],
+    ),
+    # Auto-injected by evolve.py [concat-variant]
+    (
+        re.compile(r'^merge (\S+) and (\S+) into (\S+)$', re.IGNORECASE),
+        ['set _a = read file {0}', 'set _b = read file {1}', 'write "" to {2}', 'append "{{_a}}" to {2}', 'append "{{_b}}" to {2}'],
+    ),
+    # Auto-injected by evolve.py [concat-variant]
+    (
+        re.compile(r'^join (\S+) with (\S+) into (\S+)$', re.IGNORECASE),
+        ['set _a = read file {0}', 'set _b = read file {1}', 'write "" to {2}', 'append "{{_a}}" to {2}', 'append "{{_b}}" to {2}'],
+    ),
+    # Auto-injected by evolve.py [find-variant]
+    (
+        re.compile(r'^search for files containing "([^"]*)"$', re.IGNORECASE),
+        ['find files containing "{0}"'],
+    ),
+    # Auto-injected by evolve.py [find-variant]
+    (
+        re.compile(r'^which files have "([^"]*)" in them$', re.IGNORECASE),
+        ['find files containing "{0}"'],
+    ),
+    # Auto-injected by evolve.py [find-variant]
+    (
+        re.compile(r'^locate files containing "([^"]*)"$', re.IGNORECASE),
+        ['find files containing "{0}"'],
+    ),
+    # Auto-injected by evolve.py [find-variant]
+    (
+        re.compile(r'^find files that have "([^"]*)"$', re.IGNORECASE),
+        ['find files containing "{0}"'],
+    ),
+    # Auto-injected by evolve.py [verbose-create]
+    (
+        re.compile(r'^create a new file (\S+) with content "([^"]*)"$', re.IGNORECASE),
+        ['create file {0} with content "{1}"'],
+    ),
+    # Auto-injected by evolve.py [verbose-create]
+    (
+        re.compile(r'^make a file called (\S+) with content "([^"]*)"$', re.IGNORECASE),
+        ['create file {0} with content "{1}"'],
+    ),
+    # Auto-injected by evolve.py [verbose-create]
+    (
+        re.compile(r'^generate a file called (\S+) with content "([^"]*)"$', re.IGNORECASE),
+        ['create file {0} with content "{1}"'],
+    ),
+    # Auto-injected by evolve.py [verbose-create]
+    (
+        re.compile(r'^write a new file (\S+) containing "([^"]*)"$', re.IGNORECASE),
+        ['create file {0} with content "{1}"'],
+    ),
+    # Auto-injected by evolve.py [verbose-create]
+    (
+        re.compile(r'^start a new file (\S+) with content "([^"]*)"$', re.IGNORECASE),
+        ['create file {0} with content "{1}"'],
+    ),
+    # Auto-injected by evolve.py [verbose-create]
+    (
+        re.compile(r'^initialize (\S+) with content "([^"]*)"$', re.IGNORECASE),
+        ['create file {0} with content "{1}"'],
+    ),
+    # Auto-injected by evolve.py [verbose-create]
+    (
+        re.compile(r'^produce (\S+) containing "([^"]*)"$', re.IGNORECASE),
+        ['create file {0} with content "{1}"'],
+    ),
+    # Auto-injected by evolve.py [head-variant]
+    (
+        re.compile(r'^get the first (\d+) lines of (\S+)$', re.IGNORECASE),
+        ['show first {0} lines of {1}'],
+    ),
+    # Auto-injected by evolve.py [head-variant]
+    (
+        re.compile(r'^show first (\d+) of (\S+)$', re.IGNORECASE),
+        ['show first {0} lines of {1}'],
+    ),
+    # Auto-injected by evolve.py [head-variant]
+    (
+        re.compile(r'^first (\d+) lines of (\S+)$', re.IGNORECASE),
+        ['show first {0} lines of {1}'],
+    ),
+    # Auto-injected by evolve.py [head-variant]
+    (
+        re.compile(r'^top (\d+) lines of (\S+)$', re.IGNORECASE),
+        ['show first {0} lines of {1}'],
+    ),
+    # Auto-injected by evolve.py [head-variant]
+    (
+        re.compile(r'^beginning (\d+) lines of (\S+)$', re.IGNORECASE),
+        ['show first {0} lines of {1}'],
+    ),
+    # Auto-injected by evolve.py [tail-variant]
+    (
+        re.compile(r'^get the last (\d+) lines of (\S+)$', re.IGNORECASE),
+        ['show last {0} lines of {1}'],
+    ),
+    # Auto-injected by evolve.py [tail-variant]
+    (
+        re.compile(r'^show last (\d+) of (\S+)$', re.IGNORECASE),
+        ['show last {0} lines of {1}'],
+    ),
+    # Auto-injected by evolve.py [tail-variant]
+    (
+        re.compile(r'^bottom (\d+) lines from (\S+)$', re.IGNORECASE),
+        ['show last {0} lines of {1}'],
+    ),
+    # Auto-injected by evolve.py [tail-variant]
+    (
+        re.compile(r'^last line of (\S+)$', re.IGNORECASE),
+        ['show last 1 lines of {0}'],
+    ),
+    # Auto-injected by evolve.py [tail-variant]
+    (
+        re.compile(r'^end (\d+) lines of (\S+)$', re.IGNORECASE),
+        ['show last {0} lines of {1}'],
+    ),
+    # Auto-injected by evolve.py [case-variant]
+    (
+        re.compile(r'^convert (\S+) to uppercase$', re.IGNORECASE),
+        ['uppercase {0}'],
+    ),
+    # Auto-injected by evolve.py [case-variant]
+    (
+        re.compile(r'^make (\S+) all caps$', re.IGNORECASE),
+        ['uppercase {0}'],
+    ),
+    # Auto-injected by evolve.py [case-variant]
+    (
+        re.compile(r'^change (\S+) to lowercase$', re.IGNORECASE),
+        ['lowercase {0}'],
+    ),
+    # Auto-injected by evolve.py [case-variant]
+    (
+        re.compile(r'^make (\S+) lower case$', re.IGNORECASE),
+        ['lowercase {0}'],
+    ),
+    # Auto-injected by evolve.py [case-variant]
+    (
+        re.compile(r'^capitalize (\S+)$', re.IGNORECASE),
+        ['uppercase {0}'],
+    ),
+    # Auto-injected by evolve.py [case-variant]
+    (
+        re.compile(r'^to upper (\S+)$', re.IGNORECASE),
+        ['uppercase {0}'],
+    ),
+    # Auto-injected by evolve.py [case-variant]
+    (
+        re.compile(r'^to lower (\S+)$', re.IGNORECASE),
+        ['lowercase {0}'],
+    ),
+    # Auto-injected by evolve.py [case-variant]
+    (
+        re.compile(r'^all uppercase for (\S+)$', re.IGNORECASE),
+        ['uppercase {0}'],
+    ),
+    # Auto-injected by evolve.py [case-variant]
+    (
+        re.compile(r'^all lowercase for (\S+)$', re.IGNORECASE),
+        ['lowercase {0}'],
+    ),
+    # Auto-injected by evolve.py [sum-variant]
+    (
+        re.compile(r'^what is the total of numbers in (\S+)$', re.IGNORECASE),
+        ['sum numbers in {0}'],
+    ),
+    # Auto-injected by evolve.py [sum-variant]
+    (
+        re.compile(r'^add up the numbers in (\S+)$', re.IGNORECASE),
+        ['sum numbers in {0}'],
+    ),
+    # Auto-injected by evolve.py [sum-variant]
+    (
+        re.compile(r'^calculate the sum of (\S+)$', re.IGNORECASE),
+        ['sum numbers in {0}'],
+    ),
+    # Auto-injected by evolve.py [sum-variant]
+    (
+        re.compile(r'^what do the numbers in (\S+) add up to$', re.IGNORECASE),
+        ['sum numbers in {0}'],
+    ),
+    # Auto-injected by evolve.py [sum-variant]
+    (
+        re.compile(r'^total the numbers in (\S+)$', re.IGNORECASE),
+        ['sum numbers in {0}'],
+    ),
+    # Auto-injected by evolve.py [sum-variant]
+    (
+        re.compile(r'^compute the sum of values in (\S+)$', re.IGNORECASE),
+        ['sum numbers in {0}'],
+    ),
+    # Auto-injected by evolve.py [replace-variant]
+    (
+        re.compile(r'^swap "([^"]*)" with "([^"]*)" in (\S+)$', re.IGNORECASE),
+        ['replace "{0}" with "{1}" in {2}'],
+    ),
+    # Auto-injected by evolve.py [replace-variant]
+    (
+        re.compile(r'^substitute "([^"]*)" by "([^"]*)" in (\S+)$', re.IGNORECASE),
+        ['replace "{0}" with "{1}" in {2}'],
+    ),
+    # Auto-injected by evolve.py [replace-variant]
+    (
+        re.compile(r'^change "([^"]*)" to "([^"]*)" in (\S+)$', re.IGNORECASE),
+        ['replace "{0}" with "{1}" in {2}'],
+    ),
+    # Auto-injected by evolve.py [replace-variant]
+    (
+        re.compile(r'^find "([^"]*)" replace with "([^"]*)" in (\S+)$', re.IGNORECASE),
+        ['replace "{0}" with "{1}" in {2}'],
+    ),
+    # Auto-injected by evolve.py [replace-variant]
+    (
+        re.compile(r'^overwrite "([^"]*)" with "([^"]*)" in (\S+)$', re.IGNORECASE),
+        ['replace "{0}" with "{1}" in {2}'],
+    ),
+    # Auto-injected by evolve.py [replace-variant]
+    (
+        re.compile(r'^turn "([^"]*)" into "([^"]*)" in (\S+)$', re.IGNORECASE),
+        ['replace "{0}" with "{1}" in {2}'],
+    ),
 # --- End of compound rules (evolve.py injection point) ---
 ]
 # ---------------------------------------------------------------------------

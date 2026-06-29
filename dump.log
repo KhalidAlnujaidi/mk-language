@@ -1,129 +1,237 @@
 
 
-===== [2026-06-29 19:44:57] EVOLVE LOOP START =====
-max_cycles=50 patience=10
+===== [2026-06-29 21:25:47] EVOLVE LOOP START =====
+max_cycles=30 patience=5 mode=batch
 
-===== [2026-06-29 19:44:58] EVOLVE BASELINE =====
-EvalSummary(0/20 = 0.0% | clear-variant: 0/1, concat-variant: 0/1, conversational-read: 0/6, delete-variant: 0/2, head-variant: 0/2, move-variant: 0/2, verbose-count: 0/4, verbose-create: 0/2)
+===== [2026-06-29 21:25:51] EVOLVE BASELINE =====
+EvalSummary(44/100 = 44.0% | case-variant: 6/9, clear-variant: 0/3, concat-variant: 1/3, conversational-read: 2/12, copy-variant: 0/3, delete-variant: 0/4, extract-variant: 0/5, find-variant: 2/4, head-variant: 3/5, move-variant: 0/4, replace-variant: 5/6, reverse-variant: 1/4, sort-variant: 1/4, sum-variant: 4/6, tail-variant: 3/5, unique-variant: 1/5, verbose-count: 11/11, verbose-create: 4/7)
 
-===== [2026-06-29 19:44:58] EVOLVE ENFORCER =====
+===== [2026-06-29 21:25:56] EVOLVE ENFORCER =====
 cycle=0 target=clear-variant
-Category 'clear-variant' has 0/1 passing (0%). Failing: ['empty the file alpha.txt'].
+Category 'clear-variant' has 0/3 passing (0%). Failing: ['empty the file alpha.txt', 'truncate alpha.txt', 'wipe the contents of alpha.txt'].
 
-===== [2026-06-29 19:45:01] EVOLVE KEEP =====
-pattern='^empty the file (\S+)$' 0.0% -> 5.0%
+===== [2026-06-29 21:26:03] EVOLVE BATCH KEEP =====
+category=clear-variant rules=3 44.0% -> 47.0%
+test_v03.py: OK 
+test_v034.py: OK 
+test_cross_backend.py: OK 
+test_cross_backend_pipeline.py: OK 
+test_distill.py: OK 
 
-===== [2026-06-29 19:45:02] EVOLVE CYCLE =====
-cycle=0 kept=1/1 eval=0.0%->5.0%
+===== [2026-06-29 21:26:07] EVOLVE ENFORCER =====
+cycle=1 target=copy-variant
+Category 'copy-variant' has 0/3 passing (0%). Failing: ['clone alpha.txt to beta.txt', 'replicate alpha.txt as beta.txt', 'copy alpha.txt as beta.txt'].
 
-===== [2026-06-29 19:45:02] EVOLVE ENFORCER =====
-cycle=1 target=concat-variant
-Category 'concat-variant' has 0/1 passing (0%). Failing: ['concatenate alpha.txt and beta.txt into gamma.txt'].
+===== [2026-06-29 21:26:14] EVOLVE BATCH KEEP =====
+category=copy-variant rules=3 47.0% -> 50.0%
+test_v03.py: OK 
+test_v034.py: OK 
+test_cross_backend.py: OK 
+test_cross_backend_pipeline.py: OK 
+test_distill.py: OK 
 
-===== [2026-06-29 19:45:05] EVOLVE KEEP =====
-pattern='^concatenate (\S+) and (\S+) into (\S+)$' 5.0% -> 10.0%
+===== [2026-06-29 21:26:19] EVOLVE ENFORCER =====
+cycle=2 target=delete-variant
+Category 'delete-variant' has 0/4 passing (0%). Failing: ['erase alpha.txt confirm', 'remove alpha.txt confirm', 'destroy alpha.txt confirm'].
 
-===== [2026-06-29 19:45:06] EVOLVE CYCLE =====
-cycle=1 kept=1/1 eval=5.0%->10.0%
+===== [2026-06-29 21:26:26] EVOLVE BATCH KEEP =====
+category=delete-variant rules=4 50.0% -> 54.0%
+test_v03.py: OK 
+test_v034.py: OK 
+test_cross_backend.py: OK 
+test_cross_backend_pipeline.py: OK 
+test_distill.py: OK 
 
-===== [2026-06-29 19:45:06] EVOLVE ENFORCER =====
-cycle=2 target=conversational-read
-Category 'conversational-read' has 0/6 passing (0%). Failing: ['show me alpha.txt', 'display alpha.txt', 'how many lines in alpha.txt'].
+===== [2026-06-29 21:26:31] EVOLVE ENFORCER =====
+cycle=3 target=extract-variant
+Category 'extract-variant' has 0/5 passing (0%). Failing: ['grep lines with "warning" from alpha.txt', 'filter lines containing "error" from alpha.txt', 'show me lines with "info" from alpha.txt'].
 
-===== [2026-06-29 19:45:10] EVOLVE KEEP =====
-pattern='^show me (\S+)$' 10.0% -> 15.0%
+===== [2026-06-29 21:26:39] EVOLVE BATCH KEEP =====
+category=extract-variant rules=5 54.0% -> 59.0%
+test_v03.py: OK 
+test_v034.py: OK 
+test_cross_backend.py: OK 
+test_cross_backend_pipeline.py: OK 
+test_distill.py: OK 
 
-===== [2026-06-29 19:45:13] EVOLVE KEEP =====
-pattern='^display (\S+)$' 15.0% -> 20.0%
+===== [2026-06-29 21:26:44] EVOLVE ENFORCER =====
+cycle=4 target=move-variant
+Category 'move-variant' has 0/4 passing (0%). Failing: ['move file alpha.txt to beta.txt', 'duplicate alpha.txt to beta.txt', 'transfer alpha.txt to beta.txt'].
 
-===== [2026-06-29 19:45:16] EVOLVE KEEP =====
-pattern='^cat (\S+)$' 20.0% -> 25.0%
+===== [2026-06-29 21:26:52] EVOLVE BATCH KEEP =====
+category=move-variant rules=4 59.0% -> 63.0%
+test_v03.py: OK 
+test_v034.py: OK 
+test_cross_backend.py: OK 
+test_cross_backend_pipeline.py: OK 
+test_distill.py: OK 
 
-===== [2026-06-29 19:45:20] EVOLVE KEEP =====
-pattern='^view (\S+)$' 25.0% -> 30.0%
+===== [2026-06-29 21:26:57] EVOLVE ENFORCER =====
+cycle=5 target=conversational-read
+Category 'conversational-read' has 2/12 passing (17%). Failing: ['show me alpha.txt', 'display alpha.txt', 'cat alpha.txt'].
 
-===== [2026-06-29 19:45:24] EVOLVE KEEP =====
-pattern='^how many lines in (\S+)$' 30.0% -> 35.0%
+===== [2026-06-29 21:27:05] EVOLVE BATCH KEEP =====
+category=conversational-read rules=12 63.0% -> 72.0%
+test_v03.py: OK 
+test_v034.py: OK 
+test_cross_backend.py: OK 
+test_cross_backend_pipeline.py: OK 
+test_distill.py: OK 
 
-===== [2026-06-29 19:45:27] EVOLVE KEEP =====
-pattern='^how many words in (\S+)$' 35.0% -> 40.0%
+===== [2026-06-29 21:27:10] EVOLVE ENFORCER =====
+cycle=6 target=unique-variant
+Category 'unique-variant' has 1/5 passing (20%). Failing: ['deduplicate lines in alpha.txt', 'remove duplicate lines from alpha.txt', 'distinct lines in alpha.txt'].
 
-===== [2026-06-29 19:45:28] EVOLVE CYCLE =====
-cycle=2 kept=6/6 eval=10.0%->40.0%
+===== [2026-06-29 21:27:18] EVOLVE BATCH KEEP =====
+category=unique-variant rules=5 72.0% -> 76.0%
+test_v03.py: OK 
+test_v034.py: OK 
+test_cross_backend.py: OK 
+test_cross_backend_pipeline.py: OK 
+test_distill.py: OK 
 
-===== [2026-06-29 19:45:28] EVOLVE ENFORCER =====
-cycle=3 target=delete-variant
-Category 'delete-variant' has 0/2 passing (0%). Failing: ['erase alpha.txt confirm', 'remove alpha.txt confirm'].
+===== [2026-06-29 21:27:23] EVOLVE ENFORCER =====
+cycle=7 target=reverse-variant
+Category 'reverse-variant' has 1/4 passing (25%). Failing: ['flip the order of lines in alpha.txt', 'backwards order for alpha.txt', 'invert the line order of alpha.txt'].
 
-===== [2026-06-29 19:45:32] EVOLVE KEEP =====
-pattern='^erase (\S+) confirm$' 40.0% -> 45.0%
+===== [2026-06-29 21:27:31] EVOLVE BATCH KEEP =====
+category=reverse-variant rules=4 76.0% -> 79.0%
+test_v03.py: OK 
+test_v034.py: OK 
+test_cross_backend.py: OK 
+test_cross_backend_pipeline.py: OK 
+test_distill.py: OK 
 
-===== [2026-06-29 19:45:36] EVOLVE KEEP =====
-pattern='^remove (\S+) confirm$' 45.0% -> 50.0%
+===== [2026-06-29 21:27:36] EVOLVE ENFORCER =====
+cycle=8 target=sort-variant
+Category 'sort-variant' has 1/4 passing (25%). Failing: ['arrange lines alphabetically in alpha.txt', 'order the lines in alpha.txt', 'alphabetize alpha.txt'].
 
-===== [2026-06-29 19:45:37] EVOLVE CYCLE =====
-cycle=3 kept=2/2 eval=40.0%->50.0%
+===== [2026-06-29 21:27:44] EVOLVE BATCH KEEP =====
+category=sort-variant rules=4 79.0% -> 82.0%
+test_v03.py: OK 
+test_v034.py: OK 
+test_cross_backend.py: OK 
+test_cross_backend_pipeline.py: OK 
+test_distill.py: OK 
 
-===== [2026-06-29 19:45:38] EVOLVE ENFORCER =====
-cycle=4 target=head-variant
-Category 'head-variant' has 0/2 passing (0%). Failing: ['get the first 3 lines of alpha.txt', 'show first 3 of alpha.txt'].
+===== [2026-06-29 21:27:50] EVOLVE ENFORCER =====
+cycle=9 target=concat-variant
+Category 'concat-variant' has 1/3 passing (33%). Failing: ['concatenate alpha.txt and beta.txt into gamma.txt', 'join alpha.txt with beta.txt into gamma.txt'].
 
-===== [2026-06-29 19:45:41] EVOLVE KEEP =====
-pattern='^get the first (\d+) lines of (\S+)$' 50.0% -> 55.0%
+===== [2026-06-29 21:27:58] EVOLVE BATCH KEEP =====
+category=concat-variant rules=3 82.0% -> 84.0%
+test_v03.py: OK 
+test_v034.py: OK 
+test_cross_backend.py: OK 
+test_cross_backend_pipeline.py: OK 
+test_distill.py: OK 
 
-===== [2026-06-29 19:45:45] EVOLVE KEEP =====
-pattern='^show first (\d+) of (\S+)$' 55.0% -> 60.0%
+===== [2026-06-29 21:28:03] EVOLVE ENFORCER =====
+cycle=10 target=find-variant
+Category 'find-variant' has 2/4 passing (50%). Failing: ['which files have "error" in them', 'find files that have "data"'].
 
-===== [2026-06-29 19:45:46] EVOLVE CYCLE =====
-cycle=4 kept=2/2 eval=50.0%->60.0%
+===== [2026-06-29 21:28:11] EVOLVE BATCH KEEP =====
+category=find-variant rules=4 84.0% -> 86.0%
+test_v03.py: OK 
+test_v034.py: OK 
+test_cross_backend.py: OK 
+test_cross_backend_pipeline.py: OK 
+test_distill.py: OK 
 
-===== [2026-06-29 19:45:47] EVOLVE ENFORCER =====
-cycle=5 target=move-variant
-Category 'move-variant' has 0/2 passing (0%). Failing: ['move file alpha.txt to beta.txt', 'duplicate alpha.txt to beta.txt'].
+===== [2026-06-29 21:28:17] EVOLVE ENFORCER =====
+cycle=11 target=verbose-create
+Category 'verbose-create' has 4/7 passing (57%). Failing: ['generate a file called alpha.txt with content "gen"', 'write a new file alpha.txt containing "written"', 'produce alpha.txt containing "produced"'].
 
-===== [2026-06-29 19:45:51] EVOLVE KEEP =====
-pattern='^move file (\S+) to (\S+)$' 60.0% -> 65.0%
+===== [2026-06-29 21:28:25] EVOLVE BATCH KEEP =====
+category=verbose-create rules=7 86.0% -> 89.0%
+test_v03.py: OK 
+test_v034.py: OK 
+test_cross_backend.py: OK 
+test_cross_backend_pipeline.py: OK 
+test_distill.py: OK 
 
-===== [2026-06-29 19:45:55] EVOLVE KEEP =====
-pattern='^duplicate (\S+) to (\S+)$' 65.0% -> 70.0%
+===== [2026-06-29 21:28:30] EVOLVE ENFORCER =====
+cycle=12 target=head-variant
+Category 'head-variant' has 3/5 passing (60%). Failing: ['show first 3 of alpha.txt', 'top 2 lines of alpha.txt'].
 
-===== [2026-06-29 19:45:56] EVOLVE CYCLE =====
-cycle=5 kept=2/2 eval=60.0%->70.0%
+===== [2026-06-29 21:28:38] EVOLVE BATCH KEEP =====
+category=head-variant rules=5 89.0% -> 91.0%
+test_v03.py: OK 
+test_v034.py: OK 
+test_cross_backend.py: OK 
+test_cross_backend_pipeline.py: OK 
+test_distill.py: OK 
 
-===== [2026-06-29 19:45:57] EVOLVE ENFORCER =====
-cycle=6 target=verbose-count
-Category 'verbose-count' has 0/4 passing (0%). Failing: ['count how many lines are in alpha.txt', 'tell me the word count of alpha.txt', 'what is the line count of alpha.txt'].
+===== [2026-06-29 21:28:44] EVOLVE ENFORCER =====
+cycle=13 target=tail-variant
+Category 'tail-variant' has 3/5 passing (60%). Failing: ['bottom 2 lines from alpha.txt', 'last line of alpha.txt'].
 
-===== [2026-06-29 19:46:01] EVOLVE KEEP =====
-pattern='^count how many lines are in (\S+)$' 70.0% -> 75.0%
+===== [2026-06-29 21:28:52] EVOLVE BATCH KEEP =====
+category=tail-variant rules=5 91.0% -> 93.0%
+test_v03.py: OK 
+test_v034.py: OK 
+test_cross_backend.py: OK 
+test_cross_backend_pipeline.py: OK 
+test_distill.py: OK 
 
-===== [2026-06-29 19:46:05] EVOLVE KEEP =====
-pattern='^tell me the word count of (\S+)$' 75.0% -> 80.0%
+===== [2026-06-29 21:28:57] EVOLVE ENFORCER =====
+cycle=14 target=case-variant
+Category 'case-variant' has 6/9 passing (67%). Failing: ['make alpha.txt all caps', 'capitalize alpha.txt', 'to lower alpha.txt'].
 
-===== [2026-06-29 19:46:09] EVOLVE KEEP =====
-pattern='^what is the line count of (\S+)$' 80.0% -> 85.0%
+===== [2026-06-29 21:29:05] EVOLVE BATCH KEEP =====
+category=case-variant rules=9 93.0% -> 96.0%
+test_v03.py: OK 
+test_v034.py: OK 
+test_cross_backend.py: OK 
+test_cross_backend_pipeline.py: OK 
+test_distill.py: OK 
 
-===== [2026-06-29 19:46:13] EVOLVE KEEP =====
-pattern='^what is the word count for (\S+)$' 85.0% -> 90.0%
+===== [2026-06-29 21:29:10] EVOLVE ENFORCER =====
+cycle=15 target=sum-variant
+Category 'sum-variant' has 4/6 passing (67%). Failing: ['what do the numbers in alpha.txt add up to', 'compute the sum of values in alpha.txt'].
 
-===== [2026-06-29 19:46:14] EVOLVE CYCLE =====
-cycle=6 kept=4/4 eval=70.0%->90.0%
+===== [2026-06-29 21:29:18] EVOLVE BATCH KEEP =====
+category=sum-variant rules=6 96.0% -> 98.0%
+test_v03.py: OK 
+test_v034.py: OK 
+test_cross_backend.py: OK 
+test_cross_backend_pipeline.py: OK 
+test_distill.py: OK 
 
-===== [2026-06-29 19:46:15] EVOLVE ENFORCER =====
-cycle=7 target=verbose-create
-Category 'verbose-create' has 0/2 passing (0%). Failing: ['create a new file alpha.txt with content "hello"', 'make a file called alpha.txt with content "test"'].
+===== [2026-06-29 21:29:23] EVOLVE ENFORCER =====
+cycle=16 target=replace-variant
+Category 'replace-variant' has 5/6 passing (83%). Failing: ['overwrite "draft" with "final" in alpha.txt'].
 
-===== [2026-06-29 19:46:20] EVOLVE KEEP =====
-pattern='^create a new file (\S+) with content "([^"]*)"$' 90.0% -> 95.0%
+===== [2026-06-29 21:29:31] EVOLVE BATCH KEEP =====
+category=replace-variant rules=6 98.0% -> 99.0%
+test_v03.py: OK 
+test_v034.py: OK 
+test_cross_backend.py: OK 
+test_cross_backend_pipeline.py: OK 
+test_distill.py: OK 
 
-===== [2026-06-29 19:46:24] EVOLVE KEEP =====
-pattern='^make a file called (\S+) with content "([^"]*)"$' 95.0% -> 100.0%
+===== [2026-06-29 21:29:36] EVOLVE ENFORCER =====
+cycle=17 target=conversational-read
+Category 'conversational-read' has 11/12 passing (92%). Failing: ['inspect alpha.txt'].
 
-===== [2026-06-29 19:46:25] EVOLVE CYCLE =====
-cycle=7 kept=2/2 eval=90.0%->100.0%
+===== [2026-06-29 21:29:41] EVOLVE ENFORCER =====
+cycle=18 target=conversational-read
+Category 'conversational-read' has 11/12 passing (92%). Failing: ['inspect alpha.txt'].
 
-===== [2026-06-29 19:46:26] EVOLVE LOOP COMPLETE =====
-All 20 passing!
+===== [2026-06-29 21:29:47] EVOLVE ENFORCER =====
+cycle=19 target=conversational-read
+Category 'conversational-read' has 11/12 passing (92%). Failing: ['inspect alpha.txt'].
 
-===== [2026-06-29 19:46:27] EVOLVE LOOP END =====
-final=EvalSummary(20/20 = 100.0% | clear-variant: 1/1, concat-variant: 1/1, conversational-read: 6/6, delete-variant: 2/2, head-variant: 2/2, move-variant: 2/2, verbose-count: 4/4, verbose-create: 2/2)
+===== [2026-06-29 21:29:52] EVOLVE ENFORCER =====
+cycle=20 target=conversational-read
+Category 'conversational-read' has 11/12 passing (92%). Failing: ['inspect alpha.txt'].
+
+===== [2026-06-29 21:29:57] EVOLVE ENFORCER =====
+cycle=21 target=conversational-read
+Category 'conversational-read' has 11/12 passing (92%). Failing: ['inspect alpha.txt'].
+
+===== [2026-06-29 21:29:57] EVOLVE LOOP PLATEAU =====
+No new proposals for 5 cycles
+
+===== [2026-06-29 21:30:02] EVOLVE LOOP END =====
+final=EvalSummary(99/100 = 99.0% | case-variant: 9/9, clear-variant: 3/3, concat-variant: 3/3, conversational-read: 11/12, copy-variant: 3/3, delete-variant: 4/4, extract-variant: 5/5, find-variant: 4/4, head-variant: 5/5, move-variant: 4/4, replace-variant: 6/6, reverse-variant: 4/4, sort-variant: 4/4, sum-variant: 6/6, tail-variant: 5/5, unique-variant: 5/5, verbose-count: 11/11, verbose-create: 7/7)
