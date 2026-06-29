@@ -876,6 +876,12 @@ def _run_agent_turn(
     else:
         session_budget = config_budget
 
+    # Autonomy (vision: heavy governance, not human-in-the-loop). ASK-level
+    # commands (in-root rm -rf, force-push) PROCEED without prompting — the
+    # catastrophic-DENY floor (sudo, fork bomb, root rm -rf) and the protected
+    # rails still block. The whole point of the governance is that the guards
+    # decide, not a human. Opt back into interactive approval with KINOX_ASK=1.
+    _ask_prompts = os.environ.get("KINOX_ASK", "0").lower() in ("1", "on", "true", "yes")
     ask_q: queue.Queue[tuple[str, str]] = queue.Queue()
     reply_q: queue.Queue[bool] = queue.Queue()
 
@@ -913,7 +919,7 @@ def _run_agent_turn(
                         if _is_framework_scope(kinox_root, session.cwd)
                         else (),
                         ruleset=ruleset,
-                        ask_fn=ask_command,
+                        ask_fn=ask_command if _ask_prompts else None,
                     ),
                     # Hard truth #1: the agent may not overwrite kinox's own rails
                     # (alignment/, next.md) — fail-CLOSED, KINOX_UNLOCK_RAILS to edit.
@@ -933,6 +939,7 @@ def _run_agent_turn(
 
     tools_done = 0
     answer_buf: list[str] = []
+    achievements: deque[str] = deque(maxlen=6)  # rolling green checkpoints
     with ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(work)
         start = time.monotonic()
@@ -953,12 +960,11 @@ def _run_agent_turn(
                     step = steps_q.popleft()
                     if step.kind == "tool":
                         tools_done += 1
+                        achievements.append(_achievement(step))
                         if verbose:
                             console.print(
                                 _format_tool_step(step.name, step.detail, verbose)
                             )
-                        else:
-                            status.update(f"[dim]agent working… (tool calls: {tools_done})[/dim]")
                     elif step.kind == "blocked":
                         console.print(
                             f"  [red]⛔ {_esc(step.name)} blocked:[/red] "
@@ -973,10 +979,14 @@ def _run_agent_turn(
                     flat = _strip_reasoning("".join(answer_buf)).replace("\n", " ")
                     if flat:
                         tail = f" · [white]…{_esc(flat[-60:])}[/white]"
+                chips = ""
+                if achievements:
+                    chips = "\n  [green]" + " · ".join(f"✓ {c}" for c in achievements) + "[/green]"
                 status.update(
                     f"[dim]agent working · {tools_done} tool"
                     f"{'' if tools_done == 1 else 's'} · "
-                    f"{time.monotonic() - start:.1f}s{tail}[/dim]"
+                    f"{_fmt_elapsed(time.monotonic() - start)}{tail}[/dim]"
+                    f"{chips}"
                 )
                 if future.done() and not steps_q and not tokens_q:
                     console.bell()
@@ -1222,6 +1232,41 @@ def _esc(text: object) -> str:
     from rich.markup import escape
 
     return escape(str(text))
+
+
+def _achievement(step: object) -> str:
+    """A terse 'result' chip for one completed tool step — the file basename or
+    command keyword it touched, no reasoning. Drives the rolling achievements line."""
+    import json
+
+    name = getattr(step, "name", "") or "tool"
+    detail = getattr(step, "detail", "") or ""
+    try:
+        data = json.loads(detail)
+    except Exception:
+        data = {}
+    arg = ""
+    if isinstance(data, dict) and data:
+        for key in ("path", "file_path", "file", "filename", "command", "cmd", "query", "pattern"):
+            if key in data:
+                arg = str(data[key])
+                break
+        else:
+            arg = str(next(iter(data.values())))
+    if name == "run_bash" and arg.strip():
+        chip = arg.strip().split()[0].rsplit("/", 1)[-1] or "cmd"
+    elif arg:
+        chip = arg.rsplit("/", 1)[-1] if "/" in arg else arg
+    else:
+        chip = name.replace("mcp__", "")
+    chip = chip.strip()
+    return chip[:21] + "\u2026" if len(chip) > 22 else chip
+
+
+def _fmt_elapsed(secs: float) -> str:
+    """Compact elapsed: '42s' under a minute, '2m14s' beyond."""
+    s = int(secs)
+    return f"{s}s" if s < 60 else f"{s // 60}m{s % 60:02d}s"
 
 
 def _format_tool_step(name: str, detail: str, verbose: bool) -> str:
