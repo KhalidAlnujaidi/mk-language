@@ -2,19 +2,75 @@
 
 This module lazily loads Hugging Face transformers pipelines to categorize tasks,
 summarize large logs, and semantically retrieve tools before the primary model acts.
+Optimized to prioritize the local Ollama deepseek-r1:8b model if available.
 """
 
 from __future__ import annotations
 
 import logging
+import urllib.request
+import json
 from typing import Any
 
 # Global singletons for lazy loading
 _intent_classifier: Any = None
 _summarizer: Any = None
 _embedder: Any = None
+_skill_embeddings_cache: dict[str, Any] = {}
 
 logger = logging.getLogger(__name__)
+
+
+def _query_ollama(prompt: str, system_prompt: str = "") -> str | None:
+    """Synchronously query the local Ollama API with deepseek-r1:8b."""
+    try:
+        url = "http://localhost:11434/api/chat"
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+        
+        data = {
+            "model": "deepseek-r1:8b",
+            "messages": messages,
+            "stream": False,
+            "options": {
+                "temperature": 0.1
+            }
+        }
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(data).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        # 4-second timeout for quick pre-hook checks
+        with urllib.request.urlopen(req, timeout=4.0) as response:
+            res_data = json.loads(response.read().decode("utf-8"))
+            content = res_data.get("message", {}).get("content", "")
+            
+            # Strip <think>...</think> reasoning blocks if outputted by DeepSeek-R1
+            if "<think>" in content:
+                parts = content.split("</think>")
+                if len(parts) > 1:
+                    content = parts[1]
+                else:
+                    content = content.replace("<think>", "").replace("</think>", "")
+            return content.strip()
+    except Exception as e:
+        logger.debug(f"Ollama deepseek-r1:8b query bypassed: {e}")
+        return None
+
+
+async def _query_ollama_async(prompt: str, system_prompt: str = "") -> str | None:
+    """Asynchronously query the local Ollama model using thread dispatch."""
+    import anyio
+    def _run():
+        return _query_ollama(prompt, system_prompt)
+    try:
+        return await anyio.to_thread.run_sync(_run)
+    except Exception:
+        return None
 
 
 def _get_intent_classifier() -> Any:
@@ -63,10 +119,6 @@ def _get_embedder() -> Any:
 
 async def classify_intent(task: str) -> str | None:
     """Classify the user's task into a category."""
-    classifier = _get_intent_classifier()
-    if classifier is None:
-        return None
-    
     candidate_labels = [
         "debugging and fixing errors",
         "feature addition and coding",
@@ -75,7 +127,31 @@ async def classify_intent(task: str) -> str | None:
         "writing documentation"
     ]
     
-    # Run synchronously in a thread to avoid blocking async loop
+    # Prioritize local Ollama deepseek-r1:8b
+    system_prompt = (
+        "You are an intent classifier. Categorize the user's task into EXACTLY one of the candidate labels. "
+        "Do not invent new labels. Reply with ONLY the exact matching label string, no explanation, no markdown, and no extra text."
+    )
+    prompt = (
+        f"Candidate labels:\n"
+        f"- \"debugging and fixing errors\"\n"
+        f"- \"feature addition and coding\"\n"
+        f"- \"refactoring code\"\n"
+        f"- \"answering a question\"\n"
+        f"- \"writing documentation\"\n\n"
+        f"Task:\n{task}"
+    )
+    ollama_res = await _query_ollama_async(prompt, system_prompt)
+    if ollama_res:
+        cleaned = ollama_res.lower().strip().strip('"').strip("'")
+        for label in candidate_labels:
+            if cleaned == label or cleaned in label or label in cleaned:
+                return label
+
+    classifier = _get_intent_classifier()
+    if classifier is None:
+        return None
+    
     import anyio
     def _run():
         return classifier(task, candidate_labels)
@@ -86,12 +162,22 @@ async def classify_intent(task: str) -> str | None:
 
 async def summarize_context(text: str) -> str | None:
     """Summarize a large context block (e.g. huge stack trace)."""
+    if len(text) < 1000:
+        return text  # Too short to summarize
+        
+    # Prioritize local Ollama deepseek-r1:8b
+    prompt = (
+        "Summarize the following context block (e.g. log files or stack trace) concisely. "
+        "Focus on key error messages, line numbers, and actionable details. Keep the summary under 150 words.\n\n"
+        f"Context:\n{text}"
+    )
+    ollama_res = await _query_ollama_async(prompt)
+    if ollama_res:
+        return ollama_res
+
     summarizer = _get_summarizer()
     if summarizer is None:
         return None
-        
-    if len(text) < 1000:
-        return text  # Too short to summarize
         
     # Cap input to avoid breaking the model's max token length
     # Distilbart usually takes ~1024 tokens. We'll give it roughly 4000 chars.
@@ -108,6 +194,7 @@ async def summarize_context(text: str) -> str | None:
         logger.warning(f"Summarization failed: {exc}")
         return None
 
+
 async def retrieve_skills(task: str, registry: Any) -> list[str]:
     """Retrieve the top 3 relevant skills from the registry based on semantic similarity."""
     embedder = _get_embedder()
@@ -122,12 +209,9 @@ async def retrieve_skills(task: str, registry: Any) -> list[str]:
     
     def _run():
         import torch
-        # We use pipeline("feature-extraction") which returns a nested list of embeddings
-        # shape: [batch, sequence_length, hidden_size]. We mean pool it.
         
         def mean_pooling(model_output):
             if isinstance(model_output, list):
-                # Just take the mean of the tokens
                 tensor = torch.tensor(model_output[0])
                 return torch.mean(tensor, dim=0)
             return torch.mean(model_output, dim=0)
@@ -140,8 +224,14 @@ async def retrieve_skills(task: str, registry: Any) -> list[str]:
         scored_skills = []
         for skill in skills:
             desc = skill.description or skill.name
-            skill_out = embedder(f"{skill.name}: {desc}")
-            skill_emb = mean_pooling(skill_out)
+            
+            cache_key = f"{skill.name}:{desc}"
+            if cache_key in _skill_embeddings_cache:
+                skill_emb = _skill_embeddings_cache[cache_key]
+            else:
+                skill_out = embedder(f"{skill.name}: {desc}")
+                skill_emb = mean_pooling(skill_out)
+                _skill_embeddings_cache[cache_key] = skill_emb
             
             # Cosine similarity
             cos_sim = torch.nn.functional.cosine_similarity(task_emb.unsqueeze(0), skill_emb.unsqueeze(0))
