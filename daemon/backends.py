@@ -131,6 +131,13 @@ async def openai_compatible_call(
     may then answer with ``tool_calls`` (``finish_reason == "tool_calls"``), which
     are parsed back onto the :class:`BackendResponse` for the agent loop. Plain
     chat passes ``tools=None`` and the payload is byte-identical to before.
+
+    Error classification by status code (fail-direction per code, not blanket):
+      - **5xx** → retryable (transient server error, worth a retry/fallback).
+      - **429** → retryable (rate limited, transient — back off and retry).
+      - **4xx (non-429)** → **not retryable** (permanent client error — a 401
+        bad key, 400 malformed payload, or 403 forbidden is never fixed by
+        retrying or falling through; fail fast so the caller is not misled).
     """
     payload: dict[str, object] = {
         "model": tier.model_name,
@@ -152,8 +159,29 @@ async def openai_compatible_call(
             ) as client:
                 resp = await client.post("/chat/completions", json=payload)
                 if resp.status_code >= 500:
-                    raise BackendError(f"backend {resp.status_code}", retryable=True)
-                resp.raise_for_status()
+                    raise BackendError(
+                        f"backend {resp.status_code}", retryable=True
+                    )
+                if resp.status_code == 429:
+                    if auth_token:
+                        from daemon.secrets import get_secret_manager
+                        get_secret_manager().mark_exhausted(auth_token.replace("Bearer ", "").strip() if auth_token.startswith("Bearer ") else auth_token)
+                    raise BackendError(
+                        f"rate limited {resp.status_code}", retryable=True
+                    )
+                if resp.status_code in (401, 403):
+                    if auth_token:
+                        from daemon.secrets import get_secret_manager
+                        get_secret_manager().mark_exhausted(auth_token.replace("Bearer ", "").strip() if auth_token.startswith("Bearer ") else auth_token)
+                    # Retryable so the executor loops and pulls the next token
+                    raise BackendError(
+                        f"auth error {resp.status_code}", retryable=True
+                    )
+                if resp.status_code >= 400:
+                    raise BackendError(
+                        f"client error {resp.status_code}",
+                        retryable=False,
+                    )
                 data: dict[str, object] = resp.json()
         except BackendError:
             raise
@@ -221,7 +249,11 @@ def make_dispatch(
             raise BackendError(
                 f"no adapter for backend {tier.backend!r}", retryable=True
             )
-        auth_token = os.environ.get(spec.auth_env) if spec.auth_env else None
+        if spec.auth_env:
+            from daemon.secrets import get_secret_manager
+            auth_token = get_secret_manager().get_token(spec.auth_env)
+        else:
+            auth_token = None
         return await openai_compatible_call(
             spec.base_url,
             tier,

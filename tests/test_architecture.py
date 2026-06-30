@@ -27,11 +27,11 @@ DAEMON_FORBIDDEN_TOPLEVEL = {"products", "adapters"}
 
 
 def _kernel_modules() -> list[Path]:
-    return sorted(KERNEL.rglob("*.py"))
+    return sorted(p for p in KERNEL.rglob("*.py") if not p.name.startswith("._"))
 
 
 def _daemon_modules() -> list[Path]:
-    return sorted(DAEMON.rglob("*.py"))
+    return sorted(p for p in DAEMON.rglob("*.py") if not p.name.startswith("._"))
 
 
 def _imported_toplevels(source: str, path: Path) -> set[str]:

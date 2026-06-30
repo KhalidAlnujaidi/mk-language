@@ -129,7 +129,10 @@ def _make_default_runner(cfg: RemoteConfig, sink: MetricsSink) -> RunFn:
             if local
             else None
         )
-        tier = brain_tier(fallback=local_tier)
+        from daemon.brain import brain_chain
+        chain = brain_chain(fallback=local_tier)
+        tier = chain[0] if chain else None
+        fallback_tiers = chain[1:] if len(chain) > 1 else None
         if tier is None:
             raise RuntimeError("no model available (set ZAI_API_KEY or a local model)")
 
@@ -137,14 +140,32 @@ def _make_default_runner(cfg: RemoteConfig, sink: MetricsSink) -> RunFn:
         registry = default_registry(
             cfg.root, skills=skills, allow_bash=True, allow_write=True
         )
+        import os
+        from products.agent.config import load_ruleset, load_token_budget
+        
+        global_path = Path("~/.kinox/config.toml").expanduser()
+        project_path = cfg.root / "kinox.toml"
+        global_text = global_path.read_text() if global_path.is_file() else None
+        project_text = project_path.read_text() if project_path.is_file() else None
+        profile = os.environ.get("KINOX_PROFILE")
+        
+        ruleset = load_ruleset(global_text, project_text, profile=profile)
+        config_budget = load_token_budget(global_text, project_text, profile=profile)
+
         guard = combine_guards(
-            project_root_guard(cfg.root), protected_rails_guard(cfg.root)
+            project_root_guard(cfg.root, ruleset=ruleset),
+            protected_rails_guard(cfg.root),
         )
-        budget = (
-            TokenBudget(limit=cfg.session_token_budget)
-            if cfg.session_token_budget
-            else None
-        )
+        
+        # Fall back to cfg.session_token_budget if the config doesn't specify one
+        if config_budget is not None:
+            budget = config_budget
+        else:
+            budget = (
+                TokenBudget(limit=cfg.session_token_budget)
+                if cfg.session_token_budget
+                else None
+            )
         return await run_agent(
             task,
             tier=tier,
@@ -155,7 +176,7 @@ def _make_default_runner(cfg: RemoteConfig, sink: MetricsSink) -> RunFn:
             spent_offset=spent_offset,
             token_budget=budget,
             guard=guard,
-            fallback=local_tier,
+            fallback=fallback_tiers,
         )
 
     return run

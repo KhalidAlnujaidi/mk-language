@@ -27,8 +27,9 @@ from collections.abc import Callable
 from pathlib import Path
 
 from kernel.jsonutil import as_dict
+from products.agent.loop import GuardBlocked
 
-Guard = Callable[[str, str], "str | None"]
+Guard = Callable[[str, str], None]
 
 #: The files governance rests on — protected from agent writes by default.
 PROTECTED_RAILS: tuple[str, ...] = ("alignment", "next.md")
@@ -121,16 +122,18 @@ def protected_rails_guard(root: Path) -> Guard:
     """
     root_p = Path(root)
 
-    def guard(name: str, args_json: str) -> str | None:
+    def guard(name: str, args_json: str) -> None:
         try:
             parsed: object = json.loads(args_json) if args_json else {}
         except json.JSONDecodeError:
-            return None  # malformed args degrade to a fail-soft dispatch error
+            return  # malformed args degrade to a fail-soft dispatch error
         args = as_dict(parsed)
         if name == "write_file":
-            return rail_write_reason(str(args.get("path", "")), root_p)
+            reason = rail_write_reason(str(args.get("path", "")), root_p)
+            if reason: raise GuardBlocked(reason)
         if name == "run_bash":
-            return rail_bash_reason(str(args.get("command", "")), root_p)
-        return None
+            reason = rail_bash_reason(str(args.get("command", "")), root_p)
+            if reason: raise GuardBlocked(reason)
+        return
 
     return guard

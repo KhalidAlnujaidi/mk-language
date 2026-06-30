@@ -125,6 +125,7 @@ def test_no_budget_runs_to_max_turns() -> None:
             task_id="t",
             max_turns=4,
             stall_repeats=100,  # disable the convergence gate; isolate max_turns
+            self_heal=False,
             call_factory=_always_tool_factory(tokens_per_turn=100),  # type: ignore[arg-type]
         )
     )
@@ -145,6 +146,7 @@ def test_result_reports_cumulative_tokens_spent() -> None:
             task_id="t",
             max_turns=3,
             stall_repeats=100,
+            self_heal=False,
             call_factory=_always_tool_factory(tokens_per_turn=100),  # type: ignore[arg-type]
         )
     )
@@ -164,6 +166,7 @@ def test_spent_offset_seeds_the_tally_and_carries_across_runs() -> None:
             max_turns=2,
             stall_repeats=100,
             spent_offset=500,
+            self_heal=False,
             call_factory=_always_tool_factory(tokens_per_turn=100),  # type: ignore[arg-type]
         )
     )
@@ -191,3 +194,44 @@ def test_session_budget_stops_a_later_run_via_offset() -> None:
     assert result.stopped == "budget"
     assert result.turns == 1
     assert result.tokens_spent == 340
+
+
+def test_agent_resumes_from_state() -> None:
+    # First run stops at budget
+    run1 = _run(
+        run_agent(
+            "do the thing",
+            tier=TIER,
+            registry=_echo_registry(),
+            sink=MetricsSink(Path("/dev/null")),
+            task_id="t",
+            max_turns=50,
+            stall_repeats=100,
+            token_budget=TokenBudget(limit=150),
+            call_factory=_always_tool_factory(tokens_per_turn=100),  # type: ignore[arg-type]
+        )
+    )
+    assert run1.stopped == "budget"
+    assert run1.turns == 2
+    assert run1.tokens_spent == 200
+    assert run1.state is not None
+
+    # Second run resumes with larger budget
+    run2 = _run(
+        run_agent(
+            "do the thing",
+            tier=TIER,
+            registry=_echo_registry(),
+            sink=MetricsSink(Path("/dev/null")),
+            task_id="t",
+            max_turns=50,
+            stall_repeats=100,
+            token_budget=TokenBudget(limit=450),
+            resume_from=run1.state,
+            call_factory=_always_tool_factory(tokens_per_turn=100),  # type: ignore[arg-type]
+        )
+    )
+    assert run2.stopped == "budget"
+    # Should start from turn 2 and do 3 more turns (to hit 500 > 450 limit)
+    assert run2.turns == 5
+    assert run2.tokens_spent == 500

@@ -63,9 +63,50 @@ def expand(text: str, *, cwd: Path | None = None) -> ExpandResult:
             if not tok or tok in seen:
                 return
             seen.add(tok)
-            target = Path(tok) if tok.startswith("/") else base / tok
-            status = "exists" if target.exists() else "missing"
-            notes.append(f"{prefix}{tok} → {status}")
+            
+            # Parse optional line range suffix: :42 or :10-20
+            path_part = tok
+            lines_range: tuple[int, int] | None = None
+            m = re.search(r':(\d+)(?:-(\d+))?$', tok)
+            if m:
+                path_part = tok[:m.start()]
+                try:
+                    start_line = int(m.group(1))
+                    end_line = int(m.group(2)) if m.group(2) else start_line
+                    if start_line > 0 and end_line >= start_line:
+                        lines_range = (start_line, end_line)
+                except ValueError:
+                    pass
+
+            target = Path(path_part) if path_part.startswith("/") else base / path_part
+            if not target.exists():
+                notes.append(f"{prefix}{tok} → missing")
+                return
+                
+            if not target.is_file():
+                notes.append(f"{prefix}{tok} → exists (not a file)")
+                return
+                
+            try:
+                content = target.read_text(encoding="utf-8")
+                lines = content.splitlines()
+                
+                if lines_range:
+                    start, end = lines_range
+                    if start > len(lines):
+                        notes.append(f"{prefix}{tok} → exists (lines out of bounds)")
+                        return
+                    snippet = "\n".join(lines[start-1:end])
+                    notes.append(f"{prefix}{tok} (lines {start}-{end}):\n```\n{snippet}\n```")
+                else:
+                    if len(lines) <= 300:
+                        notes.append(f"{prefix}{tok} (full file):\n```\n{content}\n```")
+                    else:
+                        notes.append(f"{prefix}{tok} → exists (too large to auto-inject: {len(lines)} lines)")
+            except UnicodeDecodeError:
+                notes.append(f"{prefix}{tok} → exists (binary file)")
+            except Exception:
+                notes.append(f"{prefix}{tok} → exists (could not read)")
 
         for match in _PATH_MENTION.finditer(text):
             _note(match.group(1), prefix="@")

@@ -153,9 +153,13 @@ def test_project_root_guard_enforces_user_deny_rule(tmp_path: Path) -> None:
     rs = _rs(Rule(Layer.USER, Action.DENY, tool=_RUN, command_prefix="git push"))
     guard = project_root_guard(tmp_path, ruleset=rs)
 
+    import pytest
+    from products.agent.loop import GuardBlocked
+
     # A user-DENYed command is refused...
-    refusal = guard(_RUN, '{"command": "git push --force origin main"}')
-    assert refusal is not None and "refused" in refusal
+    with pytest.raises(GuardBlocked) as exc_info:
+        guard(_RUN, '{"command": "git push --force origin main"}')
+    assert "refused" in str(exc_info.value)
     # ...while an unrelated command still passes (no regression).
     assert guard(_RUN, '{"command": "git status"}') is None
 

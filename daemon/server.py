@@ -55,6 +55,7 @@ from daemon.resources import ResourceSnapshot
 from daemon.resources import sample as default_resources
 from daemon.serializer import Serializer
 from daemon.tracing import incoming_trace, init_tracing
+from daemon.registry import Registry, ModelEntry
 
 # How many recent events ``/broker/status`` surfaces.
 _RECENT_EVENTS_LIMIT = 20
@@ -188,6 +189,9 @@ def create_app(config: BrokerConfig | None = None) -> FastAPI:
     # In-memory state for /broker/status: the last tier used (null until first call)
     # and the ids reconciled from a prior crash on this startup (hard truth #4).
     state: dict[str, object] = {"last_tier_used": None, "recovered_on_start": []}
+    
+    # Intelligence Broker: in-memory registry for model fitness scoring
+    registry = Registry()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):  # pyright: ignore[reportUnusedFunction]
@@ -250,7 +254,18 @@ def create_app(config: BrokerConfig | None = None) -> FastAPI:
 
             async with serializer.slot():
                 manifest = cfg.probe()
-                chain = build_chain(manifest, preferred)
+                snapshot = cfg.resources()
+                
+                # Sync manifest models into the registry for scoring
+                for m in manifest.local_models:
+                    if not registry.get(m.name):
+                        # Use a dummy canary for now; a real canary would make a test completion
+                        registry.register(
+                            ModelEntry(name=m.name, backend=m.backend, vram_gb_required=m.vram_gb_required), 
+                            lambda e: True
+                        )
+                
+                chain = build_chain(manifest, preferred, registry=registry, snapshot=snapshot)
                 try:
                     result = await execute(
                         chain,
@@ -281,7 +296,17 @@ def create_app(config: BrokerConfig | None = None) -> FastAPI:
         model: str | None = None,
     ) -> dict[str, object]:
         manifest = cfg.probe()
-        chain = build_chain(manifest, model)
+        snapshot = cfg.resources()
+        
+        # Sync manifest models into the registry for scoring
+        for m in manifest.local_models:
+            if not registry.get(m.name):
+                registry.register(
+                    ModelEntry(name=m.name, backend=m.backend, vram_gb_required=m.vram_gb_required), 
+                    lambda e: True
+                )
+                
+        chain = build_chain(manifest, model, registry=registry, snapshot=snapshot)
         return {
             "preferred": model,
             "chain": [

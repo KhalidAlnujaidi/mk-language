@@ -21,8 +21,11 @@ offline with a scripted backend — the same boundary-injection discipline as
 from __future__ import annotations
 
 import json
+import re
+import shlex
 import time
-from collections.abc import Callable
+import anyio
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
 from daemon.exec import (
@@ -39,6 +42,15 @@ from kernel.jsonutil import as_dict
 from kernel.metrics import MetricsSink
 from kernel.tracing import span
 
+from products.agent.dag import DAGNode
+
+class GuardBlocked(Exception):
+    """Raised by a :data:`Guard` to abort a tool dispatch. The message is surfaced
+    to the agent as its observation."""
+    def __init__(self, message: str, dag: DAGNode | None = None):
+        super().__init__(message)
+        self.dag = dag
+
 from products.agent.budget import TokenBudget
 from products.agent.tools import ToolRegistry
 
@@ -46,9 +58,9 @@ from products.agent.tools import ToolRegistry
 #: to the real Ollama backend; tests inject a fake that returns scripted turns.
 CallFactory = Callable[[list[dict[str, object]]], Call]
 
-#: A pre-dispatch guard: ``(tool_name, arguments_json) -> denial reason | None``.
-#: Returning a string BLOCKS the call (fail-CLOSED, thesis #2); ``None`` allows it.
-Guard = Callable[[str, str], "str | None"]
+#: A pre-dispatch guard: ``(tool_name, arguments_json) -> None``.
+#: Raising :class:`GuardBlocked` BLOCKS the call (fail-CLOSED, thesis #2).
+Guard = Callable[[str, str], None]
 
 #: Operational instructions for the agent.  The governing axioms (and, in
 #: framework scope, kinox's internals) are injected as the preamble — axioms from
@@ -150,6 +162,23 @@ class AgentStep:
     kind: str  # "tool" | "final" | "blocked"
     name: str  # tool name (for "tool"/"blocked"), "" for "final"
     detail: str  # arguments (tool) or observation/answer text
+    dag: dict[str, object] | None = None
+
+
+@dataclass(frozen=True)
+class AgentState:
+    """A checkpoint of the agent loop's state to allow resumption/undo."""
+    messages: Messages
+    steps: list[AgentStep]
+    turns: int
+    tokens_spent: int
+    seen_reads: dict[str, int]
+    ctx_chars: int
+    nudged: bool
+    outcome_counts: dict[str, int]
+    blocked_streak: int
+    edit_fail_streak: int
+    self_heals_used: int
 
 
 @dataclass
@@ -164,6 +193,7 @@ class AgentResult:
     turns: int = 0
     stopped: str = "complete"
     tokens_spent: int = 0
+    state: AgentState | None = None
 
 
 def _default_call_factory() -> CallFactory:
@@ -229,15 +259,18 @@ async def run_agent(
     max_turns: int = 8,
     stall_repeats: int = 3,
     stall_blocks: int = 5,
-    stall_edit_fails: int = 3,
+    stall_edit_fails: int = 9999,
     context_soft_chars: int = 40_000,
     token_budget: TokenBudget | None = None,
     spent_offset: int = 0,
+    self_heal: bool = True,
+    max_self_heals: int = 2,
     guard: Guard | None = None,
     call_factory: CallFactory | None = None,
     on_step: Callable[[AgentStep], None] | None = None,
     on_token: Callable[[str], None] | None = None,
-    fallback: Tier | None = None,
+    fallback: Tier | Sequence[Tier] | None = None,
+    resume_from: AgentState | None = None,
 ) -> AgentResult:
     """Run the tool-calling loop for *task* and return an :class:`AgentResult`.
 
@@ -256,9 +289,17 @@ async def run_agent(
       - **refusal-thrash** — *stall_blocks* tool calls in a row are refused;
       - **no-write-progress** — *stall_edit_fails* edit attempts fail without an
         intervening success (the edit-thrash case: an agent re-trying a change that
-        never takes, e.g. a failing in-place edit looped with re-reads). Reads never
-        count, so read-heavy work is unaffected; the streak resets on a successful
-        write.
+    *max_turns* remains only as a fail-CLOSED backstop: a hard ceiling on cost so an
+    agent that never repeats and never converges still cannot spend unbounded budget.
+    However, with *self_heal* (default ``True``), hitting ``max_turns`` or any stuck
+    condition no longer terminates the run immediately. Instead the loop injects a
+    corrective system message — telling the model to continue from where it left
+    off (for ``max_turns``) or to change approach (for ``stuck``) — resets the
+    progress counters, and continues with a fresh ``max_turns`` budget. This can
+    happen at most *max_self_heals* times (default 2), giving the agent up to
+    ``max_turns * (1 + max_self_heals)`` total turns before the fail-CLOSED backstop
+    truly stops it. A token-budget exhaustion is NOT self-healed (that is a real cost
+    ceiling, not a recoverable condition).
     *max_turns* remains only as a fail-CLOSED backstop: a hard ceiling on cost so an
     agent that never repeats and never converges still cannot spend unbounded budget.
 
@@ -306,62 +347,84 @@ async def run_agent(
     wander before the expensive brain starts; absent/empty, the brain runs unguided.
     """
     factory = call_factory or _default_call_factory()
-    chain = [tier] if fallback is None or fallback == tier else [tier, fallback]
+    chain: list[Tier] = [tier]
+    if fallback is not None:
+        if isinstance(fallback, Sequence) and not isinstance(fallback, str):
+            for t in fallback:
+                if t not in chain:
+                    chain.append(t)
+        elif fallback != tier:
+            chain.append(fallback)
     schema = registry.schemas()
-    compiled_prompt = (
-        f"{preamble}\n\n---\n\n{system_prompt}" if preamble else system_prompt
-    )
-    messages: Messages = [
-        {"role": "system", "content": compiled_prompt},
-        *(history or []),
-        {"role": "user", "content": task},
-    ]
-    # A cheap local planner (products.agent.planner) may front-load a terse plan to
-    # curb wander before the expensive brain starts. It is a HINT, not a contract:
-    # the guards and the model's judgment stay authoritative, so a wrong plan can
-    # mislead but never override safety. Empty/absent → the brain runs unguided.
-    if plan:
-        messages.append(
-            {
-                "role": "system",
-                "content": (
-                    "[plan] A cheap local planner suggested this approach. Treat it "
-                    "as a hint, not a contract — follow it only where it is correct, "
-                    "and your guards and judgment remain authoritative:\n" + plan
-                ),
-            }
+    if resume_from is not None:
+        messages = list(resume_from.messages)
+        result = AgentResult(
+            final_text="",
+            steps=list(resume_from.steps),
+            turns=resume_from.turns,
+            tokens_spent=resume_from.tokens_spent
         )
-    result = AgentResult(final_text="", tokens_spent=spent_offset)
+        seen_reads = dict(resume_from.seen_reads)
+        ctx_chars = resume_from.ctx_chars
+        nudged = resume_from.nudged
+        outcome_counts = dict(resume_from.outcome_counts)
+        blocked_streak = resume_from.blocked_streak
+        edit_fail_streak = resume_from.edit_fail_streak
+        spent_tokens = resume_from.tokens_spent
+        self_heals_used = resume_from.self_heals_used
+        start_turn = resume_from.turns
+    else:
+        compiled_prompt = (
+            f"{preamble}\n\n---\n\n{system_prompt}" if preamble else system_prompt
+        )
+        messages: Messages = [
+            {"role": "system", "content": compiled_prompt},
+            *(history or []),
+            {"role": "user", "content": task},
+        ]
+        if plan:
+            messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "[plan] A cheap local planner suggested this approach. Treat it "
+                        "as a hint, not a contract — follow it only where it is correct, "
+                        "and your guards and judgment remain authoritative:\n" + plan
+                    ),
+                }
+            )
+        result = AgentResult(final_text="", tokens_spent=spent_offset)
+        seen_reads: dict[str, int] = {}
+        ctx_chars = 0
+        nudged = False
+        outcome_counts: dict[str, int] = {}
+        blocked_streak = 0
+        edit_fail_streak = 0
+        spent_tokens = spent_offset
+        self_heals_used = 0
+        start_turn = 0
 
-    # Context governance (fights rot, not breadth): remember idempotent reads so a
-    # repeat costs a pointer instead of the payload, and track how much tool output
-    # has accumulated so we can nudge the model to converge once — soft, not a cap.
-    seen_reads: dict[str, int] = {}
-    ctx_chars = 0
-    nudged = False
+    def _capture_state() -> AgentState:
+        return AgentState(
+            messages=list(messages),
+            steps=list(result.steps),
+            turns=result.turns,
+            tokens_spent=spent_tokens,
+            seen_reads=dict(seen_reads),
+            ctx_chars=ctx_chars,
+            nudged=nudged,
+            outcome_counts=dict(outcome_counts),
+            blocked_streak=blocked_streak,
+            edit_fail_streak=edit_fail_streak,
+            self_heals_used=self_heals_used,
+        )
 
-    # Logical convergence gate (the primary stop; max_turns is only the backstop).
-    # We watch WHAT the agent does, not just how many turns elapse: a (call, result)
-    # pair that recurs is no-progress repetition, and a run of refusals means the
-    # approach does not work in this scope. Either trips an early, explained stop —
-    # so a productive agent runs free while a stuck one is caught long before it
-    # burns the budget. ``outcome_counts`` keys on action+result so a legitimate
-    # edit→test→edit loop (same command, *different* output) is NOT flagged.
-    outcome_counts: dict[str, int] = {}
-    blocked_streak = 0
-    edit_fail_streak = 0  # failed edit attempts since the last successful write
-
-    # Running token tally for *token_budget* (vision §9). Summed from each model
-    # turn's EventRecord (prompt + completion). Seeded by *spent_offset* so the
-    # budget continues across runs (per-session). Checked at the TOP of a turn so
-    # an exhausted budget stops the run *before* spending another expensive call.
-    spent_tokens = spent_offset
-
-    # The "agent.run" span of the end-to-end trace (vision §7): one per run, with
-    # a child per model turn (broker.execute) and per tool (agent.tool). A no-op
-    # unless a tracer is installed, so this never changes the loop's behaviour.
     with span("agent.run", {"kinox.task_id": task_id}):
-        for turn in range(max_turns):
+      self_heal_active = True
+      while self_heal_active:
+        self_heal_active = False
+        for turn_offset in range(max_turns):
+            turn = start_turn + turn_offset
             if token_budget is not None and token_budget.exhausted(spent_tokens):
                 # Fail-soft early exit (vision §9): return what we have, don't raise.
                 # Checked before the turn counter so result.turns reflects *completed*
@@ -373,7 +436,7 @@ async def run_agent(
                         f"{result.turns} turns / {spent_tokens} tokens — raise the "
                         "budget or narrow the task)"
                     )
-                return result
+                result.state = _capture_state(); return result
             result.turns = turn + 1
             try:
                 # Stream the turn when a token sink is wired (live answer, vision
@@ -398,11 +461,11 @@ async def run_agent(
                 sink.record(exc.event)
                 result.final_text = "(model unavailable: fallback chain exhausted)"
                 result.stopped = "error"
-                return result
+                result.state = _capture_state(); return result
             except BackendError as exc:
                 result.final_text = f"(model unavailable: {exc})"
                 result.stopped = "error"
-                return result
+                result.state = _capture_state(); return result
 
             # Every model turn is one boundary record (kind="agent").
             sink.record(exec_result.event)
@@ -421,7 +484,7 @@ async def run_agent(
                 result.steps.append(step)
                 if on_step is not None:
                     on_step(step)
-                return result
+                result.state = _capture_state(); return result
 
             # The model asked for tools. Record the assistant turn (OpenAI requires
             # the tool_calls message to precede the tool results), then dispatch.
@@ -439,10 +502,25 @@ async def run_agent(
                 args_json = raw_args if isinstance(raw_args, str) else "{}"
 
                 started = time.perf_counter()
-                denial = guard(name, args_json) if guard is not None else None
+                
+                denial = None
+                blocked_dag = None
+                if guard is not None:
+                    try:
+                        guard(name, args_json)
+                    except GuardBlocked as exc:
+                        import traceback
+                        tb = traceback.extract_tb(exc.__traceback__)
+                        if tb:
+                            loc = f"[{tb[-1].filename}:{tb[-1].lineno}]"
+                        else:
+                            loc = "[unknown location]"
+                        denial = f"{loc} {exc}"
+                        blocked_dag = exc.dag.to_dict() if exc.dag else None
+
                 if denial is not None:
                     observation = f"(blocked by guard: {denial})"
-                    step = AgentStep("blocked", name, denial)
+                    step = AgentStep("blocked", name, denial, dag=blocked_dag)
                     kind = f"agent_tool_blocked:{name}"
                 else:
                     read_key = _read_key(name, args_json)
@@ -458,7 +536,9 @@ async def run_agent(
                         # Leaf "agent.tool" span of the trace (vision §7): the actual
                         # (deterministic) tool execution. No-op unless a tracer is set.
                         with span(f"agent.tool:{name}"):
-                            observation = registry.dispatch(name, args_json)
+                            observation = await anyio.to_thread.run_sync(
+                                registry.dispatch, name, args_json
+                            )
                         if read_key is not None:
                             seen_reads[read_key] = turn
                         step = AgentStep("tool", name, args_json)
@@ -517,13 +597,29 @@ async def run_agent(
                         "or check the target"
                     )
                 if stuck is not None:
+                    if self_heal and self_heals_used < max_self_heals:
+                        # Inject corrective message and reset for a fresh attempt.
+                        self_heals_used += 1
+                        messages.append({
+                            "role": "system",
+                            "content": (
+                                f"[self-heal] You are stuck: {stuck}. "
+                                "Change your approach: narrow the scope, try a "
+                                "different tool, or break the task into smaller steps. "
+                                "Do NOT repeat the same action that failed."
+                            ),
+                        })
+                        outcome_counts.clear()
+                        blocked_streak = 0
+                        edit_fail_streak = 0
+                        self_heal_active = True
+                        break  # break inner for-loop, continue outer while
                     result.stopped = "stuck"
                     result.final_text = (
-                        f"(stopped: {stuck}. Change approach or narrow the task — this "
+                        f"(stopped: {stuck}. Change approach or narrow the task — this \n"
                         "is a no-progress gate, not a turn-count cap.)"
                     )
-                    return result
-
+                    result.state = _capture_state(); return result
             # Once the gathered context grows large, nudge the model to converge —
             # exactly once, so it costs ~one line and never nags. This governs context
             # rot (too much accumulated, signal lost) without a hard tool-call cap.
@@ -542,11 +638,31 @@ async def run_agent(
                     }
                 )
 
-        # Turn budget exhausted without a final answer → stop (fail-CLOSED).
-        result.stopped = "max_turns"
-        if not result.final_text:
-            result.final_text = (
-                f"(stopped after {max_turns} turns without completing — "
-                "the task may need more turns or a narrower scope)"
-            )
-        return result
+        if self_heal_active:
+            # We broke out early due to a 'stuck' condition and already set up a self-heal.
+            continue
+
+        # Turn budget exhausted without a final answer (max_turns hit).
+        # We allow continuous development if the agent is making progress (not stuck).
+        if self_heal and self_heals_used < max_self_heals:
+            messages.append({
+                "role": "system",
+                "content": (
+                    f"[self-heal] You reached the {max_turns}-turn budget without "
+                    "completing. Continue from where you left off — do NOT redo "
+                    "work already done. Focus on the remaining steps and converge."
+                ),
+            })
+            outcome_counts.clear()
+            blocked_streak = 0
+            edit_fail_streak = 0
+            self_heals_used += 1
+            self_heal_active = True
+        else:
+            result.stopped = "max_turns"
+            if not result.final_text:
+                result.final_text = (
+                    f"(stopped after {max_turns} turns without completing — "
+                    "the task may need more turns or a narrower scope)"
+                )
+            result.state = _capture_state(); return result

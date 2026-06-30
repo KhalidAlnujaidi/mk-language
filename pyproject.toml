@@ -13,6 +13,7 @@ dependencies = [
     # lexical guard, so this dependency is platform-gated and never blocks a
     # non-Linux install.
     "landlock>=1.0.0.dev5; sys_platform == 'linux'",
+    "agent-client-protocol>=0.8.0",
 ]
 
 [project.optional-dependencies]
@@ -26,6 +27,13 @@ daemon = [
 ]
 dashboard = [
     "rich>=15.0.0",
+    "streamlit>=1.30",
+    # Streamlit component libraries used by the observability dashboard
+    # (products/dashboard/streamlit_app.py). Without these, `kx ui` crashes at
+    # import time with ModuleNotFoundError.
+    "streamlit-aggrid>=1.0",
+    "streamlit-autorefresh>=1.0",
+    "streamlit-agraph>=0.0.45",
 ]
 # Document ingest for the groom pipeline (products/groom/ingest.py). markitdown
 # (PDF/DOCX/PPTX/XLSX/HTML/image → markdown) is optional: the stage fails SOFT
@@ -48,6 +56,10 @@ otel = [
     "opentelemetry-sdk>=1.20",
     "opentelemetry-exporter-otlp-proto-http>=1.20",
 ]
+nlp = [
+    "torch>=2.0.0",
+    "transformers<5.0.0",
+]
 
 [dependency-groups]
 dev = [
@@ -63,6 +75,12 @@ dev = [
     "psutil>=7.2.2",
     "rich>=15.0.0",
     "questionary>=2.0",
+    "streamlit>=1.30",
+    "streamlit-aggrid>=1.0",
+    "streamlit-autorefresh>=1.0",
+    "streamlit-agraph>=0.0.45",
+    "torch>=2.0.0",
+    "transformers<5.0.0",
 ]
 
 # No [build-system]: kinox is an application, not a published library. uv manages

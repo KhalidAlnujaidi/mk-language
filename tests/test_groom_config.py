@@ -56,5 +56,5 @@ def test_valid_toml_without_stage_table_uses_default():
 def test_default_order_includes_deslop():
     # Regression: the deslop stage (added with stop-slop) must be a known stage,
     # in canonical order between context and tag — so a config naming it loads.
-    assert DEFAULT_ORDER == ["redact", "expand", "context", "deslop", "tag"]
+    assert DEFAULT_ORDER == ["redact", "expand", "context", "recent_files", "entities", "clipboard", "deslop", "tag", "tool_select"]
     assert load_stage_order('[[stage]]\nname = "deslop"\n') == ["deslop"]

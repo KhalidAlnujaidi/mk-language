@@ -1,0 +1,40 @@
+==== catcher START 2026-06-29 11:35:30.997749084 watching /home/enigma/kinox/kx ====
+-- provoking with 5x 'kx doctor' as enigma --
+stdin:6:29-31: WARNING: Addrspace mismatch
+  if ((args.flags & 3) != 0 &&
+                            ~~
+Attaching 2 probes...
+-- running until Ctrl-C; trigger the auto-patch / rtk init now --
+==== catcher STOP 2026-06-29 11:40:34 -> /home/enigma/kinox/tools/kx-writer.log ====
+
+
+==== catcher STOP 2026-06-29 11:40:36 -> /home/enigma/kinox/tools/kx-writer.log ====
+==== catcher STOP 2026-06-29 11:40:36 -> /home/enigma/kinox/tools/kx-writer.log ====
+==== catcher STOP 2026-06-29 11:40:36 -> /home/enigma/kinox/tools/kx-writer.log ====
+==== catcher STOP 2026-06-29 11:40:36 -> /home/enigma/kinox/tools/kx-writer.log ====
+==== catcher STOP 2026-06-29 11:40:36 -> /home/enigma/kinox/tools/kx-writer.log ====
+==== catcher STOP 2026-06-29 11:40:37 -> /home/enigma/kinox/tools/kx-writer.log ====
+==== catcher STOP 2026-06-29 11:40:37 -> /home/enigma/kinox/tools/kx-writer.log ====
+==== catcher STOP 2026-06-29 11:40:37 -> /home/enigma/kinox/tools/kx-writer.log ====
+==== catcher STOP 2026-06-29 11:40:37 -> /home/enigma/kinox/tools/kx-writer.log ====
+==== catcher STOP 2026-06-29 11:40:37 -> /home/enigma/kinox/tools/kx-writer.log ====
+==== catcher STOP 2026-06-29 11:40:37 -> /home/enigma/kinox/tools/kx-writer.log ====
+==== catcher STOP 2026-06-29 11:40:38 -> /home/enigma/kinox/tools/kx-writer.log ====
+==== catcher STOP 2026-06-29 11:40:38 -> /home/enigma/kinox/tools/kx-writer.log ====
+==== catcher STOP 2026-06-29 11:40:38 -> /home/enigma/kinox/tools/kx-writer.log ====
+==== catcher STOP 2026-06-29 11:40:38 -> /home/enigma/kinox/tools/kx-writer.log ====
+==== catcher STOP 2026-06-29 11:40:38 -> /home/enigma/kinox/tools/kx-writer.log ====
+==== catcher STOP 2026-06-29 11:40:38 -> /home/enigma/kinox/tools/kx-writer.log ====
+==== catcher STOP 2026-06-29 11:40:39 -> /home/enigma/kinox/tools/kx-writer.log ====
+==== daemon START 2026-06-29 11:45:13 ====
+stdin:6:29-31: WARNING: Addrspace mismatch
+  if ((args.flags & 3) != 0 &&
+                            ~~
+Attaching 2 probes...
+2026-06-29 13:02:41 WRITE-OPEN comm=git pid=1840804 uid=1000 flags=0xc1 path=kx
+2026-06-29 13:55:27 WRITE-OPEN comm=git pid=1951441 uid=1000 flags=0xc1 path=kx
+2026-06-29 14:43:40 WRITE-OPEN comm=git pid=1990918 uid=1000 flags=0xc1 path=kx
+2026-06-29 17:26:10 WRITE-OPEN comm=bash pid=2123698 uid=1000 flags=0x241 path=/home/enigma/.local/bin/kx
+2026-06-29 19:27:15 WRITE-OPEN comm=git pid=2209785 uid=1000 flags=0xc1 path=kx
+2026-06-29 19:40:59 WRITE-OPEN comm=bash pid=2237025 uid=1000 flags=0x241 path=/home/enigma/.local/bin/kx
+2026-06-29 19:45:30 WRITE-OPEN comm=bash pid=2262805 uid=1000 flags=0x241 path=/home/enigma/.local/bin/kx

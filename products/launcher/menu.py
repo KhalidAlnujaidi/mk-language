@@ -43,6 +43,23 @@ def _project_dirs(projects_dir: Path) -> list[Path]:
     return sorted(dirs, key=lambda p: p.name)
 
 
+def _count_loc(project_dir: Path) -> int:
+    """Count lines of code in the project directory, skipping typical non-source dirs."""
+    ignore_dirs = {".git", ".venv", "venv", "node_modules", "__pycache__", "build", "dist", "target", ".kinox", "target", "vendor"}
+    loc = 0
+    for path in project_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        if any(part in ignore_dirs or part.startswith(".") for part in path.parts):
+            continue
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                loc += sum(1 for _ in f)
+        except (UnicodeDecodeError, OSError):
+            pass  # Ignore binary files or unreadable files
+    return loc
+
+
 def build_menu(
     projects_dir: Path, *, role: str = "admin", manifest: object | None = None
 ) -> list[MenuItem]:
@@ -60,8 +77,10 @@ def build_menu(
             MenuItem("kin", "kin — admin scope (repo root)", "admin", repo_root)
         )
     for project in _project_dirs(projects_dir):
+        loc = _count_loc(project)
+        loc_str = f"{loc:,} LOC" if loc > 0 else "empty"
         items.append(
-            MenuItem(project.name, f"{project.name} — project", "project", project)
+            MenuItem(project.name, f"{project.name} — project ({loc_str})", "project", project)
         )
     items.extend(
         [

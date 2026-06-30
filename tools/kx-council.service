@@ -1,0 +1,16 @@
+[Unit]
+Description=kinox council/language experiment dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=enigma
+Group=khalid
+WorkingDirectory=/home/enigma/kinox
+ExecStart=/home/enigma/kinox/.venv/bin/python projects/language/dashboard.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

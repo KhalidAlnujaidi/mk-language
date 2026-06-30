@@ -15,7 +15,7 @@ from typing import TypeVar
 from daemon.exec import BackendError, BackendResponse, Call, Messages
 from kernel.contracts import Tier
 from kernel.metrics import MetricsSink
-from products.agent.loop import run_agent
+from products.agent.loop import AgentResult, AgentState, GuardBlocked, run_agent
 from products.agent.tools import Tool, ToolRegistry, default_registry
 
 TIER = Tier.model("gemma-agentic:32k", where="local", backend="ollama")
@@ -136,6 +136,7 @@ def test_no_write_progress_gate_stops_edit_thrash() -> None:
             task_id="t",
             max_turns=50,
             stall_edit_fails=3,
+            self_heal=False,
             call_factory=_seq_factory(seq),  # type: ignore[arg-type]
         )
     )
@@ -297,6 +298,7 @@ def test_logical_gate_stops_on_no_progress_repetition() -> None:
             task_id="t",
             max_turns=50,  # would run far longer; the gate stops it first
             stall_repeats=3,
+            self_heal=False,
             call_factory=_scripted_factory([forever]),  # type: ignore[arg-type]
         )
     )
@@ -347,6 +349,13 @@ def test_logical_gate_allows_same_command_with_changing_output() -> None:
     assert result.stopped == "complete"  # changing output = progress, not a loop
 
 
+def _blocker(_n: str, _a: str) -> None:
+    raise GuardBlocked("denied")
+
+def _danger_blocker(name: str, _args: str) -> None:
+    if name == "danger":
+        raise GuardBlocked("denied")
+
 def test_logical_gate_stops_on_repeated_refusals() -> None:
     # A run of guard refusals means the approach does not work in this scope →
     # stopped="stuck" after stall_blocks, not a silent grind to max_turns.
@@ -365,7 +374,8 @@ def test_logical_gate_stops_on_repeated_refusals() -> None:
             max_turns=50,
             stall_repeats=99,  # isolate the blocked-streak gate
             stall_blocks=4,
-            guard=lambda _n, _a: "denied",  # every call refused
+            self_heal=False,
+            guard=_blocker,  # every call refused
             call_factory=_scripted_factory([forever]),  # type: ignore[arg-type]
         )
     )
@@ -401,7 +411,7 @@ def test_guard_blocks_call_fail_closed() -> None:
             registry=reg,
             sink=_sink(),
             task_id="t",
-            guard=lambda name, _args: "denied" if name == "danger" else None,
+            guard=_danger_blocker,
             call_factory=factory,  # type: ignore[arg-type]
         )
     )

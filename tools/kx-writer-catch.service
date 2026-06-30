@@ -1,0 +1,12 @@
+[Unit]
+Description=Catch processes opening /home/enigma/kinox/kx for writing (ETXTBSY forensics)
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/home/enigma/kinox/tools/kx-writer-daemon.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

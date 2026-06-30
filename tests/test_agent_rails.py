@@ -16,6 +16,7 @@ from products.agent.rails import (
     protected_rails_guard,
     rail_write_reason,
 )
+from products.agent.loop import GuardBlocked
 
 
 def _root(tmp_path: Path) -> Path:
@@ -28,11 +29,15 @@ def _root(tmp_path: Path) -> Path:
 
 def test_write_to_rail_is_refused(tmp_path: Path) -> None:
     guard = protected_rails_guard(_root(tmp_path))
-    assert guard("write_file", '{"path": "alignment/CONSTITUTION.md"}') is not None
-    assert guard("write_file", '{"path": "next.md"}') is not None
+    with pytest.raises(GuardBlocked):
+        guard("write_file", '{"path": "alignment/CONSTITUTION.md"}')
+    with pytest.raises(GuardBlocked):
+        guard("write_file", '{"path": "next.md"}')
     # The denial names the rail as "protected" and is a refusal (checker language).
-    reason = guard("write_file", '{"path": "alignment/AXIOMS.md"}')
-    assert reason is not None and "protected" in reason and "refused" in reason
+    with pytest.raises(GuardBlocked) as exc:
+        guard("write_file", '{"path": "alignment/AXIOMS.md"}')
+    reason = str(exc.value)
+    assert "protected" in reason and "refused" in reason
 
 
 def test_non_rail_write_is_allowed(tmp_path: Path) -> None:
@@ -51,9 +56,12 @@ def test_reading_a_rail_is_allowed(tmp_path: Path) -> None:
 
 def test_bash_mutation_of_a_rail_is_refused(tmp_path: Path) -> None:
     guard = protected_rails_guard(_root(tmp_path))
-    assert guard("run_bash", '{"command": "echo x > alignment/AXIOMS.md"}') is not None
-    assert guard("run_bash", '{"command": "rm alignment/CONSTITUTION.md"}') is not None
-    assert guard("run_bash", '{"command": "sed -i s/a/b/ next.md"}') is not None
+    with pytest.raises(GuardBlocked):
+        guard("run_bash", '{"command": "echo x > alignment/AXIOMS.md"}')
+    with pytest.raises(GuardBlocked):
+        guard("run_bash", '{"command": "rm alignment/CONSTITUTION.md"}')
+    with pytest.raises(GuardBlocked):
+        guard("run_bash", '{"command": "sed -i s/a/b/ next.md"}')
 
 
 def test_unlock_stands_the_guard_down(

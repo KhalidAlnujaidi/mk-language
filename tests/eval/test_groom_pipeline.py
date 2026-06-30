@@ -19,8 +19,8 @@ def test_groom_records_one_event_per_stage_and_redacts():
     prompt = "deploy with key AKIAIOSFODNN7EXAMPLE please"
     annotation = groom(prompt, manifest=probe(), sink=sink, cwd=cwd, task_id="t-groom")
 
-    # one EventRecord per stage: redact, expand, context, deslop, tag
-    assert len(sink.read_all()) == 5
+    # one EventRecord per stage: redact, expand, context, recent_files, entities, clipboard, deslop, tag, tool_select
+    assert len(sink.read_all()) == 9
 
     # the redaction is surfaced as an additive context line
     assert any("redacted" in line.lower() for line in annotation.lines)

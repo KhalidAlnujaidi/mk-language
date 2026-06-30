@@ -52,7 +52,6 @@ def test_empty_or_all_flags_is_empty() -> None:
         "rm -rf $HOME",
         "dd if=/dev/zero of=/dev/sda",
         "mkfs.ext4 /dev/sdb1",
-        "echo a\necho b",
         "rm -rf ../../etc",
     ],
 )
@@ -60,8 +59,21 @@ def test_catastrophic_commands_are_denied(cmd: str) -> None:
     assert assess(cmd).level is Level.DENY
 
 
-def test_unparseable_command_fails_closed() -> None:
-    assert assess('echo "unterminated').level is Level.DENY
+def test_unparseable_harmless_command_is_allowed() -> None:
+    # shlex can't parse unbalanced quotes (e.g. an apostrophe in a heredoc the
+    # model wrote), but that is not a danger signal — blanket-denying it was the
+    # biggest autonomy killer. A harmless unparseable command flows through; if
+    # it is truly malformed, bash returns a syntax error the agent can fix.
+    assert assess('echo "unterminated').level is Level.SAFE
+    assert assess("git commit -m 'fix model's bug'").level is Level.SAFE
+
+
+def test_unparseable_but_dangerous_still_denied() -> None:
+    # The lenient fallback still runs the danger-scan on a whitespace split, so a
+    # privilege-escalation/device-writer hidden in an unparseable command is
+    # caught — it fails CLOSED on what actually matters, not on parse failure.
+    assert assess("sudo cat 'unterminated").level is Level.DENY
+    assert assess("mkfs.ext4 'unterminated").level is Level.DENY
 
 
 # --- ASK: destructive but sometimes legitimate -----------------------------

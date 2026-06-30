@@ -33,7 +33,7 @@ from kernel.contracts import Tier
 from kernel.jsonutil import as_dict
 from kernel.metrics import MetricsSink
 
-from products.agent.loop import AgentResult, Guard, run_agent
+from products.agent.loop import AgentResult, Guard, GuardBlocked, run_agent
 
 # ``_candidate_paths`` is a deliberate reuse (Rule Zero) of the sibling module's
 # lexical path-token splitter — the same one ``run_bash``'s jail uses — so the
@@ -125,39 +125,38 @@ def ownership_guard(
     owned_r = [(root_p / o).resolve() for o in owned]
     foreign_r = [(root_p / o).resolve() for o in foreign]
 
-    def guard(name: str, args_json: str) -> str | None:
+    def guard(name: str, args_json: str) -> None:
         try:
             parsed: object = json.loads(args_json) if args_json else {}
         except json.JSONDecodeError:
-            return None  # malformed args degrade to a fail-soft dispatch error
+            return  # malformed args degrade to a fail-soft dispatch error
         args = as_dict(parsed)  # dict[str, object], {} for a non-object shape
         if name == "write_file":
             rel = str(args.get("path", ""))
             target = (root_p / rel).resolve()
             if not _under(target, owned_r):
-                return (
+                raise GuardBlocked(
                     f"write to {rel!r} is outside this agent's slice — that path "
                     "belongs to another agent (no override across slices)"
                 )
-            return None
+            return
         if name == "run_bash":
             command = str(args.get("command", ""))
             try:
                 tokens = shlex.split(command, comments=False, posix=True)
             except ValueError:
-                return "command could not be parsed for slice-ownership safety"
+                raise GuardBlocked("command could not be parsed for slice-ownership safety")
             for tok in tokens:
                 for cand in _candidate_paths(tok):
                     if _under((root_p / cand).resolve(), foreign_r):
-                        return (
+                        raise GuardBlocked(
                             f"path {cand!r} is owned by another agent's slice — "
                             "parallel agents may not reach into each other's work"
                         )
-            return None
-        return None
+            return
+        return
 
     return guard
-
 
 def combine_guards(*guards: Guard | None) -> Guard:
     """Chain guards: return the first denial, or ``None`` if all pass.
@@ -168,12 +167,9 @@ def combine_guards(*guards: Guard | None) -> Guard:
     """
     active = [g for g in guards if g is not None]
 
-    def guard(name: str, args_json: str) -> str | None:
+    def guard(name: str, args_json: str) -> None:
         for g in active:
-            denial = g(name, args_json)
-            if denial is not None:
-                return denial
-        return None
+            g(name, args_json)
 
     return guard
 

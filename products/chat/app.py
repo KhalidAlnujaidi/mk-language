@@ -617,7 +617,9 @@ def _stream_turn(raw: str, session: ChatSession, console: object) -> bool:
         return False
     try:
         from rich.live import Live
-        from rich.markdown import Markdown
+        Markdown = _import_rich_markdown()
+        if Markdown is None:
+            return False
     except Exception:
         return False
 
@@ -816,12 +818,60 @@ def _run_agent_turn(
     if mcp_config is not None and str(mcp_config) not in _mcp_started:
         console.print("[dim]connecting MCP servers (set KINOX_MCP=0 to skip)…[/dim]")
         _mcp_started.add(str(mcp_config))
+    def parallel_callback(slices_def: list[dict[str, object]]) -> str:
+        from products.agent import Slice, run_parallel
+        from products.agent.coordinator import OverlapError, assert_disjoint
+        import asyncio
+        import uuid
+        
+        _slices = [
+            Slice(
+                task=str(s.get("task", "")),
+                owned=[str(p) for p in s.get("owned_paths", [])],
+                label=f"a{i + 1}"
+            )
+            for i, s in enumerate(slices_def)
+        ]
+        try:
+            assert_disjoint(_slices, session.cwd)
+        except OverlapError as exc:
+            return f"(error: overlap refused - {exc})"
+        
+        _base_id = uuid.uuid4().hex[:12]
+        def make_run() -> object:
+            async def run(sl: Slice, guard: object) -> object:
+                plan = await plan_task(sl.task, sink=session.sink, task_id=f"{_base_id}:{sl.label}-plan", root=session.cwd)
+                # Note: We don't bubble these sub-agent steps up to the TUI to avoid interleaved chaos,
+                # we just return their final results.
+                return await run_agent(
+                    sl.task,
+                    tier=tier,
+                    registry=registry,
+                    sink=session.sink,
+                    task_id=f"{_base_id}:{sl.label}",
+                    guard=guard,
+                    preamble=_session_preamble(kinox_root, session.cwd),
+                    plan=plan,
+                    fallback=fallback_tiers,
+                    max_turns=int(os.environ.get("KINOX_MAX_TURNS", "30"))
+                )
+            return run
+            
+        async def do_parallel() -> str:
+            res = await run_parallel(_slices, root=session.cwd, run=make_run())
+            return "\n".join(f"[{s.label}] {r.final_text}" for s, r in zip(_slices, res))
+            
+        # We are currently in a worker thread (from anyio.to_thread.run_sync)
+        # without a running event loop, so asyncio.run is safe.
+        return asyncio.run(do_parallel())
+
     registry = default_registry(
         session.cwd,
         skills=skills,
         allow_bash=tool_config.allow_bash,
         allow_write=tool_config.allow_write,
         mcp_config=mcp_config,
+        parallel_callback=parallel_callback,
     )
     # kinox's agent brain is cloud-first (``glm-5.2``); the first local model is
     # the fail-soft fallback. With no local model the cloud brain runs alone; only
@@ -1436,7 +1486,24 @@ def _import_rich_console():
 
 def _import_rich_markdown():
     try:
-        from rich.markdown import Markdown
+        from rich.markdown import Markdown, CodeBlock
+        from rich.syntax import Syntax
+
+        class CopyableCodeBlock(CodeBlock):
+            """Render code without background padding so it is easily copyable in terminals."""
+            def __rich_console__(self, console, options):
+                code = str(self.text).rstrip()
+                yield Syntax(
+                    code,
+                    self.lexer_name,
+                    theme=self.theme,
+                    word_wrap=True,
+                    background_color="default",
+                    padding=0,
+                )
+
+        Markdown.elements["fence"] = CopyableCodeBlock
+        Markdown.elements["code_block"] = CopyableCodeBlock
 
         return Markdown
     except ImportError:

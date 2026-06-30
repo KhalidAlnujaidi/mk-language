@@ -1,6 +1,6 @@
 # kinox
 
-> A local-first, governed, cost-efficient workspace for running coding agents.
+> An Agent Runtime Environment (ARE) and VRAM-aware broker for coding agents.
 > Cheap local intelligence does the groundwork; expensive frontier models do only
 > the high-value reasoning; everything an agent does is observable, reversible, and
 > fails in a known direction.

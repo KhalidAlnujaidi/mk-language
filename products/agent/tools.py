@@ -20,6 +20,7 @@ the guard fails CLOSED on a path that escapes the root).
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -31,6 +32,7 @@ from typing import TYPE_CHECKING
 from kernel.jsonutil import as_dict
 
 from products.agent import command_safety, permission
+from products.agent.loop import GuardBlocked
 from products.capabilities.registry import (
     MCP_SERVER,
     Capability,
@@ -105,7 +107,38 @@ class ToolRegistry:
         try:
             return tool.handler(as_dict(parsed))
         except Exception as exc:  # fail-soft: surface, never crash the loop
-            return f"(tool error in {name!r}: {exc})"
+            import traceback
+            tb = traceback.extract_tb(exc.__traceback__)
+            if tb:
+                loc = f"[{tb[-1].filename}:{tb[-1].lineno}]"
+            else:
+                loc = "[unknown location]"
+            return f"(tool error in {name!r} at {loc}: {exc})"
+
+
+
+def _norm_rel(path: str) -> str:
+    """Normalise a relative path string so lexically-different forms that
+    resolve to the *same file* collapse to one canonical key.
+
+    The filesystem (via ``Path.resolve``) already treats ``src/app//x.ts`` and
+    ``src/app/x.ts`` as identical, but the raw string is echoed in tool
+    observations and used for the loop's read-dedup / repetition keys.  Without
+    normalisation the model sees its own double-slash echoed back, gets confused
+    about whether the file was created, and re-reads / re-writes — burning turns.
+
+    This collapses consecutive slashes (``//`` → ``/``), strips leading ``./``
+    and backslashes (Windows compatibility), but does NOT touch ``..`` (that is
+    a security concern handled by :func:`_within`).
+    """
+    p = path.replace("\\", "/").strip()
+    # Collapse consecutive slashes (but not a leading // on POSIX host roots).
+    while "//" in p:
+        p = p.replace("//", "/")
+    # Strip a leading "./" so ``./a.txt`` and ``a.txt`` are the same key.
+    if p.startswith("./"):
+        p = p[2:]
+    return p.lstrip("/") or "."
 
 
 # --- Built-in tools ----------------------------------------------------------
@@ -128,6 +161,18 @@ def _within(root: Path, target: str) -> Path | None:
 #: Tokens whose mere presence can reach outside the project root (home / env-home
 #: expansion resolves to an arbitrary location the lexical check below cannot see).
 _HOME_EXPANSION = re.compile(r"(^|[\s=:(\"'])~|\$\{?HOME\b")
+
+
+#: ANSI/control escape sequences emitted by colorized CLIs (git, cargo, pytest,
+#: ruff, npm). Pure noise that burns tokens and degrades the model's read of the
+#: captured output. Regex vendored from OpenGravity stripAnsi
+#: (cheatcodes/OpenGravity/script.js); kept model-free per thesis #1.
+_ANSI_RE = re.compile(r"[\u001b\u009b][\[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]")
+
+
+def _strip_ansi(text: str) -> str:
+    """Strip ANSI/control sequences and normalize CR->LF (deterministic, fail-soft)."""
+    return _ANSI_RE.sub("", text).replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _candidate_paths(token: str) -> list[str]:
@@ -174,6 +219,7 @@ def project_root_guard(
     *,
     deny_write_subpaths: tuple[str, ...] = (),
     ruleset: permission.Ruleset | None = None,
+    ask_fn: Callable[[str, str], bool] | None = None,
 ) -> Callable[[str, str], str | None]:
     """A pre-dispatch :data:`~products.agent.loop.Guard` that jails every tool to
     *root* — the governance the loop applies before a handler runs.
@@ -221,62 +267,92 @@ def project_root_guard(
             return False
         return any(p == d or d in p.parents for d in denied)
 
-    def guard(name: str, args_json: str) -> str | None:
+    def guard(name: str, args_json: str) -> None:
+        # Trusted-workspace mode (KINOX_TRUST_WORKSPACE): the operator has
+        # declared this kinox session fully trusted — zero command/path/scope
+        # denials of any kind. Set by the kx launcher (kx only runs within
+        # ~/kinox). Physical write-confinement via Landlock (if the kernel has
+        # it) still applies underneath; this only removes the governance
+        # denials. Disable for a single run with: KINOX_TRUST_WORKSPACE=0 kx
+        if os.environ.get("KINOX_TRUST_WORKSPACE", "").strip().lower() in (
+            "1", "on", "true", "yes"
+        ):
+            return None
         try:
             parsed: object = json.loads(args_json) if args_json else {}
         except json.JSONDecodeError:
-            return None  # malformed args degrade to a fail-soft dispatch error
+            return  # malformed args degrade to a fail-soft dispatch error
         args = as_dict(parsed)  # dict[str, object], {} for a non-object shape
         if name == "run_bash":
             command = str(args.get("command", ""))
             # Command-intent layer (CodeWhale harvest): refuse catastrophic
-            # commands the path-jail and Landlock cannot see — privilege
-            # escalation, pipe-to-shell RCE, fork bombs, device wipes, root/home
-            # rm -rf. Orthogonal to the write-jail (Landlock confines *writes*;
-            # it does not stop `sudo` or `curl evil|sh`). Only DENY auto-blocks,
-            # so in-root destructive work (ASK) is unaffected here. Fail-CLOSED.
+            # commands the path-jail and Landlock cannot see. Only DENY auto-blocks,
+            # so in-root destructive work (ASK) is interactively prompted if ask_fn is provided.
+            from products.agent.dag import DAGNode
+            
             verdict = command_safety.assess(command)
-            if verdict.level is command_safety.Level.DENY:
-                return f"refused: {verdict.reason}"
+            effective_action = permission.level_to_action(verdict.level)
+            reason = verdict.reason
+            
+            dag = DAGNode("project_root_guard", effective_action.value, reason)
+            if verdict.dag:
+                dag.children.append(verdict.dag)
+            
             # Layered permission rules (CodeWhale Tier-2): a USER/AGENT rule may
-            # tighten an otherwise-allowed command to DENY. The catastrophic floor
-            # above already ran, so this only ADDS denials — ASK/ALLOW never block.
+            # tighten an otherwise-allowed command to DENY or ASK, or relax ASK to ALLOW.
             if ruleset is not None:
                 decision = ruleset.resolve(
                     tool="run_bash",
                     command=command,
-                    baseline=permission.level_to_action(verdict.level),
+                    baseline=effective_action,
                 )
-                if decision.action is permission.Action.DENY:
-                    return f"refused: {decision.reason}"
+                effective_action = decision.action
+                reason = decision.reason
+                dag.decision = effective_action.value
+                dag.reason = reason
+                if decision.dag:
+                    dag.children.append(decision.dag)
+                
+            if effective_action is permission.Action.DENY:
+                raise GuardBlocked(f"refused: {reason}", dag=dag)
+            elif effective_action is permission.Action.ASK:
+                if ask_fn is not None:
+                    if not ask_fn("run_bash", command):
+                        raise GuardBlocked(f"refused by operator: {reason}", dag=dag)
+                # If no ask_fn, it degrades to ALLOW (surfaced but not blocked).
+                
             if not os_confined:
                 escape = _bash_escape_reason(command, root_p)
                 if escape is not None:
-                    return escape
+                    raise GuardBlocked(escape)
             if denied:
                 try:
                     tokens = shlex.split(command, comments=False, posix=True)
                 except ValueError:
-                    return "command could not be parsed for scope-wall safety"
+                    # Lenient fallback (mirrors command_safety): a parse failure
+                    # is not proof of a scope violation. Scan a whitespace split
+                    # for denied-subpath references instead of refusing a
+                    # legitimate heredoc the model wrote.
+                    tokens = command.replace("\n", " ").replace("\r", " ").split()
                 for tok in tokens:
                     for cand in _candidate_paths(tok):
                         if _hits_denied(cand):
-                            return (
+                            raise GuardBlocked(
                                 f"path {cand!r} is in another scope (a project) — "
                                 "this framework session may not write there"
                             )
-            return None
+            return
         if name in ("read_file", "list_dir", "write_file"):
             default = "." if name == "list_dir" else ""
             path = str(args.get("path", default))
             if _within(root_p, path) is None:
-                return f"path {path!r} escapes the project root"
+                raise GuardBlocked(f"path {path!r} escapes the project root")
             if name == "write_file" and _hits_denied(path):
-                return (
+                raise GuardBlocked(
                     f"path {path!r} is in another scope (a project) — this "
                     "framework session may not write there (use the project scope)"
                 )
-        return None
+        return
 
     return guard
 
@@ -285,20 +361,21 @@ def filesystem_tools(root: Path) -> list[Tool]:
     """Read-only filesystem tools sandboxed to *root* — the agent's eyes."""
 
     def read_file(args: dict[str, object]) -> str:
-        p = _within(root, str(args.get("path", "")))
+        rel = _norm_rel(str(args.get("path", "")))
+        p = _within(root, rel)
         if p is None:
             return "(error: path escapes the allowed root)"
         if not p.is_file():
-            return f"(error: not a file: {args.get('path')})"
+            return f"(error: not a file: {rel})"
         text = p.read_text(encoding="utf-8", errors="replace")
         return text if len(text) <= 8000 else text[:8000] + "\n…(truncated)"
-
     def list_dir(args: dict[str, object]) -> str:
-        p = _within(root, str(args.get("path", ".")))
+        rel = _norm_rel(str(args.get("path", ".")))
+        p = _within(root, rel)
         if p is None:
             return "(error: path escapes the allowed root)"
         if not p.is_dir():
-            return f"(error: not a directory: {args.get('path')})"
+            return f"(error: not a directory: {rel})"
         entries = sorted(
             f"{e.name}/" if e.is_dir() else e.name for e in p.iterdir()
         )
@@ -353,7 +430,7 @@ def write_tools(root: Path) -> list[Tool]:
     the (deliberately equally-powerful) shell."""
 
     def write_file(args: dict[str, object]) -> str:
-        rel = str(args.get("path", ""))
+        rel = _norm_rel(str(args.get("path", "")))
         p = _within(root, rel)
         if p is None:
             return "(error: path escapes the allowed root)"
@@ -440,6 +517,7 @@ def bash_tool(root: Path, *, timeout_s: float = 30.0) -> Tool:
         except subprocess.TimeoutExpired:
             return f"(error: command timed out after {timeout_s}s)"
         out = (proc.stdout or "") + (proc.stderr or "")
+        out = _strip_ansi(out)  # drop color/cursor noise before the token-budget cap
         out = out if len(out) <= 8000 else out[:8000] + "\n…(truncated)"
         return f"exit={proc.returncode}\n{out}".rstrip()
 
@@ -450,7 +528,9 @@ def bash_tool(root: Path, *, timeout_s: float = 30.0) -> Tool:
             "and combined stdout/stderr. WRITES are confined to the project root "
             "(plus temp and the user cache) — you may read files and run system "
             "programs anywhere, but cannot create, modify, or delete anything "
-            "outside the scope. Use paths relative to the root for files you write."
+            "outside the scope. Use paths relative to the root for files you write. "
+            "If you need to run a complex script, write the script to a .sh file first "
+            "and then execute the file, rather than trying to run a multi-line command directly."
         ),
         parameters={
             "type": "object",
@@ -580,6 +660,55 @@ def skill_tools(registry: CapabilityRegistry) -> list[Tool]:
     ]
 
 
+def parallel_tool(callback: Callable[[list[dict[str, object]]], str]) -> Tool:
+    """A tool that lets the agent spawn sub-agents to parallelize work."""
+    def handler(args: dict[str, object]) -> str:
+        slices = args.get("slices")
+        if not isinstance(slices, list):
+            return "(error: slices must be a list)"
+        # Slices is expected to be a list of dicts with 'task' and 'owned_paths'
+        valid_slices: list[dict[str, object]] = []
+        for s in slices:
+            if isinstance(s, dict):
+                valid_slices.append(s)
+        if not valid_slices:
+            return "(error: no valid slices provided)"
+        return callback(valid_slices)
+
+    return Tool(
+        name="spawn_parallel_agents",
+        description=(
+            "Spawn parallel agents to divide and conquer a task. Each agent "
+            "gets its own task and a set of owned paths (directories or files) "
+            "it is allowed to write to. The paths must be strictly disjoint "
+            "between agents (no overlap). Returns a summary of all agent results. "
+            "Use this tool when multiple independent subtasks need to be done."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "slices": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "task": {"type": "string", "description": "The prompt/task for this specific agent."},
+                            "owned_paths": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Paths relative to the project root that this agent exclusively owns for writing. Must be strictly disjoint."
+                            }
+                        },
+                        "required": ["task", "owned_paths"]
+                    }
+                }
+            },
+            "required": ["slices"],
+        },
+        handler=handler,
+    )
+
+
 #: Started MCP servers, cached per config path so the agent loop does not respawn
 #: them every turn. Populated lazily by :func:`mcp_tools`.
 _MCP_CACHE: dict[str, list[MCPServer]] = {}
@@ -641,6 +770,7 @@ def default_registry(
     allow_bash: bool = False,
     allow_write: bool = False,
     mcp_config: Path | None = None,
+    parallel_callback: Callable[[list[dict[str, object]]], str] | None = None,
 ) -> ToolRegistry:
     """Assemble the agent toolset: read-only filesystem + skill bridge, plus the
     high-risk ``write_file`` (when *allow_write*) and ``run_bash`` (when
@@ -662,4 +792,6 @@ def default_registry(
     if mcp_config is not None:
         for t in mcp_tools(mcp_config):
             reg.register(t)
+    if parallel_callback is not None:
+        reg.register(parallel_tool(parallel_callback))
     return reg

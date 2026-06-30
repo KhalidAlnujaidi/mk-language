@@ -17,6 +17,7 @@ from products.agent.tools import (
     skill_tools,
     write_tools,
 )
+from products.agent.loop import GuardBlocked
 from products.capabilities.registry import CapabilityRegistry, load_skills
 
 
@@ -175,7 +176,8 @@ def test_run_bash_trusts_landlock_when_available(
     assert guard("run_bash", '{"command": ".venv/bin/python script.py"}') is None
     # The scope-wall is NOT delegated to Landlock (projects/ is under the root), so
     # a framework session still cannot write down into a project.
-    assert guard("run_bash", '{"command": "rm projects/demo/x.md"}') is not None
+    with pytest.raises(GuardBlocked):
+        guard("run_bash", '{"command": "rm projects/demo/x.md"}')
 
 
 def test_project_root_guard_fails_closed(
@@ -190,9 +192,12 @@ def test_project_root_guard_fails_closed(
     assert guard("list_dir", "{}") is None  # defaults to "."
 
     # Denied: each escape vector returns a denial string.
-    assert guard("run_bash", '{"command": "cat /etc/passwd"}') is not None
-    assert guard("read_file", '{"path": "../../etc/passwd"}') is not None
-    assert guard("write_file", '{"path": "../escape.txt"}') is not None
+    with pytest.raises(GuardBlocked):
+        guard("run_bash", '{"command": "cat /etc/passwd"}')
+    with pytest.raises(GuardBlocked):
+        guard("read_file", '{"path": "../../etc/passwd"}')
+    with pytest.raises(GuardBlocked):
+        guard("write_file", '{"path": "../escape.txt"}')
 
     # Non-path tools are never blocked by the jail.
     assert guard("find_skill", '{"query": "anything"}') is None
@@ -211,8 +216,10 @@ def test_project_root_guard_scope_wall_blocks_writes_into_subpath(
     guard = project_root_guard(tmp_path, deny_write_subpaths=("projects",))
 
     # Denied: write or shell-mutate into a project scope.
-    assert guard("write_file", '{"path": "projects/demo/x.md"}') is not None
-    assert guard("run_bash", '{"command": "rm projects/demo/x.md"}') is not None
+    with pytest.raises(GuardBlocked):
+        guard("write_file", '{"path": "projects/demo/x.md"}')
+    with pytest.raises(GuardBlocked):
+        guard("run_bash", '{"command": "rm projects/demo/x.md"}')
 
     # Allowed: reading a project is fine (observing cannot cause overlap).
     assert guard("read_file", '{"path": "projects/demo/x.md"}') is None
@@ -272,3 +279,40 @@ def test_find_skill_searches_all_kinds(tmp_path: Path) -> None:
     assert "[command] code-review" in out
     assert "[agent] code-reviewer" in out
     assert "redact" not in out  # non-matching skill excluded
+
+
+def test_run_bash_strips_ansi_and_normalizes_newlines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """run_bash scrubs ANSI color/cursor sequences and CR from captured output, so
+    the model never pays tokens for terminal control noise (thesis #1: a pure,
+    model-free transform applied before the output is returned)."""
+    _no_landlock(monkeypatch)
+    tool = bash_tool(tmp_path)
+    # printf interprets the octal \033 (ESC) and \r escapes, emitting real codes.
+    out = tool.handler({"command": "printf 'a\\033[31mRED\\033[0mb\\r\\nc\\r'"})
+    assert "exit=0" in out
+    assert "aREDb" in out and "c" in out
+    assert chr(27) not in out  # no ESC bytes survive
+    assert chr(13) not in out  # CR normalized to LF
+
+
+def test_trusted_workspace_allows_everything(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """KINOX_TRUST_WORKSPACE=1 (operator opt-in, set by the kx launcher) makes the
+    guard allow EVERY tool call — zero command/path/scope denials. Physical
+    Landlock write-confinement still applies underneath; this removes only the
+    governance layer's denials."""
+    guard = project_root_guard(tmp_path, deny_write_subpaths=("projects",))
+
+    # Off (or unset): catastrophic commands are refused as normal.
+    monkeypatch.setenv("KINOX_TRUST_WORKSPACE", "0")
+    with pytest.raises(GuardBlocked):
+        guard("run_bash", '{"command": "sudo rm -rf /"}')
+
+    # On: literally everything is allowed (guard returns None).
+    monkeypatch.setenv("KINOX_TRUST_WORKSPACE", "1")
+    assert guard("run_bash", '{"command": "sudo rm -rf /"}') is None
+    assert guard("run_bash", '{"command": ":(){ :|:& };:"}') is None
+    assert guard("write_file", '{"path": "../../etc/passwd"}') is None

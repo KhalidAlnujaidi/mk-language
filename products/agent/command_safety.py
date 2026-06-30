@@ -30,8 +30,10 @@ from __future__ import annotations
 
 import re
 import shlex
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
+
+from products.agent.dag import DAGNode
 
 # --- Arity table -------------------------------------------------------------
 # (prefix, arity): arity = positional tokens (incl. base word) forming the
@@ -99,6 +101,7 @@ class Assessment:
     level: Level
     reason: str
     canonical: str
+    dag: DAGNode | None = None
 
 
 # Privilege escalation — never legitimate from inside a governed agent loop.
@@ -159,7 +162,7 @@ def _rm_args_danger(args: list[str]) -> str | None:
     return ""  # sentinel: ASK, not DENY (distinguished from None = no rm danger)
 
 
-def assess(command: str) -> Assessment:
+def _assess_inner(command: str) -> Assessment:
     """Classify *command*'s danger. Pure, deterministic, fail-CLOSED.
 
     DENY covers what is never legitimate in an autonomous loop (privilege
@@ -169,9 +172,7 @@ def assess(command: str) -> Assessment:
     """
     lowered = command.lower()
 
-    # Embedded newline / null byte → cannot reason about it safely → DENY.
-    if "\n" in command or "\r" in command:
-        return Assessment(Level.DENY, "command contains multiple lines", "")
+    # Embedded null byte → cannot reason about it safely → DENY.
     if "\0" in command:
         return Assessment(Level.DENY, "command contains a null byte", "")
 
@@ -190,37 +191,58 @@ def assess(command: str) -> Assessment:
     try:
         tokens = shlex.split(command, comments=False, posix=True)
     except ValueError:
-        # Unbalanced quotes — the path guard refuses this too; fail CLOSED.
-        return Assessment(Level.DENY, "command could not be parsed for safety", "")
+        # shlex's strict POSIX parser rejects unbalanced quotes — almost always
+        # a legitimate apostrophe inside a heredoc/string the model wrote, NOT a
+        # danger signal. A blanket DENY here was the single biggest autonomy
+        # killer (the loop thrashes on the refusal). The catastrophic patterns
+        # (fork bomb, pipe-to-shell, dd, null byte, literal rm -rf /) were already
+        # checked on the raw string above; fall back to a lenient whitespace split
+        # so the SAME token danger-scan below still catches sudo/mkfs/rm/force-push,
+        # and otherwise let it proceed to the path jail + Landlock. A truly
+        # malformed command just makes bash emit a syntax error the agent can see
+        # and fix — productive, unlike an opaque guard refusal.
+        tokens = command.replace("\n", " ").replace("\r", " ").split()
     if not tokens:
         return Assessment(Level.SAFE, "empty command", "")
 
     canonical = classify(tokens)
-    base = tokens[0].lower()
 
-    if base in _PRIVILEGED:
-        return Assessment(
-            Level.DENY, f"privilege escalation via {base!r}", canonical
-        )
-    # ``mkfs`` ships as ``mkfs.ext4``/``mkfs.xfs``/… — match the whole family.
-    if base in _DEVICE_WRITERS or base.startswith("mkfs."):
-        return Assessment(
-            Level.DENY, f"{base!r} destroys a filesystem/device", canonical
-        )
-
-    if base == "rm":
-        reason = _rm_args_danger(tokens[1:])
-        if reason:
-            return Assessment(Level.DENY, reason, canonical)
-        if reason == "":
+    # Scan all tokens for dangerous commands to prevent evasion via shell
+    # operators (;, &&, ||, |, or unquoted newlines which shlex consumes as whitespace).
+    ask_reason = None
+    for i, token in enumerate(tokens):
+        t = token.lower()
+        if t in _PRIVILEGED:
             return Assessment(
-                Level.ASK, "recursive/forced rm within the workspace", canonical
+                Level.DENY, f"privilege escalation via {t!r}", canonical
+            )
+        # ``mkfs`` ships as ``mkfs.ext4``/``mkfs.xfs``/… — match the whole family.
+        if t in _DEVICE_WRITERS or t.startswith("mkfs."):
+            return Assessment(
+                Level.DENY, f"{t!r} destroys a filesystem/device", canonical
             )
 
-    # git force-push — rewrites shared history; legitimate but worth a prompt.
-    if canonical == "git push" and any(
-        t in ("--force", "-f", "--force-with-lease") for t in tokens
-    ):
-        return Assessment(Level.ASK, "force-push rewrites remote history", canonical)
+        if t == "rm":
+            reason = _rm_args_danger(tokens[i+1:])
+            if reason:
+                return Assessment(Level.DENY, reason, canonical)
+            if reason == "":
+                ask_reason = Assessment(
+                    Level.ASK, "recursive/forced rm within the workspace", canonical
+                )
+
+        # git force-push — rewrites shared history; legitimate but worth a prompt.
+        if t == "push" and i > 0 and tokens[i-1].lower() == "git":
+            if any(arg in ("--force", "-f", "--force-with-lease") for arg in tokens[i+1:]):
+                ask_reason = Assessment(Level.ASK, "force-push rewrites remote history", canonical)
+
+    if ask_reason:
+        return ask_reason
 
     return Assessment(Level.SAFE, "no dangerous pattern matched", canonical)
+
+def assess(command: str) -> Assessment:
+    """Wrapper that builds the DAGNode for the assessment."""
+    res = _assess_inner(command)
+    dag = DAGNode("command_safety", res.level.value, res.reason)
+    return Assessment(res.level, res.reason, res.canonical, dag)

@@ -3,7 +3,8 @@
 
   kx                 → the launcher hub (the default working environment)
   kx doctor          → health check
-  kx status          → observability dashboard
+  kx status          → observability dashboard (CLI)
+  kx ui              → rich observability dashboard (Streamlit)
   kx new <project>   → scaffold a project under projects/<name>/, then enter it
   kx <project>       → activate an existing project (enter its scope directly)
   kx kin             → enter the launcher hub as admin
@@ -67,7 +68,23 @@ def _ensure_venv() -> None:
     repo = Path(__file__).resolve().parent
     venv_py = repo / ".venv" / "bin" / "python3"
     if venv_py.exists() and Path(sys.executable).resolve() != venv_py.resolve():
-        os.execv(str(venv_py), [str(venv_py), str(repo / "kx"), *sys.argv[1:]])
+        try:
+            os.execv(str(venv_py), [str(venv_py), str(repo / "kx"), *sys.argv[1:]])
+        except OSError as e:
+            if e.errno == 8:  # Exec format error
+                print(f"==> Detected foreign .venv (Exec format error). Rebuilding with uv...", file=sys.stderr)
+                import shutil
+                import subprocess
+                shutil.rmtree(repo / ".venv", ignore_errors=True)
+                try:
+                    subprocess.run(["uv", "sync"], cwd=repo, check=True)
+                    os.execv(str(venv_py), [str(venv_py), str(repo / "kx"), *sys.argv[1:]])
+                except Exception as sync_err:
+                    print(f"error: Failed to automatically rebuild the virtual environment.\n"
+                          f"       Please run `rm -rf .venv && uv sync` manually.\n"
+                          f"       ({sync_err})", file=sys.stderr)
+                    sys.exit(1)
+            raise
 
 
 def _auto_update() -> None:
@@ -211,7 +228,7 @@ def update_cmd() -> int:
     return 0
 
 
-def doctor() -> int:
+def doctor(auto_fix: bool = False) -> int:
     # Cold-start discipline: import kernel modules inside the function body.
     from kernel.manifest import probe
 
@@ -233,12 +250,24 @@ def doctor() -> int:
 
     # Reconciliation: expected-vs-runtime drift (no persisted baseline yet, so
     # expected == present → healthy; protected-file checksums wire in later).
-    from daemon.doctor import diagnose
+    from daemon.doctor import diagnose, apply_fixes
     from products.cli.commands import format_doctor_findings
 
     present = {model.name for model in m.local_models}
-    findings = diagnose(expected_models=present, present_models=present)
+    
+    # Read expected models from env var for now until a persisted baseline is implemented
+    env_expected = os.environ.get("KINOX_EXPECTED_MODELS", "")
+    if env_expected:
+        expected = {name.strip() for name in env_expected.split(",") if name.strip()}
+    else:
+        expected = present
+        
+    findings = diagnose(expected_models=expected, present_models=present)
     print(format_doctor_findings(findings))
+    
+    if auto_fix and any(f.fixable for f in findings):
+        print("\n==> applying auto-fixes...")
+        apply_fixes(findings)
 
     # Backbone health: is the broker daemon up? (vision §5.3, governed-TUI spec.)
     from daemon.launch import status_line
@@ -306,6 +335,38 @@ def activate(name: str) -> int:
     return hub(preselect=project)
 
 
+def ui() -> int:
+    import subprocess
+    import sys
+    repo_root = Path(__file__).resolve().parent
+    app_path = repo_root / "products" / "dashboard" / "streamlit_app.py"
+    if not app_path.exists():
+        print(f"kx ui: could not find {app_path}")
+        return 1
+    
+    cmd = [
+        sys.executable, "-m", "streamlit", "run", str(app_path),
+        "--server.headless", "true",
+        "--server.address", "0.0.0.0"
+    ]
+
+    try:
+        subprocess.run([sys.executable, "-m", "streamlit", "--version"], 
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    except subprocess.CalledProcessError:
+        print("==> streamlit not found. Auto-installing with uv...", file=sys.stderr)
+        try:
+            subprocess.run(["uv", "pip", "install", "streamlit"], cwd=repo_root, check=True)
+        except Exception as install_err:
+            print(f"kx ui: failed to install streamlit automatically ({install_err}).\n"
+                  f"Please run `uv pip install streamlit` manually.", file=sys.stderr)
+            return 127
+
+    print("==> launching kinox observability dashboard...")
+    subprocess.run(cmd)
+    return 0
+
+
 def session_cmd() -> int:
     """Launch a governed kinox chat session (called by ``kin session``).
 
@@ -313,17 +374,19 @@ def session_cmd() -> int:
     Hands off to the chat TUI — when you ``/quit``, control returns to the
     caller (``kin``, which the hub spawned).
     """
-    from kernel.manifest import probe
-    from kernel.metrics import MetricsSink
-    from products.chat.app import chat_run
-
+    import subprocess
+    import sys
+    
     repo_root = Path(__file__).resolve().parent
     scope = Path(os.environ.get("KIN_SCOPE_DIR", str(repo_root)))
-    return chat_run(
-        manifest=probe(),
-        sink=MetricsSink(Path.home() / ".kinox" / "chat-events.jsonl"),
-        cwd=scope,
-    )
+    
+    print(f"==> Launching Toad UI for scope: {scope.name}")
+    try:
+        result = subprocess.run(["toad", str(scope), "-a", "kinox"])
+        return result.returncode
+    except FileNotFoundError:
+        print("Error: 'toad' command not found. Please install it with: uv tool install batrachian-toad", file=sys.stderr)
+        return 1
 
 
 def main(argv: list[str]) -> int:
@@ -331,9 +394,13 @@ def main(argv: list[str]) -> int:
         return hub()  # bare `kx` → the default working environment (the hub)
     cmd, *rest = argv
     if cmd == "doctor":
+        if rest and rest[0] == "--auto-fix":
+            return doctor(auto_fix=True)
         return doctor()
     if cmd == "status":
         return status()
+    if cmd == "ui":
+        return ui()
     if cmd == "update":
         return update_cmd()
     if cmd == "dev":

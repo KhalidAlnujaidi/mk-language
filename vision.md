@@ -371,8 +371,7 @@ the executor.
 
 ## 10. Open decisions
 
-- **Name.** Working name `kinox`; alternates floated: `lumen`, `nexus`, `axiom`.
-  (`kin` is reserved as the admin/core scope and is blacklisted as a project name.)
+- **Name.** Resolved: `kinox` — An Agent Runtime Environment (ARE) and VRAM-Aware Intelligence Broker.
 - **Business-plane language.** Go vs TypeScript/NestJS. Lean TS/NestJS for feature
   velocity, polymorphic data, and one language across CLI/hooks/server — but this
   only matters once there's a real domain to build. Deferred.

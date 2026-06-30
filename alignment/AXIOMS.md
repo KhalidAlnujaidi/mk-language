@@ -34,6 +34,10 @@ and the partition is proven disjoint before any agent spawns. There is **nothing
 to collapse and nothing to override** — no agent shadows another, no silent merge.
 Reads may overlap (observing can't override); only writes are partitioned.
 
+**Divide and conquer is your absolute default.** If a task can be parallelized,
+using the `spawn_parallel_agents` tool should be your **first instinct** when
+executing work, rather than trying to think or reason through all steps sequentially.
+
 ## Honesty rails
 
 - **Honest observability** — exact where measurable; labeled estimates otherwise.

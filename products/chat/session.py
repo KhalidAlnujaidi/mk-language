@@ -46,6 +46,10 @@ _NO_MODEL = (
     "or run a local model with `ollama serve`)"
 )
 
+MAX_SESSION_TOKENS = 50000
+
+_CORRECTION_PREFIXES = ("no,", "actually", "fix ", "wrong", "incorrect")
+
 
 @dataclass
 class ChatSession:
@@ -61,6 +65,8 @@ class ChatSession:
     cwd: Path
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
     history: list[dict[str, object]] = field(default_factory=list[dict[str, object]])
+    #: Compresses history into a `<residual_state>` block instead of appending (vision: constant memory).
+    residual_mode: bool = True
     #: Broker-backed fuzzy tagger for the groom ``tag`` step. ``None`` (the
     #: default) builds a fresh ``broker_tag()`` lazily when a local model is
     #: available; tests inject a fake to prove the wire without a network call.
@@ -82,10 +88,14 @@ class ChatSession:
         # The "chat.turn" root span of the end-to-end trace (vision §7): groom and
         # the broker dispatch nest under it. A no-op unless a tracer is installed.
         with span("chat.turn", {"kinox.task_id": task_id}):
+            if self.tokens_spent >= MAX_SESSION_TOKENS:
+                return ("(budget exhausted — session token limit reached)", [], None)
+            
+            prior_task_id = self._get_prior_task_id_if_correction(user_text)
             annotation, messages, chain = self._prepare(user_text, task_id)
             if not chain:
                 return (_NO_MODEL, annotation.lines, None)
-            response_text, tier_used = self._dispatch(chain, messages, task_id)
+            response_text, tier_used = self._dispatch(chain, messages, task_id, prior_task_id)
             self._remember(user_text, response_text)
             return response_text, annotation.lines, tier_used
 
@@ -110,6 +120,10 @@ class ChatSession:
 
         task_id = uuid.uuid4().hex[:12]
         with span("chat.turn", {"kinox.task_id": task_id}):
+            if self.tokens_spent >= MAX_SESSION_TOKENS:
+                return ("(budget exhausted — session token limit reached)", [], None)
+                
+            prior_task_id = self._get_prior_task_id_if_correction(user_text)
             # _prepare is sync and grooms (its fuzzy tag step does its own
             # asyncio.run); run it in a worker thread so it never nests an event
             # loop inside this coroutine.
@@ -125,6 +139,16 @@ class ChatSession:
                     parts.append(delta)
                     on_delta(delta)
                 response_text, tier_used = "".join(parts), primary
+                
+                from kernel.contracts import EventRecord
+                event = EventRecord(
+                    task_id=task_id, kind="chat", tier=f"model:{primary.where}",
+                    tokens_exact=False,
+                )
+                if prior_task_id:
+                    event = event.as_correction_of(prior_task_id)
+                self.sink.record(event)
+                
             except Exception:  # noqa: BLE001 — any stream failure falls back, fail-soft
                 try:
                     result = await execute(
@@ -135,7 +159,10 @@ class ChatSession:
                         kind="chat",
                     )
                     response_text, tier_used = result.content, result.tier_used
-                    self.sink.record(result.event)
+                    event = result.event
+                    if prior_task_id:
+                        event = event.as_correction_of(prior_task_id)
+                    self.sink.record(event)
                 except ChainExhausted as exc:
                     self.sink.record(exc.event)
                     response_text, tier_used = f"(model unavailable: {exc})", primary
@@ -145,6 +172,14 @@ class ChatSession:
             return response_text, annotation.lines, tier_used
 
     # --- shared prep -------------------------------------------------------
+
+    def _get_prior_task_id_if_correction(self, user_text: str) -> str | None:
+        lowered = user_text.lower().strip()
+        if any(lowered.startswith(p) for p in _CORRECTION_PREFIXES):
+            last_event = self.sink.last()
+            if last_event is not None:
+                return last_event.task_id
+        return None
 
     def _prepare(
         self, user_text: str, task_id: str
@@ -208,7 +243,8 @@ class ChatSession:
     # --- internal ----------------------------------------------------------
 
     def _dispatch(
-        self, chain: list[Tier], messages: list[dict[str, object]], task_id: str
+        self, chain: list[Tier], messages: list[dict[str, object]], task_id: str,
+        prior_task_id: str | None = None
     ) -> tuple[str, Tier | None]:
         """Synchronous dispatch over *chain* (brain → local fallback).  Fails SOFT
         (thesis #2): any backend/transport/timeout error returns an error string
@@ -217,32 +253,45 @@ class ChatSession:
         answered, not just the one it intended (honest observability, §4.6).
         """
         import asyncio
+        import time
 
         from daemon.backends import make_dispatch
         from daemon.exec import BackendError, ChainExhausted, execute
 
-        try:
-            result = asyncio.run(
-                execute(
-                    chain,
-                    messages,
-                    call=make_dispatch(),
-                    task_id=task_id,
-                    kind="chat",
+        for attempt in range(3):
+            try:
+                result = asyncio.run(
+                    execute(
+                        chain,
+                        messages,
+                        call=make_dispatch(),
+                        task_id=task_id,
+                        kind="chat",
+                    )
                 )
-            )
-        except ChainExhausted as exc:
-            # Log the failure boundary too — no silent gap (vision §4.6). Report
-            # the intended primary tier (chain[0]) so the TUI shows what was tried.
-            self.sink.record(exc.event)
-            return f"(model unavailable: {exc})", chain[0]
-        except BackendError as exc:
-            return f"(model unavailable: {exc})", chain[0]
-        except Exception as exc:
-            return f"(error: {exc})", chain[0]
+                break
+            except ChainExhausted as exc:
+                # Log the failure boundary too — no silent gap (vision §4.6). Report
+                # the intended primary tier (chain[0]) so the TUI shows what was tried.
+                self.sink.record(exc.event)
+                return f"(model unavailable: {exc})", chain[0]
+            except BackendError as exc:
+                if attempt == 2:
+                    return f"(model unavailable: {exc})", chain[0]
+                time.sleep(1 + attempt)  # Backoff: 1s, then 2s
+            except Exception as exc:
+                return f"(error: {exc})", chain[0]
+                
+        # Update tokens spent if available in event
+        if result.event.tokens_used is not None:
+            self.tokens_spent += result.event.tokens_used
+            
         # Record the chat completion boundary (kind="chat") so every model call
         # is in the log, not just the groom stages.
-        self.sink.record(result.event)
+        event = result.event
+        if prior_task_id:
+            event = event.as_correction_of(prior_task_id)
+        self.sink.record(event)
         return result.content, result.tier_used
 
 

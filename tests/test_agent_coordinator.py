@@ -27,7 +27,7 @@ from products.agent.coordinator import (
     ownership_guard,
     run_parallel,
 )
-from products.agent.loop import AgentResult, Guard, run_agent
+from products.agent.loop import AgentResult, Guard, GuardBlocked, run_agent
 from products.agent.tools import default_registry
 
 TIER = Tier.model("gemma-agentic:32k", where="local", backend="ollama")
@@ -102,46 +102,52 @@ def test_disjoint_refuses_ancestor_overlap() -> None:
 
 def test_guard_blocks_write_outside_owned() -> None:
     g = ownership_guard(Path("/repo"), owned=("a.txt",), foreign=("b.txt",))
-    assert g("write_file", '{"path": "b.txt", "content": "x"}') is not None
+    with pytest.raises(GuardBlocked):
+        g("write_file", '{"path": "b.txt", "content": "x"}')
 
 
 def test_guard_allows_write_inside_owned() -> None:
     g = ownership_guard(Path("/repo"), owned=("pkg/",), foreign=("other/",))
-    assert g("write_file", '{"path": "pkg/deep/x.py", "content": "x"}') is None
+    g("write_file", '{"path": "pkg/deep/x.py", "content": "x"}')
 
 
 def test_guard_never_restricts_reads() -> None:
     g = ownership_guard(Path("/repo"), owned=("a.txt",), foreign=("b.txt",))
     # Reading another slice's file is allowed — observing cannot override.
-    assert g("read_file", '{"path": "b.txt"}') is None
-    assert g("list_dir", '{"path": "."}') is None
+    g("read_file", '{"path": "b.txt"}')
+    g("list_dir", '{"path": "."}')
 
 
 def test_guard_blocks_bash_reaching_into_foreign() -> None:
     g = ownership_guard(Path("/repo"), owned=("a/",), foreign=("b/",))
-    assert g("run_bash", '{"command": "rm b/secret.txt"}') is not None
+    with pytest.raises(GuardBlocked):
+        g("run_bash", '{"command": "rm b/secret.txt"}')
 
 
 def test_guard_allows_bash_within_neutral_ground() -> None:
     g = ownership_guard(Path("/repo"), owned=("a/",), foreign=("b/",))
     # Touches neither slice's owned set → allowed by the ownership guard.
-    assert g("run_bash", '{"command": "echo hi"}') is None
+    g("run_bash", '{"command": "echo hi"}')
 
 
 def test_guard_fails_closed_on_unparseable_bash() -> None:
     g = ownership_guard(Path("/repo"), owned=("a/",), foreign=("b/",))
-    assert g("run_bash", '{"command": "echo \\"unbalanced"}') is not None
+    with pytest.raises(GuardBlocked):
+        g("run_bash", '{"command": "echo \\"unbalanced"}')
 
 
 # --- combine_guards ----------------------------------------------------------
 
 
 def test_combine_returns_first_denial() -> None:
-    deny: Guard = lambda _n, _a: "nope"  # noqa: E731
-    allow: Guard = lambda _n, _a: None  # noqa: E731
-    assert combine_guards(allow, deny)("write_file", "{}") == "nope"
-    assert combine_guards(allow, allow)("write_file", "{}") is None
-    assert combine_guards(None, allow)("write_file", "{}") is None
+    def deny(_n: str, _a: str) -> None:
+        raise GuardBlocked("nope")
+    def allow(_n: str, _a: str) -> None:
+        pass
+    with pytest.raises(GuardBlocked, match="nope"):
+        combine_guards(allow, deny)("write_file", "{}")
+    combine_guards(allow, allow)("write_file", "{}")
+    combine_guards(None, allow)("write_file", "{}")
 
 
 # --- run_parallel (integration) ----------------------------------------------

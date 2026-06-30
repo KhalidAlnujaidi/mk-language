@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import subprocess
 
 # A backend health probe: given a base URL, is it reachable? The real probe does
 # I/O (an HTTP/socket round-trip); tests inject a pure stub.
@@ -86,3 +87,21 @@ def diagnose_backends(
                 )
             )
     return findings
+
+
+def apply_fixes(findings: list[Finding]) -> None:
+    """Attempt to automatically fix drift.
+    
+    Pulls missing models and removes orphaned models via the ollama CLI.
+    """
+    for finding in findings:
+        if not finding.fixable:
+            continue
+            
+        if finding.kind == "missing_model":
+            print(f"  [auto-fix] pulling missing model: {finding.detail}...")
+            subprocess.run(["ollama", "pull", finding.detail], check=False)
+            
+        elif finding.kind == "orphan_model":
+            print(f"  [auto-fix] removing orphan model: {finding.detail}...")
+            subprocess.run(["ollama", "rm", finding.detail], check=False)

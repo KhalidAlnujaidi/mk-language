@@ -21,7 +21,7 @@ from typing import cast
 #: The known groom stages, in their canonical default order. ``deslop`` (the
 #: stop-slop flag stage) sits between ``context`` and the fuzzy ``tag`` step,
 #: matching products/groom/pipeline.py.
-DEFAULT_ORDER: list[str] = ["redact", "expand", "context", "deslop", "tag"]
+DEFAULT_ORDER: list[str] = ["redact", "expand", "context", "recent_files", "entities", "clipboard", "deslop", "tag", "tool_select"]
 _KNOWN: frozenset[str] = frozenset(DEFAULT_ORDER)
 
 

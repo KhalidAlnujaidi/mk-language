@@ -41,3 +41,16 @@ class MetricsSink:
         """The most recently recorded event, or ``None`` if empty/absent."""
         all_records = self.read_all()
         return all_records[-1] if all_records else None
+
+
+class NullSink:
+    """A sink that discards all events. Useful for tests or when persistence is not needed."""
+    
+    def record(self, event: EventRecord) -> None:
+        pass
+
+    def read_all(self) -> list[EventRecord]:
+        return []
+
+    def last(self) -> EventRecord | None:
+        return None

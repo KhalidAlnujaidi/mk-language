@@ -19,13 +19,21 @@ from __future__ import annotations
 
 from kernel.contracts import Tier
 from kernel.manifest import Manifest
+from daemon.registry import Registry
+from daemon.resources import ResourceSnapshot
+from daemon.scoring import rank
 
 # The server maps an absent or "auto" model field to "no preference"; accept the
 # sentinel here too so the builder stays the single source of that rule.
 _NO_PREFERENCE: frozenset[str] = frozenset({"auto"})
 
 
-def build_chain(manifest: Manifest, preferred: str | None) -> list[Tier]:
+def build_chain(
+    manifest: Manifest, 
+    preferred: str | None,
+    registry: Registry | None = None,
+    snapshot: ResourceSnapshot | None = None,
+) -> list[Tier]:
     """Return the ordered fallback chain of model tiers for *manifest*.
 
     The chain is the manifest's model tiers (deterministic tier removed),
@@ -35,7 +43,31 @@ def build_chain(manifest: Manifest, preferred: str | None) -> list[Tier]:
 
     Returns an empty list when the machine offers no model tier at all.
     """
-    model_tiers: list[Tier] = [t for t in manifest.available_tiers() if t.is_model]
+    if registry is not None and snapshot is not None:
+        # Use intelligent scoring if registry and snapshot are provided
+        entries = []
+        for tier in manifest.available_tiers():
+            if tier.is_model and tier.where == "local":
+                entry = registry.get(tier.model_name or "")
+                if entry is not None and not entry.quarantined:
+                    entries.append(entry)
+        
+        ranked_entries = rank(entries, snapshot, required_caps=frozenset())
+        
+        # Build model tiers preserving the deterministic / cloud order from available_tiers
+        model_tiers = []
+        
+        # First add the locally ranked models
+        for entry in ranked_entries:
+            model_tiers.append(Tier.model(entry.name, where="local", backend=entry.backend))
+            
+        # Then append any cloud models from the manifest
+        for tier in manifest.available_tiers():
+            if tier.is_model and tier.where == "cloud":
+                model_tiers.append(tier)
+    else:
+        # Static fallback: smallest first
+        model_tiers = [t for t in manifest.available_tiers() if t.is_model]
 
     if preferred is None or preferred in _NO_PREFERENCE:
         return model_tiers

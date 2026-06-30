@@ -23,6 +23,7 @@ import os
 import select
 import shutil
 import subprocess
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -50,6 +51,7 @@ class MCPServer:
     _proc: subprocess.Popen[bytes] | None = None
     _buf: bytes = b""
     _id: int = 0
+    _lock: threading.Lock = field(default_factory=threading.Lock)
 
     # --- lifecycle -----------------------------------------------------------
 
@@ -67,59 +69,61 @@ class MCPServer:
     def start(self, *, timeout: float = 15.0) -> bool:
         """Spawn + handshake + ``tools/list``. Returns ``True`` on success;
         cleans up and returns ``False`` on any failure (fail-soft)."""
-        if not self.launchable():
-            return False
-        try:
-            self._proc = subprocess.Popen(  # noqa: S603 — launching a configured MCP server
-                [self.command, *self.args],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                env={**os.environ, **self.env},
+        with self._lock:
+            if not self.launchable():
+                return False
+            try:
+                self._proc = subprocess.Popen(  # noqa: S603 — launching a configured MCP server
+                    [self.command, *self.args],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    env={**os.environ, **self.env},
+                )
+            except OSError:
+                return False
+            init = self._request(
+                "initialize",
+                {
+                    "protocolVersion": _PROTOCOL_VERSION,
+                    "capabilities": {},
+                    "clientInfo": _CLIENT_INFO,
+                },
+                timeout=timeout,
             )
-        except OSError:
-            return False
-        init = self._request(
-            "initialize",
-            {
-                "protocolVersion": _PROTOCOL_VERSION,
-                "capabilities": {},
-                "clientInfo": _CLIENT_INFO,
-            },
-            timeout=timeout,
-        )
-        if init is None:
-            self.stop()
-            return False
-        self._notify("notifications/initialized")
-        listed = self._request("tools/list", {}, timeout=timeout)
-        raw_tools = as_dict(listed).get("tools") if listed is not None else None
-        if isinstance(raw_tools, list):
-            self.tools = [as_dict(t) for t in raw_tools]  # type: ignore[arg-type]
-        return True
+            if init is None:
+                self.stop()
+                return False
+            self._notify("notifications/initialized")
+            listed = self._request("tools/list", {}, timeout=timeout)
+            raw_tools = as_dict(listed).get("tools") if listed is not None else None
+            if isinstance(raw_tools, list):
+                self.tools = [as_dict(t) for t in raw_tools]  # type: ignore[arg-type]
+            return True
 
     def call(
         self, tool: str, arguments: dict[str, object], *, timeout: float = 60.0
     ) -> str:
         """Invoke a remote tool; return its text content (or a fail-soft error)."""
-        result = self._request(
-            "tools/call", {"name": tool, "arguments": arguments}, timeout=timeout
-        )
-        if result is None:
-            return f"(error: mcp {self.name}.{tool} — no response)"
-        parts: list[str] = []
-        raw_content = as_dict(result).get("content")
-        blocks: list[object] = (
-            list(raw_content) if isinstance(raw_content, list) else []  # type: ignore[arg-type]
-        )
-        for block in blocks:
-            blk = as_dict(block)
-            if blk.get("type") == "text":
-                parts.append(str(blk.get("text", "")))
-        text = "\n".join(parts) if parts else json.dumps(result)[:4000]
-        if as_dict(result).get("isError"):
-            return f"(mcp error) {text}"
-        return text if len(text) <= 8000 else text[:8000] + "\n…(truncated)"
+        with self._lock:
+            result = self._request(
+                "tools/call", {"name": tool, "arguments": arguments}, timeout=timeout
+            )
+            if result is None:
+                return f"(error: mcp {self.name}.{tool} — no response)"
+            parts: list[str] = []
+            raw_content = as_dict(result).get("content")
+            blocks: list[object] = (
+                list(raw_content) if isinstance(raw_content, list) else []  # type: ignore[arg-type]
+            )
+            for block in blocks:
+                blk = as_dict(block)
+                if blk.get("type") == "text":
+                    parts.append(str(blk.get("text", "")))
+            text = "\n".join(parts) if parts else json.dumps(result)[:4000]
+            if as_dict(result).get("isError"):
+                return f"(mcp error) {text}"
+            return text if len(text) <= 8000 else text[:8000] + "\n…(truncated)"
 
     def stop(self) -> None:
         """Terminate the server subprocess (idempotent, never raises)."""
@@ -127,6 +131,8 @@ class MCPServer:
         self._proc = None
         if proc is None:
             return
+        # Avoid double-locking since start() calls stop() internally on failure
+        # inside the same thread lock.
         try:
             proc.terminate()
             proc.wait(timeout=3)

@@ -18,11 +18,17 @@ import asyncio
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from kernel.contracts import EventRecord, Tier
 from kernel.tracing import span
 
 from daemon.backoff import RetryPolicy
+
+if TYPE_CHECKING:
+    # Type-only import to avoid a runtime circular dependency (ratelimit imports
+    # nothing from exec; exec references the type only for annotations).
+    from daemon.ratelimit import RateLimitLedger
 
 #: A sleeper for backoff waits. Injected in tests (so no real time passes); the
 #: default is the real event-loop sleep.
@@ -119,6 +125,15 @@ def tier_label(tier: Tier) -> str:
     return f"model:{tier.where}:{tier.model_name}"
 
 
+def tier_key(tier: Tier) -> str:
+    """A stable key for per-tier bookkeeping (e.g. the rate-limit ledger).
+
+    Convention: ``backend:model`` — the backend identifies the rate-limit pool
+    (per-key-per-provider), and the model distinguishes tiers within it.
+    """
+    return f"{tier.backend}:{tier.model_name}"
+
+
 # --- Executor -----------------------------------------------------------------
 
 
@@ -136,6 +151,11 @@ async def _call_with_retry(
     through" (legacy behaviour when *retry* is ``None`` — exactly one attempt).
     A non-retryable ``BackendError`` is never retried; a retryable one is retried
     up to ``retry.max_attempts`` with :meth:`RetryPolicy.delay_before` waits.
+
+    Any exception that is **not** a ``BackendError`` (e.g. ``JSONDecodeError``,
+    ``ConnectionResetError``) is treated as a non-retryable tier failure — fail
+    SOFT, fall through — rather than crashing the executor. This honours the
+    fail-soft contract: *any* failure is absorbed.
     """
     attempts = retry.max_attempts if retry is not None else 1
     for attempt in range(1, attempts + 1):
@@ -146,6 +166,9 @@ async def _call_with_retry(
             if retry is None or not exc.retryable or attempt == attempts:
                 return None
             await sleep(retry.delay_before(attempt + 1))
+        except Exception:
+            # Unknown failure (not a BackendError): fail soft, don't crash.
+            return None
     return None
 
 
@@ -159,6 +182,8 @@ async def execute(
     sample_vram: VramSampler | None = None,
     retry: RetryPolicy | None = None,
     sleep: Sleeper = asyncio.sleep,
+    ledger: RateLimitLedger | None = None,
+    now: Callable[[], float] = time.monotonic,
 ) -> ExecResult:
     """Walk *chain*, executing on the first tier that succeeds.
 
@@ -171,6 +196,13 @@ async def execute(
     on the preferred tier does not needlessly demote to a worse one. ``None``
     keeps the legacy one-shot-per-tier behaviour exactly. *sleep* is injected so
     the backoff waits are instant under test.
+
+    *ledger*, when given, is consulted before each tier attempt: a key in 429
+    cooldown or over its RPM/TPM/TPD ceiling is **skipped** (not retried) — saving
+    a network round-trip to discover what the ledger already knows. On success the
+    call's tokens are recorded against the ledger; this is the integration point
+    for :mod:`daemon.ratelimit` — the ledger is pure and time-injected via *now*,
+    so the suite runs offline with a fake clock.
 
     Raises ``ChainExhausted`` — carrying a failure ``EventRecord`` (so the log
     has no silent gap) — when every tier fails or the chain is empty.
@@ -185,6 +217,19 @@ async def execute(
 
         for tier in chain:
             last_tier = tier
+
+            # Rate-limit gate (thesis #1: a rate limit is ground truth). Skip a
+            # tier the ledger says is rate-limited, saving a round-trip. A key in
+            # cooldown or over its window is skipped, not an error (fail SOFT).
+            if ledger is not None:
+                key = tier_key(tier)
+                decision = ledger.allow(key, now())
+                if not decision.allowed:
+                    with span("broker.tier", {"kinox.tier": tier_label(tier)}) as s:
+                        s.set_attribute("kinox.hit", False)
+                        s.set_attribute("kinox.skipped", f"rate-limit:{decision.reason}")
+                    continue
+
             before = sample_vram() if sample_vram is not None else None
             started = time.perf_counter()
             with span("broker.tier", {"kinox.tier": tier_label(tier)}) as tier_span:
@@ -197,6 +242,12 @@ async def execute(
                 continue
             latency_ms = (time.perf_counter() - started) * 1000.0
             after = sample_vram() if sample_vram is not None else None
+
+            # Record successful usage against the rate-limit ledger.
+            if ledger is not None:
+                key = tier_key(tier)
+                tokens = (response.tokens_in or 0) + (response.tokens_out or 0)
+                ledger.record(key, now(), tokens)
 
             event = EventRecord(
                 task_id=task_id,

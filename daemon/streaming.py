@@ -12,6 +12,11 @@ Split for testability the kernel way:
   - :func:`stream_completion` / :func:`stream_chat` are the thin async transports
     over httpx, mapping failures to a retryable ``BackendError`` so the caller can
     fall back to the non-streaming path (never a dead reply).
+
+Error classification by status code matches ``daemon.backends`` (fail-direction
+per code): 5xx and 429 are retryable; 4xx (non-429) is **not** retryable — a 401
+bad key or 400 malformed payload is permanent, so the caller should not waste a
+retry on it.
 """
 
 from __future__ import annotations
@@ -32,6 +37,29 @@ from daemon.exec import BackendError, BackendResponse, Messages
 _DEFAULT_TIMEOUT_S = 120.0
 _DATA_PREFIX = "data:"
 _DONE = "[DONE]"
+
+
+def _raise_for_status_code(status_code: int, auth_token: str | None = None) -> None:
+    """Classify an HTTP status into the right ``BackendError`` fail-direction.
+
+    5xx and 429 are retryable (transient); 4xx (non-429) is **not** — a 401/400/
+    403 is a permanent client error that retrying or falling through cannot fix.
+    However, 401 and 403 are retried if we have a secret manager that can rotate keys.
+    """
+    if status_code >= 500:
+        raise BackendError(f"backend {status_code}", retryable=True)
+    if status_code == 429:
+        if auth_token:
+            from daemon.secrets import get_secret_manager
+            get_secret_manager().mark_exhausted(auth_token.replace("Bearer ", "").strip() if auth_token.startswith("Bearer ") else auth_token)
+        raise BackendError(f"rate limited {status_code}", retryable=True)
+    if status_code in (401, 403):
+        if auth_token:
+            from daemon.secrets import get_secret_manager
+            get_secret_manager().mark_exhausted(auth_token.replace("Bearer ", "").strip() if auth_token.startswith("Bearer ") else auth_token)
+        raise BackendError(f"auth error {status_code}", retryable=True)
+    if status_code >= 400:
+        raise BackendError(f"client error {status_code}", retryable=False)
 
 
 def _iter_events(lines: Iterable[str]) -> Iterator[dict[str, object]]:
@@ -176,8 +204,10 @@ async def stream_completion(
     """Stream one chat completion from an OpenAI-compatible *base_url*.
 
     Sends ``stream: true`` and yields content deltas as they arrive. Any
-    transport/4xx/5xx failure becomes a retryable ``BackendError`` so the caller
-    falls back to the non-streaming path. *transport* is injected in tests.
+    transport failure becomes a ``BackendError`` so the caller can fall back to
+    the non-streaming path. Status-code classification matches the non-streaming
+    transport: 5xx/429 retryable, 4xx (non-429) not retryable. *transport* is
+    injected in tests.
     """
     payload: dict[str, object] = {
         "model": tier.model_name,
@@ -191,8 +221,7 @@ async def stream_completion(
         ) as client, client.stream(
             "POST", "/chat/completions", json=payload
         ) as resp:
-            if resp.status_code >= 400:  # noqa: PLR2004 — HTTP error class
-                raise BackendError(f"backend {resp.status_code}", retryable=True)
+            _raise_for_status_code(resp.status_code, auth_token)
             async for line in resp.aiter_lines():
                 for delta in iter_content_deltas((line,)):
                     yield delta
@@ -217,7 +246,11 @@ async def stream_chat(
     spec = table.get(tier.backend) if tier.backend is not None else None
     if spec is None:
         raise BackendError(f"no adapter for backend {tier.backend!r}", retryable=True)
-    auth_token = os.environ.get(spec.auth_env) if spec.auth_env else None
+    if spec.auth_env:
+        from daemon.secrets import get_secret_manager
+        auth_token = get_secret_manager().get_token(spec.auth_env)
+    else:
+        auth_token = None
     async for delta in stream_completion(
         spec.base_url,
         tier,
@@ -249,7 +282,8 @@ async def stream_response(
 
     This is what makes the agent loop streamable: it gets the same response shape
     it already consumes, while the answer renders token-by-token as a side effect.
-    Failures map to a retryable ``BackendError`` so the caller falls back.
+    Failures map to the right ``BackendError`` fail-direction (5xx/429 retryable,
+    4xx non-429 permanent) so the caller can decide whether to fall back.
     """
     payload: dict[str, object] = {
         "model": tier.model_name,
@@ -264,8 +298,7 @@ async def stream_response(
         async with httpx.AsyncClient(
             base_url=base_url, timeout=timeout, transport=transport, headers=headers
         ) as client, client.stream("POST", "/chat/completions", json=payload) as resp:
-            if resp.status_code >= 400:  # noqa: PLR2004 — HTTP error class
-                raise BackendError(f"backend {resp.status_code}", retryable=True)
+            _raise_for_status_code(resp.status_code, auth_token)
             async for line in resp.aiter_lines():
                 for event in _iter_events((line,)):
                     delta = acc.feed(event)
@@ -295,7 +328,11 @@ async def stream_agent_turn(
     spec = table.get(tier.backend) if tier.backend is not None else None
     if spec is None:
         raise BackendError(f"no adapter for backend {tier.backend!r}", retryable=True)
-    auth_token = os.environ.get(spec.auth_env) if spec.auth_env else None
+    if spec.auth_env:
+        from daemon.secrets import get_secret_manager
+        auth_token = get_secret_manager().get_token(spec.auth_env)
+    else:
+        auth_token = None
     return await stream_response(
         spec.base_url,
         tier,

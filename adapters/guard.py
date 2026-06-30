@@ -43,7 +43,7 @@ def decide(payload: dict[str, object], *, repo_root: Path) -> tuple[str, str]:
     inside_projects = target == projects or projects in target.parents
     if inside_repo and not inside_projects:
         return "deny", (
-            f"developer role: '{target}' is framework code (outside projects/). "
+            f"[{Path(__file__).name}:46] developer role: '{target}' is framework code (outside projects/). "
             "Work within your project; ask an admin for kernel/framework changes."
         )
     return "allow", ""

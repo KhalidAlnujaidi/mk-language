@@ -144,6 +144,7 @@ async def plan_task(
     root: Path | None = None,
     tier: Tier | None = None,
     call: Call | None = None,
+    registry: Any = None,
 ) -> str | None:
     """Draft a terse plan for *task* with the cheap local planner, or ``None``.
 
@@ -169,12 +170,33 @@ async def plan_task(
     # Ground the plan in real paths: a blind planner invents files (it guessed
     # `kx_cli.py` for a CLI that lives in `kx`); the scope tree fixes that.
     user = task
+    
+    # NLP Pre-Hooks
+    try:
+        from products.agent import nlp_hooks
+        intent = await nlp_hooks.classify_intent(task)
+        if intent == "answering a question":
+            # Questions don't need a multi-step execution plan touching files
+            return None
+            
+        summary = await nlp_hooks.summarize_context(task)
+        if summary:
+            user = f"Context Summary:\n{summary}\n\nTask: {user}"
+            
+        if registry is not None:
+            top_skills = await nlp_hooks.retrieve_skills(task, registry)
+            if top_skills:
+                skills_str = "\n".join(top_skills)
+                user = f"Relevant Skills:\n{skills_str}\n\n{user}"
+    except Exception:
+        pass  # Fail soft if NLP hooks fail
+
     if root is not None:
         tree = _scope_tree(root)
         if tree:
             user = (
                 f"Files in scope (use these real paths, never invent):\n{tree}"
-                f"\n\nTask: {task}"
+                f"\n\nTask:\n{user}"
             )
     messages: Messages = [
         {"role": "system", "content": _PLANNER_SYSTEM},

@@ -51,11 +51,25 @@ def gather(cwd: Path) -> ContextResult:
             return ContextResult(())
         changed = len([ln for ln in status_result.stdout.splitlines() if ln.strip()])
 
-        return ContextResult(
-            lines=(
-                f"git.branch={branch}",
-                f"git.changed_files={changed}",
+        lines_out = [
+            f"git.branch={branch}",
+            f"git.changed_files={changed}",
+        ]
+
+        if changed > 0:
+            diff_result = subprocess.run(
+                ["git", "-C", str(cwd), "diff", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=_GIT_TIMEOUT,
             )
-        )
+            if diff_result.returncode == 0 and diff_result.stdout:
+                diff_lines = diff_result.stdout.splitlines()
+                if len(diff_lines) <= 150:
+                    lines_out.append("git.diff:\n```diff\n" + "\n".join(diff_lines) + "\n```")
+                else:
+                    lines_out.append(f"git.diff: too large to auto-inject ({len(diff_lines)} lines)")
+
+        return ContextResult(lines=tuple(lines_out))
     except Exception:
         return ContextResult(())

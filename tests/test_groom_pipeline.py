@@ -102,7 +102,7 @@ def test_pipeline_redacts_and_records_an_event_per_stage(tmp_path: Path) -> None
     assert ann.is_blocked is False
     assert any("redacted" in line for line in ann.lines)
     kinds = [e.kind for e in sink.read_all()]
-    assert kinds == ["redact", "expand", "context", "deslop", "tag"]
+    assert kinds == ["redact", "expand", "context", "recent_files", "entities", "clipboard", "deslop", "tag", "tool_select"]
 
 
 def test_pipeline_tags_appear_in_annotation(tmp_path: Path) -> None:

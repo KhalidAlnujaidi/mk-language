@@ -119,6 +119,8 @@ class Rule:
         return score
 
 
+from products.agent.dag import DAGNode
+
 @dataclass(frozen=True)
 class Decision:
     """The resolved action for a command, with the *rule* that decided it
@@ -127,6 +129,7 @@ class Decision:
     action: Action
     reason: str
     rule: Rule | None
+    dag: DAGNode | None = None
 
 
 @dataclass(frozen=True)
@@ -146,21 +149,30 @@ class Ruleset:
         ASK > ALLOW on a tie); with no match the baseline stands.
         """
         if baseline is Action.DENY:
-            return Decision(Action.DENY, "builtin: catastrophic command", None)
+            dag = DAGNode("ruleset_resolve", Action.DENY.value, "builtin: catastrophic command")
+            return Decision(Action.DENY, "builtin: catastrophic command", None, dag)
 
         matching = [r for r in self.rules if r.matches(tool, command)]
         if not matching:
-            return Decision(baseline, "builtin baseline (no rule matched)", None)
+            dag = DAGNode("ruleset_resolve", baseline.value, "builtin baseline (no rule matched)")
+            return Decision(baseline, "builtin baseline (no rule matched)", None, dag)
 
         winner = max(
             matching,
             key=lambda r: (int(r.layer), r.specificity, r.action.priority),
         )
+        reason = f"{winner.layer.name.lower()} rule ({winner.command_prefix or '*'} → {winner.action.value})"
+        
+        dag = DAGNode("ruleset_resolve", winner.action.value, reason)
+        for r in matching:
+            child = DAGNode(f"matched_rule_{r.layer.name.lower()}", r.action.value, f"prefix: {r.command_prefix or '*'}")
+            dag.children.append(child)
+            
         return Decision(
             winner.action,
-            f"{winner.layer.name.lower()} rule "
-            f"({winner.command_prefix or '*'} → {winner.action.value})",
+            reason,
             winner,
+            dag
         )
 
 

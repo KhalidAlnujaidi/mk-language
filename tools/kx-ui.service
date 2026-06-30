@@ -1,0 +1,16 @@
+[Unit]
+Description=kinox observability dashboard (kx ui / streamlit)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=enigma
+Group=khalid
+WorkingDirectory=/home/enigma/kinox
+ExecStart=/home/enigma/kinox/.venv/bin/python -m streamlit run /home/enigma/kinox/products/dashboard/streamlit_app.py --server.headless true --server.address 0.0.0.0 --server.port 8501
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
