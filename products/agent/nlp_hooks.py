@@ -25,46 +25,27 @@ _resolved_ollama_model: str | None = None
 
 
 def _resolve_ollama_model() -> str:
-    """Resolve the best available local Ollama model from active tags."""
+    """Resolve the specific local Gemma-4 12B model from active tags."""
     global _resolved_ollama_model
     if _resolved_ollama_model is not None:
         return _resolved_ollama_model
     
-    default_model = "deepseek-r1:8b"
+    target_model = "hf.co/yuxinlu1/gemma-4-12B-agentic-fable5-composer2.5-v2-3.5x-tau2-GGUF:Q6_K"
     try:
         url = "http://localhost:11434/api/tags"
         req = urllib.request.Request(url, method="GET")
         with urllib.request.urlopen(req, timeout=1.5) as response:
             data = json.loads(response.read().decode("utf-8"))
             models = [m.get("name", "") for m in data.get("models", [])]
-            
-            # 1. Prioritize Gemma-4 12B/8B Agentic/Coder models (fits within memory threshold)
             for m in models:
-                m_lower = m.lower()
-                if "gemma-4" in m_lower and ("agentic" in m_lower or "coder" in m_lower) and "31b" not in m_lower:
-                    _resolved_ollama_model = m
-                    return m
-            # 2. General agentic models
-            for m in models:
-                if "gemma-agentic" in m.lower():
-                    _resolved_ollama_model = m
-                    return m
-            # 3. DeepSeek-R1 (default fallback reasoning model)
-            for m in models:
-                if "deepseek-r1" in m.lower():
-                    _resolved_ollama_model = m
-                    return m
-            # 4. Any other non-embedding models
-            for m in models:
-                m_lower = m.lower()
-                if m and "embed" not in m_lower and "bge" not in m_lower:
+                if m.startswith("hf.co/yuxinlu1/gemma-4-12B-agentic-fable5-composer2.5-v2-3.5x-tau2-GGUF"):
                     _resolved_ollama_model = m
                     return m
     except Exception:
         pass
     
-    _resolved_ollama_model = default_model
-    return default_model
+    _resolved_ollama_model = target_model
+    return target_model
 
 
 def _query_ollama(prompt: str, system_prompt: str = "") -> str | None:
