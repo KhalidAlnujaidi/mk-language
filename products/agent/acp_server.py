@@ -85,9 +85,12 @@ class KinoxAgent(Agent):
             "This summary will be fed back to you as your only memory of the past conversation."
         )
 
+        metrics_dir = cwd_path / ".kinox"
+        metrics_dir.mkdir(parents=True, exist_ok=True)
+        from kernel.metrics import MetricsSink
         self._session = ChatSession(
             manifest=manifest,
-            sink=NullSink(),
+            sink=MetricsSink(metrics_dir / "agent-events.jsonl"),
             cwd=cwd_path,
             system_prompt=system_prompt,
         )
@@ -220,9 +223,31 @@ class KinoxAgent(Agent):
                 return run
                 
             async def do_parallel() -> str:
+                # Notify parent client about parallel sub-agents spawning
+                sub_agents_list = [{"id": s.label, "task": s.task, "status": "running"} for s in _slices]
+                try:
+                    await self._conn.ext_notification("session/swarm", {
+                        "session_id": session_id,
+                        "sub_agents": sub_agents_list
+                    })
+                except Exception:
+                    pass
+
                 res = await run_parallel(_slices, root=self._session.cwd, run=make_run())
+
+                # Notify parent client that sub-agents have finished
+                for item in sub_agents_list:
+                    item["status"] = "done"
+                try:
+                    await self._conn.ext_notification("session/swarm", {
+                        "session_id": session_id,
+                        "sub_agents": sub_agents_list
+                    })
+                except Exception:
+                    pass
+
                 return "\n".join(f"[{s.label}] {r.final_text}" for s, r in zip(_slices, res))
-                
+
             return asyncio.run(do_parallel())
 
         # No Y/n prompt: ask_fn=None forces auto-allow or silent failure for guards
