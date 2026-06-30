@@ -274,3 +274,63 @@ async def retrieve_skills(task: str, registry: Any) -> list[str]:
     except Exception as exc:
         logger.warning(f"Semantic retrieval failed: {exc}")
         return []
+
+
+async def route_task(task: str) -> str:
+    """Classify the task complexity using WeiboAI/VibeThinker-3B via Ollama.
+    
+    Returns 'local' or 'cloud'.
+    """
+    system_prompt = (
+        "You are an expert software developer routing coordinator. Analyze the user request.\n"
+        "If the request is a simple question, a conceptual explanation, a basic file read, or a single-file edit, reply: LOCAL\n"
+        "If the request is a complex coding task, multi-file edits, project scaffolding, or third-party integration, reply: CLOUD\n"
+        "Output ONLY the word LOCAL or CLOUD inside <route> tags. Example: <route>LOCAL</route>"
+    )
+    prompt = f"User Request: {task}"
+    
+    import anyio
+    def _run():
+        try:
+            url = "http://localhost:11434/api/chat"
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ]
+            data = {
+                "model": "hf.co/prithivMLmods/VibeThinker-3B-GGUF:Q4_K_M",
+                "messages": messages,
+                "stream": False,
+                "options": {
+                    "temperature": 0.0,
+                    "num_predict": 15
+                }
+            }
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(data).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=3.0) as response:
+                res_data = json.loads(response.read().decode("utf-8"))
+                content = res_data.get("message", {}).get("content", "").strip()
+                
+                if "<route>" in content:
+                    content = content.split("<route>")[1].split("</route>")[0].strip()
+                elif "<think>" in content:
+                    content = content.split("</think>")[1].strip()
+                
+                content_upper = content.upper()
+                if "LOCAL" in content_upper:
+                    return "local"
+                if "CLOUD" in content_upper:
+                    return "cloud"
+        except Exception as e:
+            logger.debug(f"VibeThinker router bypassed: {e}")
+        return "cloud"
+
+    try:
+        return await anyio.to_thread.run_sync(_run)
+    except Exception:
+        return "cloud"

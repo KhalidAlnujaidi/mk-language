@@ -942,6 +942,20 @@ def _run_agent_turn(
     def work() -> object:
         async def _go() -> object:
             base_id = resume_id or uuid.uuid4().hex[:12]
+            
+            # Dynamic routing pre-hook using WeiboAI/VibeThinker-3B
+            from products.agent.nlp_hooks import route_task
+            complexity = await route_task(task)
+            
+            run_tier = tier
+            run_fallback_tiers = fallback_tiers
+            if complexity == "local" and local_tier is not None:
+                console.print(f"[dim]VibeThinker-3B routed task to: LOCAL ({local_tier.model_name})[/dim]")
+                run_tier = local_tier
+                run_fallback_tiers = [c for c in chain if c != local_tier]
+            else:
+                console.print(f"[dim]VibeThinker-3B routed task to: CLOUD ({tier.model_name if tier else 'none'})[/dim]")
+            
             # Cheap local prehook: draft a plan to curb wander before the dear
             # brain runs. Fail-soft — None (planner off/unavailable) runs unguided.
             plan = await plan_task(
@@ -952,7 +966,7 @@ def _run_agent_turn(
             )
             result = await run_agent(
                 task,
-                tier=tier,
+                tier=run_tier,
                 registry=registry,
                 sink=session.sink,
                 task_id=base_id,
