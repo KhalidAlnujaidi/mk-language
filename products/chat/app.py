@@ -950,11 +950,13 @@ def _run_agent_turn(
             run_tier = tier
             run_fallback_tiers = fallback_tiers
             if complexity == "local" and local_tier is not None:
-                console.print(f"[dim]VibeThinker-3B routed task to: LOCAL ({local_tier.model_name})[/dim]")
+                lbl = local_tier.model_name
+                console.print(f"[dim]VibeThinker-3B route: LOCAL ({lbl})[/dim]")
                 run_tier = local_tier
                 run_fallback_tiers = [c for c in chain if c != local_tier]
             else:
-                console.print(f"[dim]VibeThinker-3B routed task to: CLOUD ({tier.model_name if tier else 'none'})[/dim]")
+                lbl = tier.model_name if tier else "none"
+                console.print(f"[dim]VibeThinker-3B route: CLOUD ({lbl})[/dim]")
             
             # Cheap local prehook: draft a plan to curb wander before the dear
             # brain runs. Fail-soft — None (planner off/unavailable) runs unguided.
@@ -989,7 +991,7 @@ def _run_agent_turn(
                     # (alignment/, next.md) — fail-CLOSED, KINOX_UNLOCK_RAILS to edit.
                     protected_rails_guard(session.cwd),
                 ),
-                fallback=fallback_tiers,
+                fallback=run_fallback_tiers,
                 max_turns=int(os.environ.get("KINOX_MAX_TURNS", "30")),
                 token_budget=session_budget,
                 spent_offset=session.tokens_spent,
