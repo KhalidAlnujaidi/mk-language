@@ -21,8 +21,54 @@ _skill_embeddings_cache: dict[str, Any] = {}
 logger = logging.getLogger(__name__)
 
 
+_resolved_ollama_model: str | None = None
+
+
+def _resolve_ollama_model() -> str:
+    """Resolve the best available local Ollama model from active tags."""
+    global _resolved_ollama_model
+    if _resolved_ollama_model is not None:
+        return _resolved_ollama_model
+    
+    default_model = "deepseek-r1:8b"
+    try:
+        url = "http://localhost:11434/api/tags"
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=1.5) as response:
+            data = json.loads(response.read().decode("utf-8"))
+            models = [m.get("name", "") for m in data.get("models", [])]
+            
+            # 1. Prioritize Gemma-4 12B/8B Agentic/Coder models (fits within memory threshold)
+            for m in models:
+                m_lower = m.lower()
+                if "gemma-4" in m_lower and ("agentic" in m_lower or "coder" in m_lower) and "31b" not in m_lower:
+                    _resolved_ollama_model = m
+                    return m
+            # 2. General agentic models
+            for m in models:
+                if "gemma-agentic" in m.lower():
+                    _resolved_ollama_model = m
+                    return m
+            # 3. DeepSeek-R1 (default fallback reasoning model)
+            for m in models:
+                if "deepseek-r1" in m.lower():
+                    _resolved_ollama_model = m
+                    return m
+            # 4. Any other non-embedding models
+            for m in models:
+                m_lower = m.lower()
+                if m and "embed" not in m_lower and "bge" not in m_lower:
+                    _resolved_ollama_model = m
+                    return m
+    except Exception:
+        pass
+    
+    _resolved_ollama_model = default_model
+    return default_model
+
+
 def _query_ollama(prompt: str, system_prompt: str = "") -> str | None:
-    """Synchronously query the local Ollama API with deepseek-r1:8b."""
+    """Synchronously query the local Ollama API with the resolved model."""
     try:
         url = "http://localhost:11434/api/chat"
         messages = []
@@ -31,7 +77,7 @@ def _query_ollama(prompt: str, system_prompt: str = "") -> str | None:
         messages.append({"role": "user", "content": prompt})
         
         data = {
-            "model": "deepseek-r1:8b",
+            "model": _resolve_ollama_model(),
             "messages": messages,
             "stream": False,
             "options": {
@@ -58,7 +104,7 @@ def _query_ollama(prompt: str, system_prompt: str = "") -> str | None:
                     content = content.replace("<think>", "").replace("</think>", "")
             return content.strip()
     except Exception as e:
-        logger.debug(f"Ollama deepseek-r1:8b query bypassed: {e}")
+        logger.debug(f"Ollama local query bypassed: {e}")
         return None
 
 

@@ -31,7 +31,7 @@ CLOUD_DEFAULT_MODEL: str = "claude-haiku-4-5"
 #: this is NEVER auto-loaded as a pre-context/pre-hook model (a bigger one may
 #: still be requested explicitly, e.g. via ``/model``). 4 GB keeps the resident
 #: footprint to one small model and leaves the GPU free.
-LOCAL_FALLBACK_MAX_GB: float = 4.0
+LOCAL_FALLBACK_MAX_GB: float = 6.0
 
 # Canonical OpenAI-compatible endpoint per local backend (env var, default URL).
 # The SINGLE SOURCE OF TRUTH for where local backends live: the manifest probes
