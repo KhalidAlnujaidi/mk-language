@@ -47,3 +47,7 @@ RALPH_GOAL*.md
 day1_dev.txt
 gate-experiment-plan.md
 .claude/ralph-loop.local.md
+
+# Local secrets & user adapters
+.env
+/adapters/
